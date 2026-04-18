@@ -138,3 +138,47 @@ export async function getAlertRules() {
   const data = await loadDashboardData();
   return data.alertRules;
 }
+
+export type FaceHistoryItem = {
+  id: string;
+  name: string;
+  entry: string;
+  exit: string;
+  image_url: string;
+};
+
+export type FaceHistoryResponse = {
+  count: number;
+  total: number;
+  limit: number;
+  offset: number;
+  items: FaceHistoryItem[];
+};
+
+const FACE_API_BASE =
+  (import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ??
+  "http://localhost:8000";
+
+export async function getFaceHistory(params: {
+  start?: string;
+  end?: string;
+  limit?: number;
+  offset?: number;
+  latest?: number;
+} = {}): Promise<FaceHistoryResponse> {
+  const search = new URLSearchParams();
+  if (params.start) search.set("start", params.start);
+  if (params.end) search.set("end", params.end);
+  if (params.limit !== undefined) search.set("limit", String(params.limit));
+  if (params.offset !== undefined) search.set("offset", String(params.offset));
+  if (params.latest !== undefined) search.set("latest", String(params.latest));
+
+  const qs = search.toString();
+  const url = `${FACE_API_BASE}/api/faces/history${qs ? `?${qs}` : ""}`;
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load face history: ${response.status}`);
+  }
+  return response.json() as Promise<FaceHistoryResponse>;
+}
