@@ -622,25 +622,21 @@ function PresencePage() {
             </Button>
           </div>
 
-          {!hasSelectedEmployee ? (
-            <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-5 text-center">
-              <p className="text-sm text-slate-500">
-                Choose an employee to view the attendance calendar and detailed report.
-              </p>
-            </div>
-          ) : (
+          {(
             <div className="grid min-h-0 flex-1 items-stretch gap-2 xl:grid-cols-[minmax(620px,1.15fr)_minmax(0,1fr)]">
               <section className="flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-700">Employee Details</p>
-                  <p className="text-sm font-medium text-slate-500">{selectedDayLabel}</p>
+                  <p className="text-sm font-medium text-slate-500">
+                    {hasSelectedEmployee ? selectedDayLabel : ""}
+                  </p>
                 </div>
                 <div className="mt-3 grid gap-2 xl:grid-cols-2">
                   <div className="grid gap-1.5">
                     {[
-                      { label: "Employee Name", value: selectedEmployeeData?.name ?? "--" },
-                      { label: "Company Name", value: selectedEmployeeData?.company ?? "--" },
-                      { label: "Employee ID", value: selectedEmployeeData?.employeeId ?? "--" },
+                      { label: "Employee Name", value: selectedEmployeeData?.name ?? "" },
+                      { label: "Company Name", value: selectedEmployeeData?.company ?? "" },
+                      { label: "Employee ID", value: selectedEmployeeData?.employeeId ?? "" },
                     ].map((item) => (
                       <div
                         key={item.label}
@@ -656,18 +652,23 @@ function PresencePage() {
                     {[
                       {
                         label: "Arrival Time",
-                        value: formatCalendarTime(selectedDayRecord?.entryTime),
+                        value: hasSelectedEmployee ? formatCalendarTime(selectedDayRecord?.entryTime) : "",
                         imageSlot: true,
-                        imageUrl: selectedDayRecord?.entryImage,
+                        imageUrl: hasSelectedEmployee ? selectedDayRecord?.entryImage : undefined,
                       },
                       {
                         label: "Exit Time",
-                        value: formatCalendarTime(selectedDayRecord?.exitTime ?? null),
+                        value: hasSelectedEmployee ? formatCalendarTime(selectedDayRecord?.exitTime ?? null) : "",
                         imageSlot: true,
-                        imageUrl: selectedDayRecord?.exitImage,
+                        imageUrl: hasSelectedEmployee ? selectedDayRecord?.exitImage : undefined,
                       },
-                      { label: "Total Hours", value: selectedDayRecord?.totalHours ?? "--" },
-                      { label: "Status", value: selectedDayHoliday ?? selectedDayStatus ?? "No attendance record" },
+                      { label: "Total Hours", value: hasSelectedEmployee ? (selectedDayRecord?.totalHours ?? "--") : "" },
+                      {
+                        label: "Status",
+                        value: hasSelectedEmployee
+                          ? (selectedDayHoliday ?? selectedDayStatus ?? "No attendance record")
+                          : "",
+                      },
                     ].map((item) => (
                       <div
                         key={item.label}

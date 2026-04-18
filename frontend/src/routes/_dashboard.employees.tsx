@@ -23,16 +23,36 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@
 import { EmployeeForm, COMPANY_OPTIONS } from "@/components/dashboard/EmployeeForm";
 import { formatShiftTo12Hour } from "@/components/dashboard/ShiftTimingPicker";
 
+type RoleFilter = "all" | Employee["role"];
+
+type EmployeesSearch = {
+  role?: RoleFilter;
+};
+
 export const Route = createFileRoute("/_dashboard/employees")({
+  validateSearch: (search: Record<string, unknown>): EmployeesSearch => {
+    const role = search.role;
+    if (role === "Admin" || role === "Employee" || role === "all") {
+      return { role };
+    }
+    return {};
+  },
   component: EmployeesPage,
 });
 
 function EmployeesPage() {
   const { employees, updateEmployee, addEmployee, deleteEmployee } = useEmployees();
+  const navigate = Route.useNavigate();
+  const { role: roleFromSearch } = Route.useSearch();
 
   const [search, setSearch] = useState("");
   const [selectedCompany, setSelectedCompany] = useState<string>("all");
   const [selectedEmployee, setSelectedEmployee] = useState<string>("all");
+  const [selectedRole, setSelectedRole] = useState<RoleFilter>(roleFromSearch ?? "all");
+
+  useEffect(() => {
+    setSelectedRole(roleFromSearch ?? "all");
+  }, [roleFromSearch]);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
@@ -61,6 +81,7 @@ function EmployeesPage() {
   const filtered = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase();
     return employeesForSelectedCompany.filter((employee) => {
+      if (selectedRole !== "all" && employee.role !== selectedRole) return false;
       if (selectedEmployee !== "all" && employee.employeeId !== selectedEmployee) return false;
       if (!query) return true;
       return (
@@ -69,7 +90,7 @@ function EmployeesPage() {
         employee.department.toLowerCase().includes(query)
       );
     });
-  }, [employeesForSelectedCompany, deferredSearch, selectedEmployee]);
+  }, [employeesForSelectedCompany, deferredSearch, selectedEmployee, selectedRole]);
 
   const handleEdit = (employee: Employee) => {
     setEditingEmployee(employee);
@@ -173,6 +194,33 @@ function EmployeesPage() {
                       {company}
                     </SelectItem>
                   ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Role:</span>
+              <Select
+                value={selectedRole}
+                onValueChange={(value) => {
+                  const next = value as RoleFilter;
+                  setSelectedRole(next);
+                  navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      role: next === "all" ? undefined : next,
+                    }),
+                    replace: true,
+                  });
+                }}
+              >
+                <SelectTrigger className="h-10 w-[180px]">
+                  <SelectValue placeholder="Select role" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Roles</SelectItem>
+                  <SelectItem value="Admin">Admin</SelectItem>
+                  <SelectItem value="Employee">Employee</SelectItem>
                 </SelectContent>
               </Select>
             </div>
