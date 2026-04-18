@@ -1,21 +1,43 @@
 # Camera Capture API
 
-Minimal FastAPI service that:
+FastAPI service that:
 
-- Polls the camera's **event API** (`/API/AI/SnapedFaces/Search`) — the device is an AI event camera, not a video stream, so OpenCV `VideoCapture` does **not** work against it
-- Saves each new face detection as a JPEG under `snapshots/`
-- Periodically deletes snapshots older than the retention window
-- Serves them (with pagination + date filtering) to the React dashboard
+- Polls the camera's real-time AI event API (`POST /API/AI/processAlarm/Get`) — see [../API/processAlarm_get.md](../API/processAlarm_get.md)
+- Saves each new face capture as a JPEG under `snapshots/`
+- Purges snapshots older than the retention window
+- Serves name + entry/exit timestamps + image URL to the React dashboard
 
-**No database.** The `snapshots/` directory is the source of truth. The timestamp of each capture is encoded in the filename:
+**No database.** The `snapshots/` directory is the source of truth. Each filename encodes the name, entry and exit timestamps, and SnapId:
 
 ```
-snap_YYYYMMDDTHHMMSSZ_<UUId>.jpg
+snap_<startISO>_<endISO>_<name>_<snapId>.jpg
 ```
-
-The API recovers the timestamp by parsing the filename.
 
 Capture and API run as **separate processes**. The API never talks to the camera.
+
+## Layout
+
+```
+backend/
+├── app/
+│   ├── __init__.py
+│   ├── config.py             ← env + paths
+│   ├── main.py               ← FastAPI factory (create_app)
+│   ├── routers/              ← URL → handler
+│   │   ├── health.py         ← GET /api/health
+│   │   └── faces.py          ← GET /api/faces/history
+│   ├── services/             ← business logic (no HTTP details)
+│   │   ├── camera.py         ← CameraClient (login + processAlarm/Get)
+│   │   ├── snapshots.py      ← filesystem I/O + filename parsing
+│   │   └── retention.py      ← periodic purge
+│   └── schemas/
+│       └── faces.py          ← Pydantic response models
+├── capture.py                ← entrypoint: polls camera, writes snapshots
+├── debug_camera.py           ← one-shot diagnostic
+├── start.sh                  ← launches capture + uvicorn
+├── requirements.txt
+└── snapshots/                ← runtime
+```
 
 ## Setup
 
@@ -37,13 +59,9 @@ npm install        # first time only — installs `concurrently`
 npm run dev
 ```
 
-Launches in parallel:
-- `BACKEND` — [backend/start.sh](start.sh) activates `.venv` and starts `capture.py` + `uvicorn` (port 8000)
-- `FRONTEND` — Vite dev server (`npm run dev --prefix frontend`, port 8080)
+Launches capture.py + uvicorn + Vite dev server in parallel.
 
-Ctrl+C shuts down every child cleanly. Individual halves: `npm run dev:backend`, `npm run dev:frontend`.
-
-### Backend only (without Node)
+### Backend only
 
 ```bash
 bash backend/start.sh
@@ -52,75 +70,70 @@ bash backend/start.sh
 ### Two terminals (manual)
 
 ```bash
-# terminal 1
+# terminal 1 — capture
 cd backend && source .venv/bin/activate && python capture.py
 
-# terminal 2
+# terminal 2 — API
 cd backend && source .venv/bin/activate && uvicorn app.main:app --reload --port 8000
 ```
 
-Run both from `backend/` so `snapshots/` resolves correctly.
+Both commands must run from `backend/` so `snapshots/` resolves.
 
 ## Endpoints
 
 ### `GET /api/health`
 
-Liveness + current snapshot count.
+```json
+{ "status": "ok", "snapshot_count": 42 }
+```
 
 ### `GET /api/faces/history`
 
-| Param   | Default                 | Notes |
-|---------|-------------------------|-------|
-| `start` | `DEFAULT_HISTORY_START` | `YYYY-MM-DD`, ISO-8601, or `now` |
-| `end`   | `now`                   | same formats |
-| `limit` | `50`                    | `1..500` |
-| `offset`| `0`                     | page offset |
-| `latest`| *(unset)*               | If set, ignores `start`/`end` and returns the N most recent |
-
-Bad dates / `start > end` → **HTTP 400**.
+| Param   | Default                  | Notes |
+|---------|--------------------------|-------|
+| `start` | `DEFAULT_HISTORY_START`  | `YYYY-MM-DD`, ISO-8601, or `now` |
+| `end`   | `now`                    | same formats |
+| `limit` | `50`                     | `1..500` |
+| `offset`| `0`                      | page offset |
+| `latest`| *(unset)*                | If set, ignores `start`/`end` and returns the N most recent |
 
 Response (sorted newest → oldest):
 
 ```json
 {
-  "count": 5,
-  "total": 42,
-  "limit": 5,
-  "offset": 0,
+  "count": 5, "total": 42, "limit": 5, "offset": 0,
   "items": [
     {
-      "id": "snap_20260418T114500Z_abcd-ef12.jpg",
-      "timestamp": "2026-04-18T11:45:00+00:00",
-      "image_path": "/snapshots/snap_20260418T114500Z_abcd-ef12.jpg",
-      "image_url": "http://localhost:8000/snapshots/snap_20260418T114500Z_abcd-ef12.jpg"
+      "id": "snap_20260418T114500Z_20260418T114510Z_Mike_1250.jpg",
+      "name": "Mike",
+      "entry": "2026-04-18T11:45:00+00:00",
+      "exit":  "2026-04-18T11:45:10+00:00",
+      "image_url": "http://localhost:8000/snapshots/snap_20260418T114500Z_20260418T114510Z_Mike_1250.jpg"
     }
   ]
 }
-```
-
-- `count` = items on this page
-- `total` = total snapshots matching the filter
-- `id`    = the filename (stable, unique)
-
-Examples:
-
-```
-GET /api/faces/history?latest=10
-GET /api/faces/history?start=2026-04-15&end=now&limit=50&offset=50
 ```
 
 ### `GET /snapshots/<file>.jpg`
 
 Static image served from `backend/snapshots/`.
 
+## Testing with Postman
+
+The full walk-through is in [../API/postman.md](../API/postman.md):
+
+1. **Login** — `POST http://172.18.10.26/API/Web/Login` with Digest auth (`admin` / `Opt@12345`) + body `{"data": {}}`. Save the `X-csrftoken` response header.
+2. **Fetch face events** — `POST http://172.18.10.26/API/AI/processAlarm/Get`, header `X-csrftoken: <token>`, body `{}`. Response is `data.FaceInfo[]`.
+3. **Test our API** — hit `GET http://localhost:8000/api/faces/history?latest=5` while `npm run dev` is running.
+
 ## Retention
 
-`capture.py` runs cleanup on startup and every `CLEANUP_INTERVAL_SECONDS`. Files whose mtime is older than `RETENTION_DAYS` are deleted. (Capture sets mtime to the event time when saving, so this lines up with the filename timestamp.)
+`capture.py` runs retention on startup and every `CLEANUP_INTERVAL_SECONDS`. Files whose mtime is older than `RETENTION_DAYS` are deleted.
 
 Manual run:
 
 ```bash
-python -m app.cleanup --days 7
+python -m app.services.retention --days 7
 ```
 
 `RETENTION_DAYS=0` disables automatic purging.
@@ -132,77 +145,56 @@ python -m app.cleanup --days 7
 | `CAMERA_HOST` | `172.18.10.26` | Camera IP / hostname |
 | `CAMERA_USER` | `admin` | Login username |
 | `CAMERA_PASS` | `Opt@12345` | Login password |
-| `CAPTURE_INTERVAL_SECONDS` | `5` | Seconds between `SnapedFaces/Search` polls |
-| `SEARCH_COUNT` | `20` | Max events returned per poll |
-| `SEARCH_SIMILARITY` | `70` | Similarity threshold passed to the camera API |
+| `CAPTURE_INTERVAL_SECONDS` | `5` | Seconds between `processAlarm/Get` polls |
 | `REQUEST_TIMEOUT_SECONDS` | `10` | HTTP timeout for camera calls |
+| `SEARCH_COUNT` | `20` | (unused, kept for backward-compat) |
+| `SEARCH_SIMILARITY` | `70` | (unused, kept for backward-compat) |
 | `DEFAULT_HISTORY_START` | `2026-04-15` | Fallback `start` when the query omits it |
 | `DEFAULT_PAGE_LIMIT` | `50` | Default `limit` for `/api/faces/history` |
 | `MAX_PAGE_LIMIT` | `500` | Max `limit` / `latest` |
 | `RETENTION_DAYS` | `7` | Delete snapshots older than this (0 disables) |
 | `CLEANUP_INTERVAL_SECONDS` | `3600` | How often the capture loop runs cleanup |
 
-## Verify it's working
+## Verify the pipeline
 
 ```bash
-# 1. Files are being saved
-ls backend/snapshots/ | wc -l      # should grow over time
+# files are being saved
+ls backend/snapshots/ | wc -l
 
-# 2. API sees them
+# API sees them
 curl -s http://localhost:8000/api/health
-# {"status":"ok","snapshot_count":N}
-
 curl -s "http://localhost:8000/api/faces/history?latest=5" | python -m json.tool
 
-# 3. A snapshot renders
-#   open an item's image_url from the response above in a browser
+# open one image_url in a browser to confirm the static mount works
 ```
 
 ## Debug the camera API
 
-If capture logs `Search 400 rejected by camera` or `No image data for UUId=...`:
-
 ```bash
 cd backend
+source .venv/bin/activate
 python debug_camera.py
 ```
 
-One-shot login + search that prints the full request and response so you can see exactly what the camera expects. Flags: `--start`, `--end`, `--count`, `--similarity`, `--engine`.
+Prints every `FaceInfo` record the camera currently has in its alarm buffer, with base64 image fields summarized as `<base64 N chars>`. Final line lists every key observed — useful when the firmware varies and you need to confirm field names.
 
 ## Troubleshooting
 
 | Symptom | First check | Likely cause → fix |
 |---|---|---|
-| `capture.py` logs `Camera request failed ... retrying` | `curl -u admin:Opt@12345 --digest -X POST http://172.18.10.26/API/Web/Login -d '{"data":{}}'` from the same host | Camera unreachable or wrong creds — fix network / `CAMERA_HOST` / `CAMERA_USER` / `CAMERA_PASS`. |
-| `capture.py` logs `Search 4xx rejected by camera — request=... response=...` | The response body in that line | Payload field the firmware doesn't like. Use `python debug_camera.py` to iterate. |
-| `capture.py` logs `No image data for UUId=...` | `keys=[...]` in the warning | Response image field not in `IMAGE_FIELDS`. Extend the tuple in [capture.py](capture.py) with the real field name. |
-| No files in `snapshots/` | `ls -ld backend/snapshots` | Dir missing or not writable; confirm `CAPTURE_INTERVAL_SECONDS` isn't huge. |
-| `/api/faces/history` returns `total: 0` | Try `?latest=10` (bypasses dates) | Date window excludes everything, or `start > end` (returns 400). |
-| `/api/faces/history` → HTTP 400 | Response body `detail` | Invalid date format or `start > end`. |
-| Image URL 404s | `ls backend/snapshots/<file>.jpg` | File purged by retention, or uvicorn started from wrong cwd so `SNAPSHOTS_DIR` resolves elsewhere — start uvicorn from `backend/`. |
-| Image URL has wrong host (e.g. `127.0.0.1`) | `request.base_url` reflects the host the client hit | Call the API via the URL you want reflected back, or reverse-proxy and rewrite `Host`. |
-| Frontend fetch blocked by CORS | Browser devtools network tab | Add origin to `allow_origins` in [app/main.py](app/main.py); defaults cover `5173`, `3000`, `8080`, and `127.0.0.1` variants. |
-| `Address already in use` on `:8000` | `lsof -iTCP:8000 -sTCP:LISTEN` | Kill the old uvicorn or use `--port 8001` + matching `VITE_API_BASE_URL`. |
-| Disk filling up | `du -sh backend/snapshots` | Lower `RETENTION_DAYS` or run `python -m app.cleanup --days N`. |
-
-## Layout
-
-```
-backend/
-  app/
-    main.py      # FastAPI entrypoint + /api/faces/history (reads snapshots/)
-    cleanup.py   # Retention purge (importable + `python -m app.cleanup`)
-    config.py    # Env + paths
-  capture.py     # Standalone camera loop (+ periodic cleanup)
-  debug_camera.py  # One-shot login + search diagnostic
-  start.sh       # Launches capture + uvicorn together
-  requirements.txt
-  snapshots/     # runtime, source of truth
-```
+| `Camera HTTP error 401` | Credentials + Digest auth | Update `CAMERA_USER` / `CAMERA_PASS`. |
+| `processAlarm/Get 400` | response body in the log | Missing `X-csrftoken` — client invalidated the session, will re-log in on next poll. |
+| `Poll returned 0 faces` forever | Stand in front of the camera | This endpoint is a real-time alarm buffer, not a history query. |
+| `No image data for SnapId=...` | The `keys=[...]` in the warning | Firmware uses a different image field. Extend `IMAGE_FIELDS` in [app/services/snapshots.py](app/services/snapshots.py). |
+| No files in `snapshots/` | `ls -ld backend/snapshots` | Dir missing or not writable. |
+| Image URL 404s | `ls backend/snapshots/<file>.jpg` | Retention purged it, or uvicorn started from wrong cwd. |
+| Frontend fetch blocked by CORS | Browser devtools network tab | Add origin to `allow_origins` in [app/main.py](app/main.py). |
+| `Address already in use` on `:8000` | `lsof -iTCP:8000 -sTCP:LISTEN` | Kill old uvicorn or use `--port 8001`. |
+| Disk filling up | `du -sh backend/snapshots` | Lower `RETENTION_DAYS` or run `python -m app.services.retention --days N`. |
 
 ## Frontend wiring
 
-[frontend/src/api/dashboardApi.ts](../frontend/src/api/dashboardApi.ts)
-exports `getFaceHistory({ start, end, limit, offset, latest })`. Response
-includes `image_url` which the dashboard renders directly. Override the
-backend URL with `VITE_API_BASE_URL` if the server runs elsewhere.
+[../frontend/src/api/dashboardApi.ts](../frontend/src/api/dashboardApi.ts)
+exports `getFaceHistory({ start, end, limit, offset, latest })`. The Live
+Captures page ([../frontend/src/routes/_dashboard.requests.tsx](../frontend/src/routes/_dashboard.requests.tsx))
+polls it every 5 s.
