@@ -1,14 +1,3 @@
-"""
-One-shot camera diagnostic.
-
-Logs in and calls `/API/AI/processAlarm/Get`. Prints the response with long
-base64 image fields truncated so the output is readable.
-
-Usage:
-    cd backend
-    python debug_camera.py
-"""
-
 from __future__ import annotations
 
 import json

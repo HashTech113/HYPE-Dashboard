@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { DashboardLayout } from "@/components/DashboardLayout";
+import { EmployeesProvider } from "@/contexts/EmployeesContext";
 
 export const Route = createFileRoute("/_dashboard")({
   component: DashboardLayoutRoute,
@@ -7,8 +8,10 @@ export const Route = createFileRoute("/_dashboard")({
 
 function DashboardLayoutRoute() {
   return (
-    <DashboardLayout>
-      <Outlet />
-    </DashboardLayout>
+    <EmployeesProvider>
+      <DashboardLayout>
+        <Outlet />
+      </DashboardLayout>
+    </EmployeesProvider>
   );
 }

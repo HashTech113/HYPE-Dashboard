@@ -1,0 +1,101 @@
+import { Clock } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+
+const SHIFT_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
+
+export type ShiftTimingPickerProps = {
+  /** Stored as `HH:mm-HH:mm` (24-hour). */
+  value: string;
+  onChange: (next: string) => void;
+  startLabel?: string;
+  endLabel?: string;
+};
+
+export function isValidShift(value: string) {
+  if (!SHIFT_TIME_PATTERN.test(value)) return false;
+  const [start, end] = value.split("-");
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  return sh * 60 + sm < eh * 60 + em;
+}
+
+export function normalizeShift(value: string) {
+  return (value || "").replace(/\s+/g, "");
+}
+
+function to12Hour(time24: string) {
+  if (!/^\d{2}:\d{2}$/.test(time24)) return "--:--";
+  const [hourString, minute] = time24.split(":");
+  const hour = Number(hourString);
+  const suffix = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 || 12;
+  return `${String(hour12).padStart(2, "0")}:${minute} ${suffix}`;
+}
+
+export function formatShiftTo12Hour(value: string) {
+  const normalized = normalizeShift(value);
+  if (!SHIFT_TIME_PATTERN.test(normalized)) return "";
+  const [start, end] = normalized.split("-");
+  return `${to12Hour(start)} - ${to12Hour(end)}`;
+}
+
+function shiftDurationLabel(start: string, end: string) {
+  if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return "";
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  const minutes = eh * 60 + em - (sh * 60 + sm);
+  if (minutes <= 0) return "";
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`;
+}
+
+export function ShiftTimingPicker({ value, onChange, startLabel = "Start Time", endLabel = "End Time" }: ShiftTimingPickerProps) {
+  const normalized = normalizeShift(value);
+  const [startRaw, endRaw] = normalized.includes("-") ? normalized.split("-") : ["", ""];
+  const start = /^\d{2}:\d{2}$/.test(startRaw) ? startRaw : "";
+  const end = /^\d{2}:\d{2}$/.test(endRaw) ? endRaw : "";
+
+  const updateShift = (nextStart: string, nextEnd: string) => {
+    onChange(`${nextStart || "00:00"}-${nextEnd || "00:00"}`);
+  };
+
+  const preview = formatShiftTo12Hour(`${start || "00:00"}-${end || "00:00"}`);
+  const duration = shiftDurationLabel(start, end);
+  const valid = isValidShift(`${start}-${end}`);
+  const showInvalid = Boolean(start && end) && !valid;
+
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium text-slate-600">{startLabel}</Label>
+          <Input
+            type="time"
+            value={start}
+            onChange={(event) => updateShift(event.target.value, end)}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs font-medium text-slate-600">{endLabel}</Label>
+          <Input
+            type="time"
+            value={end}
+            onChange={(event) => updateShift(start, event.target.value)}
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-1.5">
+        <div className="flex items-center gap-2 text-xs text-slate-600">
+          <Clock className="h-3.5 w-3.5 text-slate-500" />
+          <span className="font-medium text-slate-700">{preview || "Pick a start and end time"}</span>
+        </div>
+        {duration ? <span className="text-[11px] font-medium text-slate-500">Duration: {duration}</span> : null}
+      </div>
+      {showInvalid ? (
+        <p className="text-xs text-destructive">End time must be after start time.</p>
+      ) : null}
+    </div>
+  );
+}

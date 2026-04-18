@@ -5,7 +5,8 @@ import { PageHeader } from "@/components/dashboard/PageHeader";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { mockPresenceHistory, type PresenceRecord } from "@/data/mockPresence";
 import { mockHolidayCalendar } from "@/data/mockHolidayCalendar";
-import { mockEmployees } from "@/data/mockEmployees";
+import { useEmployees } from "@/contexts/EmployeesContext";
+import { getFaceHistory, type FaceHistoryItem } from "@/api/dashboardApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -106,22 +107,136 @@ function formatCalendarTime(time: string | null | undefined) {
   return `${String(hours12).padStart(2, "0")}.${minutes} ${suffix}`;
 }
 
+function pad2(n: number) {
+  return String(n).padStart(2, "0");
+}
+
+function localDateKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+function localTimeHHmm(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function diffHoursMinutes(startIso: string, endIso: string): string {
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return "—";
+  const minutes = Math.round((end - start) / 60_000);
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  return `${hours}h ${pad2(mins)}m`;
+}
+
+function shiftStartMinutes(shift: string | undefined): number | null {
+  if (!shift) return null;
+  const m = shift.replace(/\s+/g, "").match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+function nameMatchesEmployee(captureName: string, employeeName: string): boolean {
+  const norm = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return norm(captureName) === norm(employeeName);
+}
+
+function deriveRecordsFromCaptures(
+  captures: FaceHistoryItem[],
+  employee: { name: string; employeeId: string; shift: string }
+): PresenceRecord[] {
+  const matching = captures.filter((c) => nameMatchesEmployee(c.name, employee.name));
+  if (matching.length === 0) return [];
+
+  const byDate = new Map<string, FaceHistoryItem[]>();
+  matching.forEach((item) => {
+    const date = localDateKey(item.entry);
+    if (!date) return;
+    const arr = byDate.get(date) ?? [];
+    arr.push(item);
+    byDate.set(date, arr);
+  });
+
+  const shiftStart = shiftStartMinutes(employee.shift);
+
+  const records: PresenceRecord[] = [];
+  byDate.forEach((items, date) => {
+    items.sort((a, b) => a.entry.localeCompare(b.entry));
+    const firstEntryIso = items[0].entry;
+    const lastExitIso = items[items.length - 1].exit;
+    const entryTime = localTimeHHmm(firstEntryIso);
+    const exitTime = localTimeHHmm(lastExitIso) || null;
+    const totalHours = exitTime ? diffHoursMinutes(firstEntryIso, lastExitIso) : "—";
+
+    let status: PresenceRecord["status"] = "Present";
+    if (shiftStart !== null && entryTime) {
+      const [hh, mm] = entryTime.split(":").map(Number);
+      const entryMinutes = hh * 60 + mm;
+      if (entryMinutes > shiftStart + 5) status = "Late";
+    }
+
+    records.push({
+      id: `api-${employee.employeeId}-${date}`,
+      employeeName: employee.name,
+      employeeId: employee.employeeId,
+      entryTime,
+      exitTime,
+      totalHours,
+      status,
+      date,
+      entryImage: items[0].image_url,
+      exitImage: items[items.length - 1].image_url,
+    });
+  });
+  return records;
+}
+
+const FACE_HISTORY_REFRESH_MS = 30_000;
+
 function PresencePage() {
+  const { employees } = useEmployees();
   const [selectedCompany, setSelectedCompany] = useState<string>("all");
   const [selectedEmployee, setSelectedEmployee] = useState<string>("none");
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date("2026-01-01"));
   const [selectedDate, setSelectedDate] = useState<string>("");
+  const [faceCaptures, setFaceCaptures] = useState<FaceHistoryItem[]>([]);
+
+  useEffect(() => {
+    let active = true;
+
+    const load = () => {
+      getFaceHistory({ latest: 500 })
+        .then((data) => {
+          if (!active) return;
+          setFaceCaptures(data.items);
+        })
+        .catch((error) => {
+          console.error("Failed to load face history", error);
+        });
+    };
+
+    load();
+    const id = window.setInterval(load, FACE_HISTORY_REFRESH_MS);
+    return () => {
+      active = false;
+      window.clearInterval(id);
+    };
+  }, []);
 
   const companyOptions = useMemo(
-    () => Array.from(new Set(mockEmployees.map((employee) => employee.company))),
-    []
+    () => Array.from(new Set(employees.map((employee) => employee.company))),
+    [employees]
   );
 
   const employeesForSelectedCompany = useMemo(
     () => (selectedCompany === "all"
-      ? mockEmployees
-      : mockEmployees.filter((employee) => employee.company === selectedCompany)),
-    [selectedCompany]
+      ? employees
+      : employees.filter((employee) => employee.company === selectedCompany)),
+    [employees, selectedCompany]
   );
 
   useEffect(() => {
@@ -141,13 +256,56 @@ function PresencePage() {
     }
   }, [selectedEmployee]);
 
-  const historyRecords = useMemo(() => {
-    if (selectedEmployee === "none") {
-      return [];
+  const apiRecordsForSelected = useMemo(() => {
+    if (selectedEmployee === "none") return [];
+    const employee = employees.find((e) => e.employeeId === selectedEmployee);
+    if (!employee) return [];
+    return deriveRecordsFromCaptures(faceCaptures, {
+      name: employee.name,
+      employeeId: employee.employeeId,
+      shift: employee.shift,
+    });
+  }, [selectedEmployee, employees, faceCaptures]);
+
+  useEffect(() => {
+    if (apiRecordsForSelected.length === 0) return;
+    const inCurrentMonth = apiRecordsForSelected.some((r) => {
+      const d = new Date(r.date);
+      return (
+        d.getFullYear() === calendarMonth.getFullYear() &&
+        d.getMonth() === calendarMonth.getMonth()
+      );
+    });
+    if (inCurrentMonth) return;
+    const latest = apiRecordsForSelected
+      .map((r) => new Date(r.date))
+      .sort((a, b) => b.getTime() - a.getTime())[0];
+    if (latest) {
+      setCalendarMonth(new Date(latest.getFullYear(), latest.getMonth(), 1));
+      setSelectedDate(formatDateKey(latest));
     }
-    const records = mockPresenceHistory.filter((r) => r.employeeId === selectedEmployee);
-    return [...records].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [selectedEmployee]);
+  }, [apiRecordsForSelected, calendarMonth]);
+
+  const historyRecords = useMemo(() => {
+    if (selectedEmployee === "none") return [];
+
+    const employee = employees.find((e) => e.employeeId === selectedEmployee);
+    const apiRecords = employee
+      ? deriveRecordsFromCaptures(faceCaptures, {
+          name: employee.name,
+          employeeId: employee.employeeId,
+          shift: employee.shift,
+        })
+      : [];
+    const apiDates = new Set(apiRecords.map((r) => r.date));
+
+    const mockRecords = mockPresenceHistory.filter(
+      (r) => r.employeeId === selectedEmployee && !apiDates.has(r.date)
+    );
+
+    const merged = [...apiRecords, ...mockRecords];
+    return merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [selectedEmployee, employees, faceCaptures]);
 
   const dailyStatusMap = useMemo(() => {
     const groupedByDate = new Map<string, PresenceRecord["status"][]>();
@@ -261,8 +419,8 @@ function PresencePage() {
   );
 
   const selectedEmployeeData = useMemo(
-    () => mockEmployees.find((employee) => employee.employeeId === selectedEmployee) ?? null,
-    [selectedEmployee]
+    () => employees.find((employee) => employee.employeeId === selectedEmployee) ?? null,
+    [employees, selectedEmployee]
   );
 
   const selectedEmployeeLabel =
@@ -337,7 +495,7 @@ function PresencePage() {
 
     const currentMonthCells = calendarCells.filter((cell) => cell.inCurrentMonth);
     const selectedEmployeeName =
-      mockEmployees.find((emp) => emp.employeeId === selectedEmployee)?.name ?? "Selected Employee";
+      employees.find((emp) => emp.employeeId === selectedEmployee)?.name ?? "Selected Employee";
 
     const headers = [
       "Date",
@@ -500,11 +658,13 @@ function PresencePage() {
                         label: "Arrival Time",
                         value: formatCalendarTime(selectedDayRecord?.entryTime),
                         imageSlot: true,
+                        imageUrl: selectedDayRecord?.entryImage,
                       },
                       {
                         label: "Exit Time",
                         value: formatCalendarTime(selectedDayRecord?.exitTime ?? null),
                         imageSlot: true,
+                        imageUrl: selectedDayRecord?.exitImage,
                       },
                       { label: "Total Hours", value: selectedDayRecord?.totalHours ?? "--" },
                       { label: "Status", value: selectedDayHoliday ?? selectedDayStatus ?? "No attendance record" },
@@ -519,10 +679,27 @@ function PresencePage() {
                               <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{item.label}</p>
                               <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{item.value}</p>
                             </div>
-                            <div className="flex h-12 w-14 shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-400">
-                              <ImageIcon className="h-4 w-4" />
-                              <span className="mt-0.5 text-[8px] font-medium uppercase tracking-[0.12em]">Image</span>
-                            </div>
+                            {item.imageUrl ? (
+                              <a
+                                href={item.imageUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block h-12 w-14 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+                                title={`View ${item.label.toLowerCase()} capture`}
+                              >
+                                <img
+                                  src={item.imageUrl}
+                                  alt={`${item.label} capture`}
+                                  className="h-full w-full object-cover"
+                                  loading="lazy"
+                                />
+                              </a>
+                            ) : (
+                              <div className="flex h-12 w-14 shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-400">
+                                <ImageIcon className="h-4 w-4" />
+                                <span className="mt-0.5 text-[8px] font-medium uppercase tracking-[0.12em]">Image</span>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <>

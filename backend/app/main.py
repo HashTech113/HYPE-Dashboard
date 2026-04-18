@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import SNAPSHOTS_DIR
-from .routers import faces, health
+from .routers import attendance, faces, health
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -41,6 +41,7 @@ def create_app() -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(faces.router)
+    app.include_router(attendance.router)
 
     return app
 

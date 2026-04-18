@@ -1,7 +1,8 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { Plus, Download, Search, Pencil, Trash2, Eye, EyeOff, Users } from "lucide-react";
-import { getEmployees, type Employee } from "@/api/dashboardApi";
+import { Plus, Download, Search, Pencil, Trash2, Users, Filter } from "lucide-react";
+import { type Employee } from "@/api/dashboardApi";
+import { useEmployees } from "@/contexts/EmployeesContext";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,192 +18,91 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
+import { EmployeeForm, COMPANY_OPTIONS } from "@/components/dashboard/EmployeeForm";
+import { formatShiftTo12Hour } from "@/components/dashboard/ShiftTimingPicker";
 
 export const Route = createFileRoute("/_dashboard/employees")({
   component: EmployeesPage,
 });
 
-const COMPANY_OPTIONS = [
-  "WAWU",
-  "CAP",
-  "Owlytics",
-  "Grow",
-  "Perform100x",
-  "SIB",
-  "career cafe co",
-  "CEO2",
-  "karu mitra",
-  "Legal Quotient",
-  "Startup TV",
-] as const;
-
-const SHIFT_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d-([01]\d|2[0-3]):[0-5]\d$/;
-const ISO_DOB_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-function normalizeDobInput(value: string) {
-  const trimmed = value.trim();
-  if (ISO_DOB_PATTERN.test(trimmed)) {
-    return trimmed;
-  }
-
-  const dmyMatch = trimmed.match(/^(\d{2})-(\d{2})-(\d{4})$/);
-  if (!dmyMatch) {
-    return trimmed;
-  }
-
-  const [, dd, mm, yyyy] = dmyMatch;
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function isValidDob(value: string) {
-  if (!ISO_DOB_PATTERN.test(value)) {
-    return false;
-  }
-
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) {
-    return false;
-  }
-
-  return date.toISOString().slice(0, 10) === value;
-}
-
-function normalizeShiftInput(value: string) {
-  return value.replace(/\s+/g, "");
-}
-
-function to12HourClock(time24: string) {
-  const [hourString, minute] = time24.split(":");
-  const hour = Number(hourString);
-  const suffix = hour >= 12 ? "PM" : "AM";
-  const hour12 = hour % 12 || 12;
-  return `${String(hour12).padStart(2, "0")}:${minute} ${suffix}`;
-}
-
-function formatShiftTo12Hour(value: string) {
-  const normalized = normalizeShiftInput(value);
-  if (!SHIFT_TIME_PATTERN.test(normalized)) {
-    return "";
-  }
-  const [start, end] = normalized.split("-");
-  return `${to12HourClock(start)} - ${to12HourClock(end)}`;
-}
-
-function formatShiftForMaskedInput(value: string) {
-  const normalized = normalizeShiftInput(value);
-  if (!SHIFT_TIME_PATTERN.test(normalized)) {
-    return "00:00 - 00:00";
-  }
-  const [start, end] = normalized.split("-");
-  return `${start} - ${end}`;
-}
-
-function extractShiftDigits(value: string) {
-  return value.replace(/\D/g, "").slice(0, 8);
-}
-
-function formatShiftDigitsAsMask(digits: string) {
-  const padded = (digits + "00000000").slice(0, 8);
-  return `${padded.slice(0, 2)}:${padded.slice(2, 4)} - ${padded.slice(4, 6)}:${padded.slice(6, 8)}`;
-}
-
-function parseShiftFromMaskedInput(value: string) {
-  const match = value.trim().match(/^(\d{2}):(\d{2})\s-\s(\d{2}):(\d{2})$/);
-  if (!match) {
-    return null;
-  }
-  const normalizedRange = `${match[1]}:${match[2]}-${match[3]}:${match[4]}`;
-  if (!isValidShift(normalizedRange)) {
-    return null;
-  }
-  return normalizedRange;
-}
-
-function isValidShift(value: string) {
-  if (!SHIFT_TIME_PATTERN.test(value)) {
-    return false;
-  }
-
-  const [startTime, endTime] = value.split("-");
-  const [startHour, startMinute] = startTime.split(":").map(Number);
-  const [endHour, endMinute] = endTime.split(":").map(Number);
-
-  const startTotalMinutes = startHour * 60 + startMinute;
-  const endTotalMinutes = endHour * 60 + endMinute;
-
-  return startTotalMinutes < endTotalMinutes;
-}
-
 function EmployeesPage() {
+  const { employees, updateEmployee, addEmployee, deleteEmployee } = useEmployees();
+
   const [search, setSearch] = useState("");
-  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [selectedCompany, setSelectedCompany] = useState<string>("all");
+  const [selectedEmployee, setSelectedEmployee] = useState<string>("all");
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
   const deferredSearch = useDeferredValue(search);
 
+  const companyOptions = useMemo(() => {
+    const fromData = Array.from(new Set(employees.map((employee) => employee.company)));
+    return Array.from(new Set([...COMPANY_OPTIONS, ...fromData]));
+  }, [employees]);
+
+  const employeesForSelectedCompany = useMemo(
+    () =>
+      selectedCompany === "all"
+        ? employees
+        : employees.filter((employee) => employee.company === selectedCompany),
+    [employees, selectedCompany]
+  );
+
+  useEffect(() => {
+    if (selectedEmployee === "all") return;
+    const exists = employeesForSelectedCompany.some((e) => e.employeeId === selectedEmployee);
+    if (!exists) setSelectedEmployee("all");
+  }, [employeesForSelectedCompany, selectedEmployee]);
+
   const filtered = useMemo(() => {
     const query = deferredSearch.trim().toLowerCase();
-    if (!query) return employees;
-
-    return employees.filter(
-      (employee) =>
+    return employeesForSelectedCompany.filter((employee) => {
+      if (selectedEmployee !== "all" && employee.employeeId !== selectedEmployee) return false;
+      if (!query) return true;
+      return (
         employee.name.toLowerCase().includes(query) ||
         employee.employeeId.toLowerCase().includes(query) ||
         employee.department.toLowerCase().includes(query)
-    );
-  }, [employees, deferredSearch]);
-
-  useEffect(() => {
-    getEmployees().then(setEmployees).catch((error) => {
-      console.error("Failed to load employees", error);
+      );
     });
-  }, []);
+  }, [employeesForSelectedCompany, deferredSearch, selectedEmployee]);
 
   const handleEdit = (employee: Employee) => {
-    setEditingEmployee({
-      ...employee,
-      dob: normalizeDobInput(employee.dob),
-      shift: normalizeShiftInput(employee.shift),
-    });
+    setEditingEmployee(employee);
     setEditDialogOpen(true);
   };
 
-  const handleSaveEdit = (shiftFromEdit?: string) => {
-    if (!editingEmployee) return;
-
-    const sanitizedEmployee: Employee = {
-      ...editingEmployee,
-      dob: normalizeDobInput(editingEmployee.dob),
-      shift: normalizeShiftInput(shiftFromEdit ?? editingEmployee.shift),
-    };
-
-    if (!isValidDob(sanitizedEmployee.dob)) {
-      window.alert("Date of Birth must be a valid date in YYYY-MM-DD format.");
-      return;
-    }
-
-    if (!isValidShift(sanitizedEmployee.shift)) {
-      window.alert("Shift Timing must be valid in 24-hour format (HH:mm - HH:mm).");
-      return;
-    }
-
-    setEmployees((prev) => prev.map((employee) => (employee.id === sanitizedEmployee.id ? sanitizedEmployee : employee)));
+  const handleSaveEdit = (updated: Employee) => {
+    updateEmployee(updated.id, updated);
     setEditDialogOpen(false);
     setEditingEmployee(null);
   };
 
-  const handleDeleteRequest = (employee: Employee) => {
-    setEmployeeToDelete(employee);
+  const handleAddSave = (created: Employee) => {
+    addEmployee({ ...created, id: created.id || `emp-${Date.now()}` });
+    setAddDialogOpen(false);
   };
 
   const handleDeleteConfirm = () => {
     if (!employeeToDelete) return;
-    setEmployees((prev) => prev.filter((employee) => employee.id !== employeeToDelete.id));
+    deleteEmployee(employeeToDelete.id);
     setEmployeeToDelete(null);
+  };
+
+  const blankEmployee: Employee = {
+    id: "",
+    name: "",
+    employeeId: "",
+    company: COMPANY_OPTIONS[0],
+    department: "",
+    shift: "09:00-18:00",
+    role: "Employee",
+    password: "",
+    dob: "1990-01-01",
   };
 
   return (
@@ -215,7 +115,7 @@ function EmployeesPage() {
             <Button variant="outline" size="sm">
               <Download className="mr-1 h-4 w-4" />Export
             </Button>
-            <Dialog>
+            <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
               <DialogTrigger asChild>
                 <Button size="sm">
                   <Plus className="mr-1 h-4 w-4" />Add Employee
@@ -225,65 +125,13 @@ function EmployeesPage() {
                 <DialogHeader>
                   <DialogTitle>Add New Employee</DialogTitle>
                 </DialogHeader>
-                <div className="grid grid-cols-2 gap-4 pt-4">
-                  <div className="space-y-2">
-                    <Label>Full Name</Label>
-                    <Input placeholder="John Doe" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Employee ID</Label>
-                    <Input placeholder="EMP-009" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Password</Label>
-                    <Input type="password" placeholder="******" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Company</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select company" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {COMPANY_OPTIONS.map((company) => (
-                          <SelectItem key={company} value={company}>
-                            {company}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Department</Label>
-                    <Input placeholder="Engineering" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Date of Birth</Label>
-                    <Input type="date" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Shift Timing</Label>
-                    <Input
-                      placeholder="08:00 AM - 05:00 PM"
-                      title="Use hh:mm AM - hh:mm PM format (example: 08:00 AM - 05:00 PM)"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Role</Label>
-                    <Select>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Employee">Employee</SelectItem>
-                        <SelectItem value="Admin">Admin</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="flex justify-end pt-4">
-                  <Button>Save Employee</Button>
-                </div>
+                <EmployeeForm
+                  employee={blankEmployee}
+                  saveLabel="Save Employee"
+                  showCancel
+                  onCancel={() => setAddDialogOpen(false)}
+                  onSave={handleAddSave}
+                />
               </DialogContent>
             </Dialog>
           </div>
@@ -291,14 +139,54 @@ function EmployeesPage() {
       >
 
       <Card className="p-4">
-        <div className="relative w-full max-w-sm">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Search by name, ID, or department..."
-            className="pl-9"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap items-center gap-3">
+            <Filter className="h-4 w-4 text-muted-foreground" />
+
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Employees:</span>
+              <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
+                <SelectTrigger className="h-10 w-[260px]">
+                  <SelectValue placeholder="Select employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Employees</SelectItem>
+                  {employeesForSelectedCompany.map((emp) => (
+                    <SelectItem key={emp.employeeId} value={emp.employeeId}>
+                      {emp.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Companies:</span>
+              <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                <SelectTrigger className="h-10 w-[240px]">
+                  <SelectValue placeholder="Select company" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Companies</SelectItem>
+                  {companyOptions.map((company) => (
+                    <SelectItem key={company} value={company}>
+                      {company}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="relative w-full max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Search by name, ID, or department..."
+              className="pl-9"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
         </div>
       </Card>
 
@@ -333,7 +221,7 @@ function EmployeesPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-destructive"
-                      onClick={() => handleDeleteRequest(employee)}
+                      onClick={() => setEmployeeToDelete(employee)}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
@@ -341,6 +229,13 @@ function EmployeesPage() {
                 </TableCell>
               </TableRow>
             ))}
+            {filtered.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
+                  No employees match the current filters.
+                </TableCell>
+              </TableRow>
+            ) : null}
           </TableBody>
         </Table>
       </Card>
@@ -350,7 +245,14 @@ function EmployeesPage() {
           <DialogHeader>
             <DialogTitle>Edit Employee</DialogTitle>
           </DialogHeader>
-          {editingEmployee && <EditEmployeeForm employee={editingEmployee} onChange={setEditingEmployee} onSave={handleSaveEdit} />}
+          {editingEmployee ? (
+            <EmployeeForm
+              employee={editingEmployee}
+              onSave={handleSaveEdit}
+              onCancel={() => setEditDialogOpen(false)}
+              showCancel
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
 
@@ -376,126 +278,6 @@ function EmployeesPage() {
         </AlertDialogContent>
       </AlertDialog>
       </SectionShell>
-    </div>
-  );
-}
-
-function EditEmployeeForm({
-  employee,
-  onChange,
-  onSave,
-}: {
-  employee: Employee;
-  onChange: (employee: Employee) => void;
-  onSave: (shiftFromEdit?: string) => void;
-}) {
-  const [showPassword, setShowPassword] = useState(false);
-  const [shiftMaskedValue, setShiftMaskedValue] = useState(formatShiftForMaskedInput(employee.shift));
-  const companyOptions = COMPANY_OPTIONS.includes(employee.company as (typeof COMPANY_OPTIONS)[number])
-    ? COMPANY_OPTIONS
-    : [employee.company, ...COMPANY_OPTIONS];
-
-  useEffect(() => {
-    setShiftMaskedValue(formatShiftForMaskedInput(employee.shift));
-  }, [employee.shift]);
-
-  const handleSaveClick = () => {
-    const parsedShift = parseShiftFromMaskedInput(shiftMaskedValue);
-    if (!parsedShift) {
-      window.alert("Shift Timing must be valid in HH:mm - HH:mm format.");
-      return;
-    }
-
-    onSave(parsedShift);
-  };
-
-  return (
-    <div className="space-y-4 pt-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label>Full Name</Label>
-          <Input value={employee.name} onChange={(e) => onChange({ ...employee, name: e.target.value })} />
-        </div>
-        <div className="space-y-2">
-          <Label>Employee ID</Label>
-          <Input value={employee.employeeId} onChange={(e) => onChange({ ...employee, employeeId: e.target.value })} />
-        </div>
-        <div className="col-span-2 space-y-2">
-          <Label>Password</Label>
-          <div className="relative">
-            <Input
-              type={showPassword ? "text" : "password"}
-              value={employee.password}
-              onChange={(e) => onChange({ ...employee, password: e.target.value })}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2"
-              onClick={() => setShowPassword(!showPassword)}
-            >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </Button>
-          </div>
-        </div>
-        <div className="space-y-2">
-          <Label>Company</Label>
-          <Select value={employee.company} onValueChange={(value) => onChange({ ...employee, company: value })}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select company" />
-            </SelectTrigger>
-            <SelectContent>
-              {companyOptions.map((company) => (
-                <SelectItem key={company} value={company}>
-                  {company}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="space-y-2">
-          <Label>Department</Label>
-          <Input value={employee.department} onChange={(e) => onChange({ ...employee, department: e.target.value })} />
-        </div>
-        <div className="space-y-2">
-          <Label>Date of Birth</Label>
-          <Input
-            type="date"
-            value={employee.dob}
-            onChange={(e) => onChange({ ...employee, dob: normalizeDobInput(e.target.value) })}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>Shift Timing</Label>
-          <Input
-            value={shiftMaskedValue}
-            placeholder="00:00 - 00:00"
-            title="Fixed HH:mm - HH:mm format. Edit digits only."
-            inputMode="numeric"
-            maxLength={13}
-            onChange={(e) => {
-              const nextDigits = extractShiftDigits(e.target.value);
-              setShiftMaskedValue(formatShiftDigitsAsMask(nextDigits));
-            }}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label>Role</Label>
-          <Select value={employee.role} onValueChange={(value) => onChange({ ...employee, role: value as "Admin" | "Employee" })}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Employee">Employee</SelectItem>
-              <SelectItem value="Admin">Admin</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-      <div className="flex justify-end pt-2">
-        <Button onClick={handleSaveClick}>Save Changes</Button>
-      </div>
     </div>
   );
 }

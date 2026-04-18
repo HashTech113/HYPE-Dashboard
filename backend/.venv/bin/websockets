@@ -1,5 +1,5 @@
 #!/bin/sh
-'''exec' "/media/user/hddstorage/Grow Projects/Attendance Dashboard/backend/.venv/bin/python3" "$0" "$@"
+'''exec' "/home/user/Desktop/Grow Projects/Attendance Dashboard/backend/.venv/bin/python3" "$0" "$@"
 ' '''
 # -*- coding: utf-8 -*-
 import re

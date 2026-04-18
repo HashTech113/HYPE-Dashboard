@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
-import { Users } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { RefreshCw, Users } from "lucide-react";
 import { getFaceHistory, type FaceHistoryItem } from "@/api/dashboardApi";
 import { SectionShell } from "@/components/dashboard/SectionShell";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableHeader,
@@ -36,31 +38,50 @@ function LiveCapturesPage() {
   const [items, setItems] = useState<FaceHistoryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const activeRef = useRef(true);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  useEffect(() => {
-    let active = true;
-
-    async function fetchData() {
-      try {
-        const data = await getFaceHistory({ latest: FETCH_LIMIT });
-        if (!active) return;
-        setItems(data.items);
-        setError(null);
-      } catch (err) {
-        if (!active) return;
-        setError(err instanceof Error ? err.message : "Failed to load captures");
-      } finally {
-        if (active) setLoading(false);
+  const fetchData = useCallback(async ({ manual = false }: { manual?: boolean } = {}) => {
+    if (manual) setRefreshing(true);
+    try {
+      const data = await getFaceHistory({ latest: FETCH_LIMIT });
+      if (!activeRef.current) return;
+      setItems(data.items);
+      setError(null);
+    } catch (err) {
+      if (!activeRef.current) return;
+      setError(err instanceof Error ? err.message : "Failed to load captures");
+    } finally {
+      if (activeRef.current) {
+        setLoading(false);
+        if (manual) setRefreshing(false);
       }
     }
-
-    fetchData();
-    const id = setInterval(fetchData, POLL_INTERVAL_MS);
-    return () => {
-      active = false;
-      clearInterval(id);
-    };
   }, []);
+
+  const startPolling = useCallback(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    intervalRef.current = setInterval(() => {
+      fetchData();
+    }, POLL_INTERVAL_MS);
+  }, [fetchData]);
+
+  useEffect(() => {
+    activeRef.current = true;
+    fetchData();
+    startPolling();
+    return () => {
+      activeRef.current = false;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [fetchData, startPolling]);
+
+  const handleManualRefresh = useCallback(async () => {
+    if (refreshing) return;
+    await fetchData({ manual: true });
+    startPolling();
+  }, [fetchData, refreshing, startPolling]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -69,14 +90,27 @@ function LiveCapturesPage() {
         icon={<Users className="h-5 w-5 text-primary" />}
         className="animate-fade-in-up"
         actions={
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-            </span>
-            <span>
-              {items.length} captures · refresh every {POLL_INTERVAL_MS / 1000}s
-            </span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              <span>
+                {items.length} captures · auto-refresh every {POLL_INTERVAL_MS / 1000}s
+              </span>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              title="Refresh now"
+            >
+              <RefreshCw className={cn("mr-1.5 h-4 w-4", refreshing && "animate-spin")} />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </Button>
           </div>
         }
       >

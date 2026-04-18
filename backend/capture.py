@@ -1,16 +1,3 @@
-"""
-Standalone capture loop. Polls the camera's real-time face alarm feed and
-writes each new event to `snapshots/` as a JPEG. Runs retention on a timer.
-
-All I/O logic lives in app/services/*:
-  - app.services.camera     — login + processAlarm/Get
-  - app.services.snapshots  — filesystem writes
-  - app.services.retention  — cleanup
-
-Run separately from the API:
-    python capture.py
-"""
-
 from __future__ import annotations
 
 import logging

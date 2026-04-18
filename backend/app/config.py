@@ -22,4 +22,11 @@ MAX_PAGE_LIMIT = int(os.getenv("MAX_PAGE_LIMIT", "500"))
 RETENTION_DAYS = int(os.getenv("RETENTION_DAYS", "7"))
 CLEANUP_INTERVAL_SECONDS = int(os.getenv("CLEANUP_INTERVAL_SECONDS", "3600"))
 
+# Attendance shift defaults — clock-in 09:30, clock-out 18:30, IST (+05:30).
+SHIFT_START = os.getenv("SHIFT_START", "09:30")
+SHIFT_END = os.getenv("SHIFT_END", "18:30")
+LATE_GRACE_MIN = int(os.getenv("LATE_GRACE_MIN", "5"))
+EARLY_EXIT_GRACE_MIN = int(os.getenv("EARLY_EXIT_GRACE_MIN", "5"))
+LOCAL_TZ_OFFSET_MIN = int(os.getenv("LOCAL_TZ_OFFSET_MIN", "330"))
+
 SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
