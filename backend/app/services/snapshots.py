@@ -60,16 +60,25 @@ def sanitize_name(name: str) -> str:
     return cleaned[:32] or "Unknown"
 
 
+def _epoch_local_to_utc(value: float) -> datetime:
+    """The camera uses a non-standard "local-time seconds since 1970" epoch
+    (the number represents IST on the camera's clock). Re-interpret it as
+    such and return true UTC by subtracting the local offset.
+    """
+    as_if_utc = datetime.fromtimestamp(value, tz=timezone.utc)
+    return as_if_utc - timedelta(minutes=LOCAL_TZ_OFFSET_MIN)
+
+
 def _to_utc(value: Any) -> Optional[datetime]:
     if value is None:
         return None
     try:
         if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+            return _epoch_local_to_utc(float(value))
         if isinstance(value, str):
             v = value.strip()
             if v.isdigit():
-                return datetime.fromtimestamp(float(v), tz=timezone.utc)
+                return _epoch_local_to_utc(float(v))
             try:
                 return datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(timezone.utc)
             except ValueError:
