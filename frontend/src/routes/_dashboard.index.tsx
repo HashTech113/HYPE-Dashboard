@@ -17,6 +17,7 @@ const attendanceSegments = [
 ] as const;
 
 const OVERVIEW_POLL_MS = 30_000;
+const WORKDAY_MINUTES = 9 * 60; // 09:30 → 18:30
 
 function todayIsoDate(): string {
   const d = new Date();
@@ -25,65 +26,16 @@ function todayIsoDate(): string {
   return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
+function parseHoursToMinutes(totalHours: string): number {
+  const m = totalHours.match(/(\d+)\s*h(?:\s*(\d+)\s*m)?/i);
+  if (!m) return 0;
+  return Number(m[1]) * 60 + (m[2] ? Number(m[2]) : 0);
+}
+
 const pendingRequests = [
   { title: "Recent Request", time: "Last 3 hours ago" },
   { title: "Pending Request", time: "Last 3 hours ago" },
   { title: "Pending Request", time: "Last 3 hours ago" },
-] as const;
-
-type MovementDatum = {
-  day: string;
-  primary: number;
-  secondary: number;
-};
-
-const spentInChartData: MovementDatum[] = [
-  { day: "Mon", primary: 585, secondary: 575 },
-  { day: "Tue", primary: 600, secondary: 590 },
-  { day: "Wed", primary: 590, secondary: 585 },
-  { day: "Thu", primary: 610, secondary: 600 },
-  { day: "Fri", primary: 595, secondary: 602 },
-  { day: "Sat", primary: 620, secondary: 610 },
-  { day: "Sun", primary: 630, secondary: 618 },
-];
-
-const spentOutChartData: MovementDatum[] = [
-  { day: "Mon", primary: 1080, secondary: 1060 },
-  { day: "Tue", primary: 1050, secondary: 1035 },
-  { day: "Wed", primary: 1020, secondary: 1010 },
-  { day: "Thu", primary: 1090, secondary: 1055 },
-  { day: "Fri", primary: 1040, secondary: 1030 },
-  { day: "Sat", primary: 980, secondary: 995 },
-  { day: "Sun", primary: 930, secondary: 960 },
-];
-
-const averageArrivalChartData: MovementDatum[] = [
-  { day: "Mon", primary: 555, secondary: 565 },
-  { day: "Tue", primary: 560, secondary: 570 },
-  { day: "Wed", primary: 552, secondary: 566 },
-  { day: "Thu", primary: 568, secondary: 574 },
-  { day: "Fri", primary: 571, secondary: 576 },
-  { day: "Sat", primary: 590, secondary: 585 },
-  { day: "Sun", primary: 605, secondary: 596 },
-];
-
-const averageExitChartData: MovementDatum[] = [
-  { day: "Mon", primary: 1035, secondary: 1015 },
-  { day: "Tue", primary: 1020, secondary: 1008 },
-  { day: "Wed", primary: 1015, secondary: 1005 },
-  { day: "Thu", primary: 1045, secondary: 1022 },
-  { day: "Fri", primary: 1038, secondary: 1018 },
-  { day: "Sat", primary: 990, secondary: 1000 },
-  { day: "Sun", primary: 950, secondary: 970 },
-];
-
-const yAxisTimeTicks = [
-  { label: "06:30 PM", value: 1110 },
-  { label: "04:30 PM", value: 990 },
-  { label: "03:00 PM", value: 900 },
-  { label: "01:00 PM", value: 780 },
-  { label: "11:30 AM", value: 690 },
-  { label: "09:30 AM", value: 570 },
 ] as const;
 
 const softCardClass =
@@ -95,187 +47,13 @@ const glowAmberClass =
 const glowEmeraldClass =
   "rounded-[22px] border border-slate-200/80 bg-white text-foreground shadow-[0_2px_12px_rgba(0,0,0,0.07)]";
 
-const movementChartCardClass =
-  "rounded-[22px] border border-slate-200/80 bg-white text-foreground shadow-[0_2px_12px_rgba(0,0,0,0.07)]";
-
-const CHART_WIDTH = 940;
-const CHART_HEIGHT = 220;
-const CHART_PADDING_X = 36;
-const CHART_PADDING_TOP = 12;
-const CHART_PADDING_BOTTOM = 26;
-
-type MovementChartPanelProps = {
-  title: string;
-  primaryLabel: string;
-  secondaryLabel: string;
-  data: MovementDatum[];
-  idPrefix: string;
-  showPrimary?: boolean;
-};
-
-function MovementChartPanel({ title, primaryLabel, secondaryLabel, data, idPrefix, showPrimary = true }: MovementChartPanelProps) {
-  const maxValue = yAxisTimeTicks[0].value;
-  const minValue = yAxisTimeTicks[yAxisTimeTicks.length - 1].value;
-  const plotWidth = CHART_WIDTH - CHART_PADDING_X * 2;
-  const plotHeight = CHART_HEIGHT - CHART_PADDING_TOP - CHART_PADDING_BOTTOM;
-  const valueRange = Math.max(maxValue - minValue, 1);
-  const primaryColor = "#4ABBA0";
-  const secondaryColor = "#F0C040";
-  const groupWidth = plotWidth / Math.max(data.length, 1);
-  const singleBarWidth = Math.min(22, groupWidth * 0.55);
-  const groupedBarWidth = Math.min(14, groupWidth * 0.32);
-  const groupedGap = 4;
-  const chartBottomY = CHART_PADDING_TOP + plotHeight;
-  const toY = (value: number) => CHART_PADDING_TOP + ((maxValue - value) / valueRange) * plotHeight;
-
+function EmployeeMovementChart({ metrics }: { metrics: GaugeMetrics }) {
   return (
-    <div className="p-3 md:p-3.5">
-      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-base font-medium tracking-tight text-slate-800">{title}</h3>
-        <div className="flex items-center gap-3 text-xs text-slate-600">
-          <span className="flex items-center gap-2">
-            <Dot color={secondaryColor} />
-            {secondaryLabel}
-          </span>
-          {showPrimary ? (
-            <span className="flex items-center gap-2">
-              <Dot color={primaryColor} />
-              {primaryLabel}
-            </span>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="h-[190px] w-full">
-        <svg viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`} className="h-full w-full" role="img" aria-label={`${title} bar chart`}>
-          {yAxisTimeTicks.map((tick) => {
-            const y = toY(tick.value);
-            return (
-              <g key={`${idPrefix}-${tick.label}`}>
-                <line
-                  x1={CHART_PADDING_X}
-                  y1={y}
-                  x2={CHART_WIDTH - CHART_PADDING_X}
-                  y2={y}
-                  stroke="rgba(148,163,184,0.35)"
-                  strokeWidth={1}
-                />
-                <text x={7} y={y + 3} fontSize={10} fill="rgba(71,85,105,0.85)">
-                  {tick.label}
-                </text>
-              </g>
-            );
-          })}
-
-          {data.map((item, index) => {
-            const groupLeft = CHART_PADDING_X + index * groupWidth;
-            const groupCenter = groupLeft + groupWidth / 2;
-            const secondaryY = toY(item.secondary);
-            const secondaryHeight = Math.max(chartBottomY - secondaryY, 2);
-            const secondaryX = showPrimary ? groupCenter + groupedGap / 2 : groupCenter - singleBarWidth / 2;
-            const secondaryWidth = showPrimary ? groupedBarWidth : singleBarWidth;
-
-            return (
-              <g key={`${idPrefix}-bar-${item.day}`}>
-                {showPrimary ? (
-                  <rect
-                    x={groupCenter - groupedBarWidth - groupedGap / 2}
-                    y={toY(item.primary)}
-                    width={groupedBarWidth}
-                    height={Math.max(chartBottomY - toY(item.primary), 2)}
-                    rx={4}
-                    fill={primaryColor}
-                    opacity={0.9}
-                  />
-                ) : null}
-                <rect
-                  x={secondaryX}
-                  y={secondaryY}
-                  width={secondaryWidth}
-                  height={secondaryHeight}
-                  rx={4}
-                  fill={secondaryColor}
-                />
-              </g>
-            );
-          })}
-
-          {data.map((item, index) => {
-            const x = CHART_PADDING_X + index * groupWidth + groupWidth / 2;
-            return (
-              <text
-                key={`${idPrefix}-${item.day}`}
-                x={x}
-                y={CHART_HEIGHT - 8}
-                textAnchor="middle"
-                fontSize={12}
-                fill="rgba(71,85,105,0.88)"
-              >
-                {item.day}
-              </text>
-            );
-          })}
-        </svg>
-      </div>
-    </div>
-  );
-}
-
-function EmployeeMovementChart() {
-  const maxValue = yAxisTimeTicks[0].value;
-  const minValue = yAxisTimeTicks[yAxisTimeTicks.length - 1].value;
-  if (!maxValue && !minValue) return null;
-
-  return (
-    <div className="grid h-full grid-cols-1 gap-2 xl:grid-cols-4">
-      <Card className={movementChartCardClass}>
-        <CardContent className="h-full p-0">
-          <MovementChartPanel
-            title="Employees Spent In"
-            primaryLabel="Spent In"
-            secondaryLabel="Average In"
-            data={spentInChartData}
-            idPrefix="spent-in"
-            showPrimary={false}
-          />
-        </CardContent>
-      </Card>
-      <Card className={movementChartCardClass}>
-        <CardContent className="h-full p-0">
-          <MovementChartPanel
-            title="Employees Spent Out"
-            primaryLabel="Spent Out"
-            secondaryLabel="Average Out"
-            data={spentOutChartData}
-            idPrefix="spent-out"
-            showPrimary={false}
-          />
-        </CardContent>
-      </Card>
-      <Card className={movementChartCardClass}>
-        <CardContent className="h-full p-0">
-          <MovementChartPanel
-            title="Average Present"
-            primaryLabel="Present"
-            secondaryLabel="Target Present"
-            data={averageArrivalChartData}
-            idPrefix="arrival-time"
-            showPrimary={false}
-          />
-        </CardContent>
-      </Card>
-      <Card className={movementChartCardClass}>
-        <CardContent className="h-full p-0">
-          <MovementChartPanel
-            title="Average Absent"
-            primaryLabel="Absent"
-            secondaryLabel="Target Absent"
-            data={averageExitChartData}
-            idPrefix="exit-time"
-            showPrimary={false}
-          />
-        </CardContent>
-      </Card>
+    <div className="grid h-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <GaugeCard title="Employees Spent In" value={metrics.spentInPct} />
+      <GaugeCard title="Employees Spent Out" value={metrics.spentOutPct} color="#60a5fa" />
+      <GaugeCard title="Average Present" value={metrics.presentPct} color="#34d399" />
+      <GaugeCard title="Average Absent" value={metrics.absentPct} color="#f87171" />
     </div>
   );
 }
@@ -448,16 +226,27 @@ function useTodayMetrics() {
 
     const matchedEmployeeIds = new Set<string>();
     let lateCount = 0;
+    let totalMinutes = 0;
+    let minuteSampleCount = 0;
     for (const row of rowsToday) {
       const match = employees.find((e) => matchesEmployeeName(row.name, e.name));
       if (match) matchedEmployeeIds.add(match.employeeId);
       if (row.status === "Late") lateCount += 1;
+      const mins = parseHoursToMinutes(row.total_hours);
+      if (mins > 0) {
+        totalMinutes += mins;
+        minuteSampleCount += 1;
+      }
     }
     const presentCount = matchedEmployeeIds.size;
     const leaveCount = Math.max(0, totalEmployees - presentCount);
 
     const ratio = (n: number) =>
       totalEmployees > 0 ? n / totalEmployees : 0;
+
+    const avgMinutesOnSite = minuteSampleCount > 0 ? totalMinutes / minuteSampleCount : 0;
+    const spentInPct = Math.max(0, Math.min(100, (avgMinutesOnSite / WORKDAY_MINUTES) * 100));
+    const spentOutPct = Math.max(0, 100 - spentInPct);
 
     return {
       totalEmployees,
@@ -467,17 +256,105 @@ function useTodayMetrics() {
       presentRatio: ratio(presentCount),
       leaveRatio: ratio(leaveCount),
       lateRatio: ratio(lateCount),
+      spentInPct,
+      spentOutPct,
+      presentPct: ratio(presentCount) * 100,
+      absentPct: ratio(leaveCount) * 100,
     };
   }, [employees, summaries]);
+}
+
+type GaugeMetrics = {
+  spentInPct: number;
+  spentOutPct: number;
+  presentPct: number;
+  absentPct: number;
+};
+
+function GaugeCard({
+  title,
+  value,
+  color = "#10b981",
+}: {
+  title: string;
+  value: number;
+  color?: string;
+}) {
+  const viewW = 200;
+  const viewH = 130;
+  const cx = viewW / 2;
+  const cy = viewH - 10;
+  const rOuter = 92;
+  const rInner = 70;
+  const tickCount = 56;
+  const startAngle = -210;
+  const endAngle = 30;
+  const sweep = endAngle - startAngle;
+  const clamped = Math.max(0, Math.min(100, value));
+  const activeTicks = Math.round((clamped / 100) * tickCount);
+  const gradientId = `gauge-grad-${title.replace(/\s+/g, "-")}`;
+
+  const ticks = Array.from({ length: tickCount }, (_, i) => {
+    const angleDeg = startAngle + (sweep * i) / (tickCount - 1);
+    const angleRad = (angleDeg * Math.PI) / 180;
+    const x1 = cx + rInner * Math.cos(angleRad);
+    const y1 = cy + rInner * Math.sin(angleRad);
+    const x2 = cx + rOuter * Math.cos(angleRad);
+    const y2 = cy + rOuter * Math.sin(angleRad);
+    const isActive = i < activeTicks;
+    return { x1, y1, x2, y2, isActive, key: i };
+  });
+
+  return (
+    <div className="flex h-full min-h-0 flex-col rounded-[22px] border border-slate-200/80 bg-white p-4 text-slate-900 shadow-[0_2px_12px_rgba(0,0,0,0.07)]">
+      <div className="mb-1 flex items-start justify-between">
+        <p className="text-base font-medium tracking-tight text-slate-800">{title}</p>
+        <MoreHorizontal className="h-4 w-4 text-slate-500" />
+      </div>
+      <div className="relative grid flex-1 w-full place-items-center py-2">
+        <svg
+          viewBox={`0 0 ${viewW} ${viewH}`}
+          preserveAspectRatio="xMidYMid meet"
+          className="block h-full max-h-[220px] w-full max-w-[260px]"
+          aria-hidden="true"
+        >
+          <defs>
+            <linearGradient id={gradientId} x1="0" y1="1" x2="0" y2="0">
+              <stop offset="0%" stopColor={color} stopOpacity="0.55" />
+              <stop offset="100%" stopColor={color} stopOpacity="1" />
+            </linearGradient>
+          </defs>
+          {ticks.map((t) => (
+            <line
+              key={t.key}
+              x1={t.x1}
+              y1={t.y1}
+              x2={t.x2}
+              y2={t.y2}
+              stroke={t.isActive ? `url(#${gradientId})` : "rgba(148,163,184,0.28)"}
+              strokeWidth={3}
+              strokeLinecap="round"
+            />
+          ))}
+        </svg>
+        <div className="absolute bottom-2 flex items-baseline gap-0.5">
+          <span className="text-4xl font-bold leading-none tracking-tight text-slate-900">
+            {Math.round(value)}
+          </span>
+          <span className="text-sm font-medium text-slate-500">%</span>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function OverviewPage() {
   const metrics = useTodayMetrics();
 
   return (
-    <div className="min-h-full">
-      <section className="mx-auto flex min-h-full w-full max-w-[1380px] flex-col gap-2">
-        <div className="grid flex-none grid-cols-1 gap-2 xl:grid-cols-[1.2fr_1.05fr_1.15fr]">
+    <div className="flex h-full min-h-0 flex-col">
+      <section className="mx-auto flex h-full min-h-0 w-full max-w-[1380px] flex-col gap-3">
+        <div className="grid flex-none grid-cols-1 gap-3 xl:grid-cols-[1.2fr_1.05fr_1.15fr]">
           <div className="grid gap-2">
             <div className="grid gap-2 md:grid-cols-2">
               <Card className={softCardClass}>
@@ -624,8 +501,8 @@ function OverviewPage() {
           </Card>
         </div>
 
-        <div className="min-h-0 flex-1">
-          <EmployeeMovementChart />
+        <div className="flex min-h-0 flex-1 flex-col">
+          <EmployeeMovementChart metrics={metrics} />
         </div>
       </section>
     </div>
