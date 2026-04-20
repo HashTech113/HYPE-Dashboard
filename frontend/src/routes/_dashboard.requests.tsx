@@ -1,13 +1,17 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { RefreshCw, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Download, Filter, RefreshCw, Users } from "lucide-react";
 import {
   getAttendanceLogs,
   getSnapshotLogs,
   type AttendanceSummaryItem,
+  type Employee,
   type SnapshotLogItem,
 } from "@/api/dashboardApi";
+import { useEmployees } from "@/contexts/EmployeesContext";
+import { matchesEmployeeName } from "@/lib/nameMatch";
 import { SectionShell } from "@/components/dashboard/SectionShell";
+import { DatePicker } from "@/components/dashboard/DatePicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -18,7 +22,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { formatClock12, formatDate, formatDateKey, formatTime12 } from "@/lib/dateFormat";
+import {
+  formatClock12,
+  formatDateDash,
+  formatDateKeyDash,
+  formatTime12,
+} from "@/lib/dateFormat";
 import {
   Table,
   TableBody,
@@ -50,21 +59,56 @@ function formatMinutes(minutes: number): string {
   return rest === 0 ? `${hours}h` : `${hours}h ${String(rest).padStart(2, "0")}m`;
 }
 
-function statusClasses(status: AttendanceSummaryItem["status"]): string {
-  switch (status) {
-    case "Present":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "Late":
-      return "border-amber-200 bg-amber-50 text-amber-700";
-    case "Early Exit":
-      return "border-orange-200 bg-orange-50 text-orange-700";
-    case "Absent":
-      return "border-rose-200 bg-rose-50 text-rose-700";
+function snapshotLocalDateKey(isoTimestamp: string): string {
+  const d = new Date(isoTimestamp);
+  if (Number.isNaN(d.getTime())) return "";
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+function findEmployeeForName(
+  employees: Employee[],
+  captureName: string,
+): Employee | null {
+  if (!captureName) return null;
+  for (const employee of employees) {
+    if (matchesEmployeeName(captureName, employee.name)) return employee;
   }
+  return null;
+}
+
+function csvEscape(value: string | number | null | undefined): string {
+  const text = String(value ?? "");
+  if (text.includes(",") || text.includes("\"") || text.includes("\n")) {
+    return `"${text.replace(/"/g, "\"\"")}"`;
+  }
+  return text;
+}
+
+function downloadCsv(rows: string[][], filename: string) {
+  const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+  // Leading BOM (\uFEFF) tells Excel the file is UTF-8 so characters like "—"
+  // (U+2014) render correctly instead of as "â€"".
+  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 function LiveCapturesPage() {
+  const { employees } = useEmployees();
+
   const [usecase, setUsecase] = useState<Usecase>("snapshot");
+  const [selectedEmployee, setSelectedEmployee] = useState<string>("all");
+  const [selectedCompany, setSelectedCompany] = useState<string>("all");
+  const [selectedDate, setSelectedDate] = useState<string>("");
+
   const [snapshotItems, setSnapshotItems] = useState<SnapshotLogItem[]>([]);
   const [attendanceItems, setAttendanceItems] = useState<AttendanceSummaryItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -72,6 +116,27 @@ function LiveCapturesPage() {
   const [refreshing, setRefreshing] = useState(false);
   const activeRef = useRef(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const companyOptions = useMemo(
+    () => Array.from(new Set(employees.map((employee) => employee.company))).sort(),
+    [employees],
+  );
+
+  const employeesForSelectedCompany = useMemo(
+    () =>
+      selectedCompany === "all"
+        ? employees
+        : employees.filter((employee) => employee.company === selectedCompany),
+    [employees, selectedCompany],
+  );
+
+  useEffect(() => {
+    if (selectedEmployee === "all") return;
+    const stillVisible = employeesForSelectedCompany.some(
+      (employee) => employee.employeeId === selectedEmployee,
+    );
+    if (!stillVisible) setSelectedEmployee("all");
+  }, [employeesForSelectedCompany, selectedEmployee]);
 
   const fetchData = useCallback(
     async ({ manual = false }: { manual?: boolean } = {}) => {
@@ -119,8 +184,93 @@ function LiveCapturesPage() {
     await fetchData({ manual: true });
   }, [fetchData, refreshing]);
 
+  const selectedEmployeeObj = useMemo(
+    () => employees.find((employee) => employee.employeeId === selectedEmployee) ?? null,
+    [employees, selectedEmployee],
+  );
+
+  // Row-level filter shared by both usecases: employee, company (via employee lookup),
+  // and selected date. `rowName` and `rowDateKey` come from each row's raw fields.
+  const rowPasses = useCallback(
+    (rowName: string, rowDateKey: string) => {
+      if (selectedDate && rowDateKey !== selectedDate) return false;
+
+      const matchedEmployee = findEmployeeForName(employees, rowName);
+
+      if (selectedEmployee !== "all") {
+        if (!selectedEmployeeObj) return false;
+        return matchedEmployee?.employeeId === selectedEmployee;
+      }
+
+      if (selectedCompany !== "all") {
+        return matchedEmployee?.company === selectedCompany;
+      }
+
+      return true;
+    },
+    [employees, selectedDate, selectedEmployee, selectedEmployeeObj, selectedCompany],
+  );
+
+  const filteredAttendance = useMemo(() => {
+    return attendanceItems.filter((item) => rowPasses(item.name, item.date));
+  }, [attendanceItems, rowPasses]);
+
+  const filteredSnapshots = useMemo(() => {
+    return snapshotItems.filter((item) =>
+      rowPasses(item.name, snapshotLocalDateKey(item.timestamp)),
+    );
+  }, [snapshotItems, rowPasses]);
+
+  const handleExport = useCallback(() => {
+    if (usecase === "attendance") {
+      const header = [
+        "Employee Name",
+        "Company",
+        "Date",
+        "Entry Time",
+        "Late Entry Time",
+        "Exit Time",
+        "Early Exit Time",
+        "Total Hours",
+      ];
+      const rows = filteredAttendance.map((item) => {
+        const emp = findEmployeeForName(employees, item.name);
+        return [
+          item.name,
+          emp?.company ?? "—",
+          formatDateKeyDash(item.date),
+          formatClock12(item.entry_time),
+          formatMinutes(item.late_entry_minutes),
+          formatClock12(item.exit_time),
+          formatMinutes(item.early_exit_minutes),
+          item.total_hours,
+        ];
+      });
+      downloadCsv(
+        [header, ...rows],
+        `live-captures-attendance-${selectedDate || "all"}.csv`,
+      );
+    } else {
+      const header = ["Employee Name", "Company", "Date", "Time"];
+      const rows = filteredSnapshots.map((item) => {
+        const emp = findEmployeeForName(employees, item.name);
+        return [
+          item.name,
+          emp?.company ?? "—",
+          formatDateDash(item.timestamp),
+          formatTime12(item.timestamp),
+        ];
+      });
+      downloadCsv(
+        [header, ...rows],
+        `live-captures-snapshot-${selectedDate || "all"}.csv`,
+      );
+    }
+  }, [employees, filteredAttendance, filteredSnapshots, selectedDate, usecase]);
+
   const usecaseLabel = USECASE_LABEL[usecase];
-  const itemCount = usecase === "attendance" ? attendanceItems.length : snapshotItems.length;
+  const itemCount =
+    usecase === "attendance" ? filteredAttendance.length : filteredSnapshots.length;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -160,16 +310,16 @@ function LiveCapturesPage() {
       >
         <Card className="flex min-h-0 flex-1 flex-col">
           <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
-            <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-700">
-                {usecaseLabel} Records
-              </h3>
+            {/* Filter row */}
+            <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-3">
+              <Filter className="h-4 w-4 text-muted-foreground" />
+
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-xs font-medium text-slate-600">
                   Choose Usecase:
                 </span>
                 <Select value={usecase} onValueChange={(value) => setUsecase(value as Usecase)}>
-                  <SelectTrigger className="h-9 w-full sm:w-[180px]">
+                  <SelectTrigger className="h-9 w-[160px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -178,6 +328,68 @@ function LiveCapturesPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="flex items-center gap-2">
+                <span className="whitespace-nowrap text-xs font-medium text-slate-600">
+                  Employees:
+                </span>
+                <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
+                  <SelectTrigger className="h-9 w-[200px]">
+                    <SelectValue placeholder="All Employees" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Employees</SelectItem>
+                    {employeesForSelectedCompany.map((employee) => (
+                      <SelectItem key={employee.employeeId} value={employee.employeeId}>
+                        {employee.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="whitespace-nowrap text-xs font-medium text-slate-600">
+                  Companies:
+                </span>
+                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                  <SelectTrigger className="h-9 w-[180px]">
+                    <SelectValue placeholder="All Companies" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Companies</SelectItem>
+                    {companyOptions.map((company) => (
+                      <SelectItem key={company} value={company}>
+                        {company}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="whitespace-nowrap text-xs font-medium text-slate-600">
+                  Choose Date:
+                </span>
+                <DatePicker
+                  value={selectedDate}
+                  onChange={setSelectedDate}
+                  className="w-[180px]"
+                />
+              </div>
+
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="ml-auto gap-1.5"
+                onClick={handleExport}
+                disabled={itemCount === 0}
+                title="Export filtered rows as CSV"
+              >
+                <Download className="h-4 w-4" />
+                Export Report
+              </Button>
             </div>
 
             {error && (
@@ -188,11 +400,16 @@ function LiveCapturesPage() {
 
             {usecase === "attendance" ? (
               <AttendanceTable
-                items={attendanceItems}
+                items={filteredAttendance}
+                employees={employees}
                 loading={loading}
               />
             ) : (
-              <SnapshotTable items={snapshotItems} loading={loading} />
+              <SnapshotTable
+                items={filteredSnapshots}
+                employees={employees}
+                loading={loading}
+              />
             )}
           </CardContent>
         </Card>
@@ -201,46 +418,61 @@ function LiveCapturesPage() {
   );
 }
 
-function SnapshotTable({ items, loading }: { items: SnapshotLogItem[]; loading: boolean }) {
+function SnapshotTable({
+  items,
+  employees,
+  loading,
+}: {
+  items: SnapshotLogItem[];
+  employees: Employee[];
+  loading: boolean;
+}) {
   return (
     <Table className="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[280px] font-semibold text-slate-700">Person Name</TableHead>
-          <TableHead className="w-[140px] font-semibold text-slate-700">Image</TableHead>
-          <TableHead className="w-[180px] font-semibold text-slate-700">Date</TableHead>
+          <TableHead className="w-[260px] font-semibold text-slate-700">Employee Name</TableHead>
+          <TableHead className="w-[200px] font-semibold text-slate-700">Company</TableHead>
+          <TableHead className="w-[120px] font-semibold text-slate-700">Image</TableHead>
+          <TableHead className="w-[160px] font-semibold text-slate-700">Date</TableHead>
           <TableHead className="font-semibold text-slate-700">Time</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {items.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={4} className="py-10 text-center text-muted-foreground">
-              {loading ? "Loading snapshot…" : "No snapshot records yet."}
+            <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+              {loading ? "Loading snapshot…" : "No snapshot records match the current filters."}
             </TableCell>
           </TableRow>
         ) : (
-          items.map((item) => (
-            <TableRow key={item.id}>
-              <TableCell className="py-2 align-middle">
-                <span className="font-medium text-foreground">{item.name}</span>
-              </TableCell>
-              <TableCell className="py-2 align-middle">
-                <img
-                  src={item.image_url}
-                  alt={item.name}
-                  className="h-14 w-14 shrink-0 rounded-md border border-border object-cover"
-                  loading="lazy"
-                />
-              </TableCell>
-              <TableCell className="py-2 align-middle text-muted-foreground">
-                {formatDate(item.timestamp)}
-              </TableCell>
-              <TableCell className="py-2 align-middle text-muted-foreground">
-                {formatTime12(item.timestamp)}
-              </TableCell>
-            </TableRow>
-          ))
+          items.map((item) => {
+            const emp = findEmployeeForName(employees, item.name);
+            return (
+              <TableRow key={item.id}>
+                <TableCell className="py-2 align-middle">
+                  <span className="font-medium text-foreground">{item.name}</span>
+                </TableCell>
+                <TableCell className="py-2 align-middle text-muted-foreground">
+                  {emp?.company ?? "—"}
+                </TableCell>
+                <TableCell className="py-2 align-middle">
+                  <img
+                    src={item.image_url}
+                    alt={item.name}
+                    className="h-14 w-14 shrink-0 rounded-md border border-border object-cover"
+                    loading="lazy"
+                  />
+                </TableCell>
+                <TableCell className="py-2 align-middle text-muted-foreground">
+                  {formatDateDash(item.timestamp)}
+                </TableCell>
+                <TableCell className="py-2 align-middle text-muted-foreground">
+                  {formatTime12(item.timestamp)}
+                </TableCell>
+              </TableRow>
+            );
+          })
         )}
       </TableBody>
     </Table>
@@ -249,77 +481,79 @@ function SnapshotTable({ items, loading }: { items: SnapshotLogItem[]; loading: 
 
 function AttendanceTable({
   items,
+  employees,
   loading,
 }: {
   items: AttendanceSummaryItem[];
+  employees: Employee[];
   loading: boolean;
 }) {
   return (
     <Table className="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[220px] font-semibold text-slate-700">Person Name</TableHead>
+          <TableHead className="w-[200px] font-semibold text-slate-700">Employee Name</TableHead>
           <TableHead className="w-[110px] font-semibold text-slate-700">Image</TableHead>
-          <TableHead className="w-[140px] font-semibold text-slate-700">Date</TableHead>
+          <TableHead className="w-[180px] font-semibold text-slate-700">Company</TableHead>
+          <TableHead className="w-[130px] font-semibold text-slate-700">Date</TableHead>
           <TableHead className="w-[140px] font-semibold text-slate-700">Entry Time</TableHead>
-          <TableHead className="w-[140px] font-semibold text-slate-700">Late Entry Time</TableHead>
+          <TableHead className="w-[130px] font-semibold text-slate-700">Late Entry Time</TableHead>
           <TableHead className="w-[140px] font-semibold text-slate-700">Exit Time</TableHead>
-          <TableHead className="w-[140px] font-semibold text-slate-700">Early Exit Time</TableHead>
-          <TableHead className="font-semibold text-slate-700">Status</TableHead>
+          <TableHead className="w-[130px] font-semibold text-slate-700">Early Exit Time</TableHead>
+          <TableHead className="font-semibold text-slate-700">Total Hours</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {items.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={8} className="py-10 text-center text-muted-foreground">
-              {loading ? "Loading attendance…" : "No attendance records yet."}
+            <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
+              {loading ? "Loading attendance…" : "No attendance records match the current filters."}
             </TableCell>
           </TableRow>
         ) : (
-          items.map((item) => (
-            <TableRow key={item.id}>
-              <TableCell className="py-2 align-middle">
-                <span className="font-medium text-foreground">{item.name}</span>
-              </TableCell>
-              <TableCell className="py-2 align-middle">
-                {item.entry_image_url ? (
-                  <img
-                    src={item.entry_image_url}
-                    alt={item.name}
-                    className="h-14 w-14 shrink-0 rounded-md border border-border object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div className="h-14 w-14 rounded-md border border-dashed border-slate-300 bg-slate-50" />
-                )}
-              </TableCell>
-              <TableCell className="py-2 align-middle text-muted-foreground">
-                {formatDateKey(item.date)}
-              </TableCell>
-              <TableCell className="py-2 align-middle text-muted-foreground">
-                {formatClock12(item.entry_time)}
-              </TableCell>
-              <TableCell className="py-2 align-middle text-muted-foreground">
-                {formatMinutes(item.late_entry_minutes)}
-              </TableCell>
-              <TableCell className="py-2 align-middle text-muted-foreground">
-                {formatClock12(item.exit_time)}
-              </TableCell>
-              <TableCell className="py-2 align-middle text-muted-foreground">
-                {formatMinutes(item.early_exit_minutes)}
-              </TableCell>
-              <TableCell className="py-2 align-middle">
-                <span
-                  className={cn(
-                    "inline-flex rounded-full border px-2.5 py-1 text-xs font-medium",
-                    statusClasses(item.status),
+          items.map((item) => {
+            const emp = findEmployeeForName(employees, item.name);
+            return (
+              <TableRow key={item.id}>
+                <TableCell className="py-2 align-middle">
+                  <span className="font-medium text-foreground">{item.name}</span>
+                </TableCell>
+                <TableCell className="py-2 align-middle">
+                  {item.entry_image_url ? (
+                    <img
+                      src={item.entry_image_url}
+                      alt={item.name}
+                      className="h-14 w-14 shrink-0 rounded-md border border-border object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="h-14 w-14 rounded-md border border-dashed border-slate-300 bg-slate-50" />
                   )}
-                >
-                  {item.status}
-                </span>
-              </TableCell>
-            </TableRow>
-          ))
+                </TableCell>
+                <TableCell className="py-2 align-middle text-muted-foreground">
+                  {emp?.company ?? "—"}
+                </TableCell>
+                <TableCell className="py-2 align-middle text-muted-foreground">
+                  {formatDateKeyDash(item.date)}
+                </TableCell>
+                <TableCell className="py-2 align-middle text-muted-foreground">
+                  {formatClock12(item.entry_time)}
+                </TableCell>
+                <TableCell className="py-2 align-middle text-muted-foreground">
+                  {formatMinutes(item.late_entry_minutes)}
+                </TableCell>
+                <TableCell className="py-2 align-middle text-muted-foreground">
+                  {formatClock12(item.exit_time)}
+                </TableCell>
+                <TableCell className="py-2 align-middle text-muted-foreground">
+                  {formatMinutes(item.early_exit_minutes)}
+                </TableCell>
+                <TableCell className="py-2 align-middle text-muted-foreground">
+                  {item.total_hours}
+                </TableCell>
+              </TableRow>
+            );
+          })
         )}
       </TableBody>
     </Table>

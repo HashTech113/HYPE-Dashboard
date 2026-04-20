@@ -1,16 +1,29 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
+import { useEffect, useMemo, useState } from "react";
 import { MoreHorizontal, Percent, Users, CalendarDays, Clock3 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEmployees } from "@/contexts/EmployeesContext";
+import { getAttendanceLogs, type AttendanceSummaryItem } from "@/api/dashboardApi";
+import { matchesEmployeeName } from "@/lib/nameMatch";
 
 export const Route = createFileRoute("/_dashboard/")({
   component: OverviewPage,
 });
 
 const attendanceSegments = [
-  { label: "Present", value: 78, color: "#0f9f7f" },
-  { label: "Leave", value: 14, color: "#e74c3c" },
-  { label: "Late", value: 8, color: "#f4c542" },
+  { label: "Present", color: "#0f9f7f" },
+  { label: "Leave", color: "#e74c3c" },
+  { label: "Late", color: "#f4c542" },
 ] as const;
+
+const OVERVIEW_POLL_MS = 30_000;
+
+function todayIsoDate(): string {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
 
 const pendingRequests = [
   { title: "Recent Request", time: "Last 3 hours ago" },
@@ -267,7 +280,13 @@ function EmployeeMovementChart() {
   );
 }
 
-function AttendanceRing() {
+type AttendanceRingProps = {
+  presentRatio: number;
+  leaveRatio: number;
+  lateRatio: number;
+};
+
+function AttendanceRing({ presentRatio, leaveRatio, lateRatio }: AttendanceRingProps) {
   const size = 160;
   const center = size / 2;
   const outerRadius = 62;
@@ -276,9 +295,10 @@ function AttendanceRing() {
   const outerCircumference = 2 * Math.PI * outerRadius;
   const middleCircumference = 2 * Math.PI * middleRadius;
   const innerCircumference = 2 * Math.PI * innerRadius;
-  const presentProgress = 0.9;
-  const leaveProgress = 0.78;
-  const lateProgress = 0.66;
+  const clamp = (n: number) => Math.max(0, Math.min(1, n));
+  const presentProgress = clamp(presentRatio);
+  const leaveProgress = clamp(leaveRatio);
+  const lateProgress = clamp(lateRatio);
   const ringStroke = 8;
 
   return (
@@ -385,7 +405,75 @@ function Dot({ color }: { color: string }) {
   return <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />;
 }
 
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return "0%";
+  return `${Math.round(value * 100)}%`;
+}
+
+function useTodayMetrics() {
+  const { employees } = useEmployees();
+  const [summaries, setSummaries] = useState<AttendanceSummaryItem[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const today = todayIsoDate();
+      try {
+        const data = await getAttendanceLogs({
+          start: today,
+          end: today,
+          limit: 500,
+        });
+        if (!active) return;
+        setSummaries(data.items);
+      } catch (err) {
+        console.error("Failed to load today's attendance", err);
+      }
+    };
+    load();
+    const id = window.setInterval(load, OVERVIEW_POLL_MS);
+    return () => {
+      active = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  return useMemo(() => {
+    const totalEmployees = employees.length;
+
+    // One summary row per (name, date); name may be a capture name not identical
+    // to the employee's full name, so match via the shared matcher.
+    const todayDate = todayIsoDate();
+    const rowsToday = summaries.filter((s) => s.date === todayDate);
+
+    const matchedEmployeeIds = new Set<string>();
+    let lateCount = 0;
+    for (const row of rowsToday) {
+      const match = employees.find((e) => matchesEmployeeName(row.name, e.name));
+      if (match) matchedEmployeeIds.add(match.employeeId);
+      if (row.status === "Late") lateCount += 1;
+    }
+    const presentCount = matchedEmployeeIds.size;
+    const leaveCount = Math.max(0, totalEmployees - presentCount);
+
+    const ratio = (n: number) =>
+      totalEmployees > 0 ? n / totalEmployees : 0;
+
+    return {
+      totalEmployees,
+      presentCount,
+      lateCount,
+      leaveCount,
+      presentRatio: ratio(presentCount),
+      leaveRatio: ratio(leaveCount),
+      lateRatio: ratio(lateCount),
+    };
+  }, [employees, summaries]);
+}
+
 function OverviewPage() {
+  const metrics = useTodayMetrics();
+
   return (
     <div className="min-h-full">
       <section className="mx-auto flex min-h-full w-full max-w-[1380px] flex-col gap-2">
@@ -399,8 +487,9 @@ function OverviewPage() {
                 </CardHeader>
                 <CardContent className="flex items-center justify-between pt-0">
                   <div>
-                    <p className="text-3xl font-bold tracking-tight text-slate-900">2,450</p>
-                    <p className="mt-0.5 text-xs font-semibold text-[#0b936f]">+2.45%</p>
+                    <p className="text-3xl font-bold tracking-tight text-slate-900">
+                      {metrics.totalEmployees.toLocaleString()}
+                    </p>
                   </div>
                   <div className="grid h-9 w-9 place-items-center rounded-lg bg-[#e8f5f2]">
                     <Users className="h-4 w-4 text-[#4aa590]" />
@@ -415,8 +504,12 @@ function OverviewPage() {
                 </CardHeader>
                 <CardContent className="flex items-center justify-between pt-0">
                   <div>
-                    <p className="text-3xl font-bold tracking-tight text-slate-900">2,397</p>
-                    <p className="mt-0.5 text-xs font-semibold text-[#0b936f]">+1.82%</p>
+                    <p className="text-3xl font-bold tracking-tight text-slate-900">
+                      {metrics.presentCount.toLocaleString()}
+                    </p>
+                    <p className="mt-0.5 text-xs font-semibold text-[#0b936f]">
+                      {formatPercent(metrics.presentRatio)}
+                    </p>
                   </div>
                   <div className="grid h-9 w-9 place-items-center rounded-full border border-[#c4e8e0] bg-[#e8f5f2]">
                     <Percent className="h-4 w-4 text-[#4aa590]" />
@@ -431,8 +524,12 @@ function OverviewPage() {
                 </CardHeader>
                 <CardContent className="flex items-center justify-between pt-0">
                   <div>
-                    <p className="text-3xl font-bold tracking-tight text-slate-900">14</p>
-                    <p className="mt-0.5 text-xs font-semibold text-[#0b936f]">+0.58%</p>
+                    <p className="text-3xl font-bold tracking-tight text-slate-900">
+                      {metrics.leaveCount.toLocaleString()}
+                    </p>
+                    <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                      {formatPercent(metrics.leaveRatio)}
+                    </p>
                   </div>
                   <div className="grid h-9 w-9 place-items-center rounded-full border border-[#c4e8e0] bg-[#e8f5f2]">
                     <CalendarDays className="h-4 w-4 text-[#4aa590]" />
@@ -447,8 +544,12 @@ function OverviewPage() {
                 </CardHeader>
                 <CardContent className="flex items-center justify-between pt-0">
                   <div>
-                    <p className="text-3xl font-bold tracking-tight text-slate-900">8</p>
-                    <p className="mt-0.5 text-xs font-semibold text-[#0b936f]">+0.33%</p>
+                    <p className="text-3xl font-bold tracking-tight text-slate-900">
+                      {metrics.lateCount.toLocaleString()}
+                    </p>
+                    <p className="mt-0.5 text-xs font-semibold text-amber-600">
+                      {formatPercent(metrics.lateRatio)}
+                    </p>
                   </div>
                   <div className="grid h-9 w-9 place-items-center rounded-full border border-[#c4e8e0] bg-[#e8f5f2]">
                     <Clock3 className="h-4 w-4 text-[#4aa590]" />
@@ -465,14 +566,31 @@ function OverviewPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               <div className="flex flex-col items-center gap-2 md:flex-row md:items-start md:justify-between">
-                <AttendanceRing />
+                <AttendanceRing
+                  presentRatio={metrics.presentRatio}
+                  leaveRatio={metrics.leaveRatio}
+                  lateRatio={metrics.lateRatio}
+                />
                 <div className="space-y-1.5 pt-0.5 md:pt-1.5">
-                  {attendanceSegments.map((item) => (
-                    <div key={item.label} className="flex items-center gap-2 text-xs font-medium text-slate-700">
-                      <Dot color={item.color} />
-                      <span>{item.label}</span>
-                    </div>
-                  ))}
+                  {attendanceSegments.map((item) => {
+                    const ratio =
+                      item.label === "Present"
+                        ? metrics.presentRatio
+                        : item.label === "Leave"
+                          ? metrics.leaveRatio
+                          : metrics.lateRatio;
+                    return (
+                      <div
+                        key={item.label}
+                        className="flex items-center gap-2 text-xs font-medium text-slate-700"
+                      >
+                        <Dot color={item.color} />
+                        <span>
+                          {item.label} · {formatPercent(ratio)}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </CardContent>

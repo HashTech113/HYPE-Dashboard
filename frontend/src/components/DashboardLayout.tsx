@@ -85,7 +85,7 @@ function SidebarBody({ expanded, pathname, searchRole, onNavigate }: SidebarBody
       <nav
         className={cn(
           "relative z-10 mt-2 flex flex-1 flex-col gap-3",
-          expanded ? "w-full items-stretch" : "items-center",
+          expanded ? "w-full items-stretch" : "w-full items-center",
         )}
       >
         {navItems.map((item) => {
@@ -95,7 +95,10 @@ function SidebarBody({ expanded, pathname, searchRole, onNavigate }: SidebarBody
           const showChildren = expanded && item.children && item.children.length > 0;
 
           return (
-            <div key={item.to} className={cn(expanded ? "w-full" : undefined)}>
+            <div
+              key={item.to}
+              className={cn(expanded ? "w-full" : "flex w-full justify-center")}
+            >
               <Link
                 to={item.to}
                 onClick={onNavigate}
@@ -103,7 +106,7 @@ function SidebarBody({ expanded, pathname, searchRole, onNavigate }: SidebarBody
                   "relative transition-all duration-200",
                   expanded
                     ? "flex h-10 w-full items-center gap-3 rounded-xl px-3"
-                    : "grid h-9 w-9 place-items-center rounded-xl",
+                    : "flex h-10 w-10 items-center justify-center rounded-xl",
                   selfActive || (!expanded && parentActive)
                     ? "bg-white text-[#3f9382] shadow-[0_10px_20px_rgba(12,70,56,0.22)]"
                     : "text-white/90 hover:bg-white/18 hover:text-white",
