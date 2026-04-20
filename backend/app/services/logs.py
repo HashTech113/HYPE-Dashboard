@@ -114,6 +114,8 @@ def build_attendance_summaries(
         shift=shift,
         base_url=base_url,
     )
-    records.sort(key=lambda r: (r["date"], r["name"].lower()), reverse=False)
+    # `build_range_records` already returns rows sorted (date ASC, name ASC).
+    # A stable sort by date DESC then produces (date DESC, name ASC), which is
+    # what the UI expects — newest days on top.
     records.sort(key=lambda r: r["date"], reverse=True)
     return records
