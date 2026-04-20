@@ -1,5 +1,5 @@
 ﻿import { Link, useLocation } from "@tanstack/react-router";
-import { useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import {
   LayoutDashboard,
   Clock,
@@ -62,14 +62,159 @@ function isChildActive(
   return searchRole === expectedRole;
 }
 
+function initialSidebarState(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.innerWidth >= 1024;
+}
+
+function isMobileViewport(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.innerWidth < 768;
+}
+
+type SidebarBodyProps = {
+  expanded: boolean;
+  pathname: string;
+  searchRole: string | undefined;
+  onNavigate?: () => void;
+};
+
+function SidebarBody({ expanded, pathname, searchRole, onNavigate }: SidebarBodyProps) {
+  return (
+    <>
+      <nav
+        className={cn(
+          "relative z-10 mt-2 flex flex-1 flex-col gap-3",
+          expanded ? "w-full items-stretch" : "items-center",
+        )}
+      >
+        {navItems.map((item) => {
+          const parentActive = isParentActive(item, pathname);
+          const selfActive = pathname === item.to;
+          const showNotificationDot = item.to === "/requests";
+          const showChildren = expanded && item.children && item.children.length > 0;
+
+          return (
+            <div key={item.to} className={cn(expanded ? "w-full" : undefined)}>
+              <Link
+                to={item.to}
+                onClick={onNavigate}
+                className={cn(
+                  "relative transition-all duration-200",
+                  expanded
+                    ? "flex h-10 w-full items-center gap-3 rounded-xl px-3"
+                    : "grid h-9 w-9 place-items-center rounded-xl",
+                  selfActive || (!expanded && parentActive)
+                    ? "bg-white text-[#3f9382] shadow-[0_10px_20px_rgba(12,70,56,0.22)]"
+                    : "text-white/90 hover:bg-white/18 hover:text-white",
+                )}
+                title={item.label}
+              >
+                <item.icon className="h-4 w-4" />
+                <span
+                  className={cn(
+                    "truncate text-sm font-medium transition-all duration-200",
+                    expanded
+                      ? "max-w-[160px] opacity-100"
+                      : "pointer-events-none max-w-0 opacity-0",
+                  )}
+                >
+                  {item.label}
+                </span>
+                {showNotificationDot && !selfActive ? (
+                  <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-[#ffe37d]" />
+                ) : null}
+              </Link>
+
+              {showChildren ? (
+                <div className="mt-1 flex flex-col gap-1 pl-5">
+                  {item.children!.map((child) => {
+                    const childActive = isChildActive(child, pathname, searchRole);
+                    return (
+                      <Link
+                        key={`${child.to}-${child.search?.role ?? "default"}`}
+                        to={child.to}
+                        search={child.search}
+                        onClick={onNavigate}
+                        className={cn(
+                          "flex h-9 w-full items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors",
+                          childActive
+                            ? "bg-white/90 text-[#3f9382] shadow-sm"
+                            : "text-white/85 hover:bg-white/15 hover:text-white",
+                        )}
+                        title={child.label}
+                      >
+                        <child.icon className="h-3.5 w-3.5" />
+                        <span className="truncate">{child.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          );
+        })}
+      </nav>
+
+      <div className={cn("relative z-10 mt-4 w-full pb-1", expanded ? "px-1" : "px-2")}>
+        <button
+          type="button"
+          className={cn(
+            "flex w-full items-center px-2 py-1.5 text-white/95 transition-colors hover:text-white",
+            expanded ? "justify-start gap-3" : "flex-col",
+          )}
+          aria-label="Admin menu"
+        >
+          <Avatar className="h-8 w-8 bg-slate-50">
+            <AvatarFallback className="bg-slate-50 text-slate-900">
+              <User className="h-4 w-4" />
+            </AvatarFallback>
+          </Avatar>
+          <span
+            className={cn(
+              "truncate text-sm font-medium transition-all duration-200",
+              expanded
+                ? "max-w-[130px] opacity-100"
+                : "pointer-events-none max-w-0 opacity-0",
+            )}
+          >
+            Admin
+          </span>
+        </button>
+      </div>
+    </>
+  );
+}
+
+const SIDEBAR_ASIDE_CLASSES =
+  "relative flex min-h-0 w-full flex-1 flex-col rounded-r-[28px] bg-gradient-to-b from-[#69baa7] via-[#4aa590] to-[#2f8f7b] py-5 transition-[padding] duration-300 ease-out";
+
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  const [sidebarExpanded, setSidebarExpanded] = useState(initialSidebarState);
+
+  const searchRole =
+    typeof (location.search as { role?: string }).role === "string"
+      ? ((location.search as { role?: string }).role as string)
+      : undefined;
+
+  // Close the mobile overlay whenever the route changes.
+  useEffect(() => {
+    if (isMobileViewport()) {
+      setSidebarExpanded(false);
+    }
+  }, [location.pathname, location.search]);
+
+  const closeMobileSidebar = () => {
+    if (isMobileViewport()) {
+      setSidebarExpanded(false);
+    }
+  };
 
   return (
     <div className="relative h-screen overflow-hidden bg-[#eef3f9]">
-      <div className="mx-auto flex h-full max-w-[1680px] flex-col px-3 py-3 md:px-4 md:py-4">
-        <header className="relative flex h-[62px] shrink-0 items-center border-b border-slate-200 bg-[#eef3f9] px-3 md:px-4">
+      <div className="mx-auto flex h-full max-w-[1680px] flex-col px-2 py-2 sm:px-3 sm:py-3 md:px-4 md:py-4">
+        <header className="relative flex h-[62px] shrink-0 items-center border-b border-slate-200 bg-[#eef3f9] px-2 sm:px-3 md:px-4">
           <button
             type="button"
             onClick={() => setSidebarExpanded((prev) => !prev)}
@@ -84,150 +229,80 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <img
               src={hypeLogo}
               alt="HYPE logo"
-              className="ml-1 h-23 w-23 object-contain"
+              className="ml-1 hidden h-23 w-23 object-contain md:block"
             />
           ) : null}
 
-          <p className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-xl font-semibold tracking-wide text-slate-800 md:text-2xl">
+          <p className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-semibold tracking-wide text-slate-800 sm:text-sm md:text-xl lg:text-2xl">
             ᴍᴏᴠᴇᴍᴇɴᴛ ɪɴᴛᴇʟʟɪɢᴇɴᴄᴇ ᴘʟᴀᴛꜰᴏʀᴍ
           </p>
 
           <div className="ml-auto flex items-center gap-1.5 text-slate-700">
             <button
               type="button"
-              className="ml-1 flex flex-col items-center px-2 py-1.5 text-slate-700 transition-colors hover:text-slate-900"
+              className="flex flex-col items-center px-1 py-1 text-slate-700 transition-colors hover:text-slate-900 sm:px-2 sm:py-1.5"
               aria-label="Admin menu"
             >
-              <div className="grid h-10 w-10 place-items-center rounded-full bg-[#4aa590]">
-                <User className="h-5 w-5 text-white" strokeWidth={2.2} />
+              <div className="grid h-9 w-9 place-items-center rounded-full bg-[#4aa590] sm:h-10 sm:w-10">
+                <User className="h-4 w-4 text-white sm:h-5 sm:w-5" strokeWidth={2.2} />
               </div>
             </button>
           </div>
         </header>
 
-        <div className="flex min-h-0 flex-1 gap-0 pt-3">
+        <div className="relative flex min-h-0 flex-1 pt-2 sm:pt-3">
+          {/* Desktop / tablet sidebar — in flow, push layout */}
           <div
             className={cn(
-              "relative z-10 flex h-full shrink-0 flex-col transition-[width] duration-300 ease-out",
-              sidebarExpanded ? "w-[248px]" : "w-[92px]",
+              "relative z-10 hidden h-full shrink-0 flex-col transition-[width] duration-300 ease-out md:flex",
+              sidebarExpanded ? "md:w-[248px]" : "md:w-[92px]",
             )}
           >
             <aside
               className={cn(
-                "relative flex min-h-0 w-full flex-1 flex-col rounded-r-[28px] bg-gradient-to-b from-[#69baa7] via-[#4aa590] to-[#2f8f7b] py-5 transition-all duration-300 ease-out",
+                SIDEBAR_ASIDE_CLASSES,
                 sidebarExpanded ? "items-start px-3" : "items-center",
               )}
             >
-            <nav
-              className={cn(
-                "relative z-10 mt-2 flex flex-1 flex-col gap-3",
-                sidebarExpanded ? "w-full items-stretch" : "items-center",
-              )}
-            >
-              {navItems.map((item) => {
-                const searchRole =
-                  typeof (location.search as { role?: string }).role === "string"
-                    ? ((location.search as { role?: string }).role as string)
-                    : undefined;
-                const parentActive = isParentActive(item, location.pathname);
-                const selfActive = location.pathname === item.to;
-                const showNotificationDot = item.to === "/requests";
-                const showChildren = sidebarExpanded && item.children && item.children.length > 0;
-
-                return (
-                  <div key={item.to} className={cn(sidebarExpanded ? "w-full" : undefined)}>
-                    <Link
-                      to={item.to}
-                      className={cn(
-                        "relative transition-all duration-200",
-                        sidebarExpanded
-                          ? "flex h-10 w-full items-center gap-3 rounded-xl px-3"
-                          : "grid h-9 w-9 place-items-center rounded-xl",
-                        (selfActive || (!sidebarExpanded && parentActive))
-                          ? "bg-white text-[#3f9382] shadow-[0_10px_20px_rgba(12,70,56,0.22)]"
-                          : "text-white/90 hover:bg-white/18 hover:text-white"
-                      )}
-                      title={item.label}
-                    >
-                      <item.icon className="h-4 w-4" />
-                      <span
-                        className={cn(
-                          "truncate text-sm font-medium transition-all duration-200",
-                          sidebarExpanded
-                            ? "max-w-[160px] opacity-100"
-                            : "pointer-events-none max-w-0 opacity-0",
-                        )}
-                      >
-                        {item.label}
-                      </span>
-                      {showNotificationDot && !selfActive ? (
-                        <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-[#ffe37d]" />
-                      ) : null}
-                    </Link>
-
-                    {showChildren ? (
-                      <div className="mt-1 flex flex-col gap-1 pl-5">
-                        {item.children!.map((child) => {
-                          const childActive = isChildActive(child, location.pathname, searchRole);
-                          return (
-                            <Link
-                              key={`${child.to}-${child.search?.role ?? "default"}`}
-                              to={child.to}
-                              search={child.search}
-                              className={cn(
-                                "flex h-9 w-full items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors",
-                                childActive
-                                  ? "bg-white/90 text-[#3f9382] shadow-sm"
-                                  : "text-white/85 hover:bg-white/15 hover:text-white",
-                              )}
-                              title={child.label}
-                            >
-                              <child.icon className="h-3.5 w-3.5" />
-                              <span className="truncate">{child.label}</span>
-                            </Link>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </nav>
-
-            <div className={cn("relative z-10 mt-4 w-full pb-1", sidebarExpanded ? "px-1" : "px-2")}>
-              <button
-                type="button"
-                className={cn(
-                  "flex w-full items-center px-2 py-1.5 text-white/95 transition-colors hover:text-white",
-                  sidebarExpanded ? "justify-start gap-3" : "flex-col",
-                )}
-                aria-label="Admin menu"
-              >
-                <Avatar className="h-8 w-8 bg-slate-50">
-                  <AvatarFallback className="bg-slate-50 text-slate-900">
-                    <User className="h-4 w-4" />
-                  </AvatarFallback>
-                </Avatar>
-                <span
-                  className={cn(
-                    "truncate text-sm font-medium transition-all duration-200",
-                    sidebarExpanded
-                      ? "max-w-[130px] opacity-100"
-                      : "pointer-events-none max-w-0 opacity-0",
-                  )}
-                >
-                  Admin
-                </span>
-              </button>
-            </div>
-          </aside>
+              <SidebarBody
+                expanded={sidebarExpanded}
+                pathname={location.pathname}
+                searchRole={searchRole}
+              />
+            </aside>
           </div>
 
-          <div className="z-10 flex min-w-0 flex-1 flex-col gap-0 overflow-hidden">
-          <main className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto bg-[#eef3f9] p-4 md:p-5">
+          {/* Mobile overlay backdrop */}
+          <div
+            className={cn(
+              "fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 md:hidden",
+              sidebarExpanded ? "opacity-100" : "pointer-events-none opacity-0",
+            )}
+            onClick={() => setSidebarExpanded(false)}
+            aria-hidden="true"
+          />
+
+          {/* Mobile sidebar — fixed, slides in/out */}
+          <div
+            className={cn(
+              "fixed inset-y-0 left-0 z-50 flex w-[248px] flex-col transition-transform duration-300 ease-out md:hidden",
+              sidebarExpanded ? "translate-x-0" : "-translate-x-full",
+            )}
+            aria-hidden={!sidebarExpanded}
+          >
+            <aside className={cn(SIDEBAR_ASIDE_CLASSES, "items-start px-3")}>
+              <SidebarBody
+                expanded
+                pathname={location.pathname}
+                searchRole={searchRole}
+                onNavigate={closeMobileSidebar}
+              />
+            </aside>
+          </div>
+
+          <main className="scrollbar-hidden z-10 min-h-0 min-w-0 flex-1 overflow-y-auto bg-[#eef3f9] p-3 sm:p-4 md:p-5">
             {children}
           </main>
-        </div>
         </div>
       </div>
     </div>

@@ -206,23 +206,22 @@ function DetailField({
             </div>
           )}
         </div>
+      ) : pill ? (
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{label}</p>
+          <span
+            className={cn(
+              "inline-flex shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold",
+              pill.className,
+            )}
+          >
+            {pill.label}
+          </span>
+        </div>
       ) : (
         <>
           <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{label}</p>
-          {pill ? (
-            <p className="mt-1">
-              <span
-                className={cn(
-                  "inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
-                  pill.className,
-                )}
-              >
-                {pill.label}
-              </span>
-            </p>
-          ) : (
-            <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{value}</p>
-          )}
+          <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{value}</p>
         </>
       )}
     </div>

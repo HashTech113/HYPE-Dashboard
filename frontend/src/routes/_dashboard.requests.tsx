@@ -129,7 +129,7 @@ function LiveCapturesPage() {
         icon={<Users className="h-5 w-5 text-primary" />}
         className="animate-fade-in-up"
         actions={
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:gap-3">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
@@ -143,21 +143,24 @@ function LiveCapturesPage() {
               type="button"
               variant="outline"
               size="sm"
+              className="w-full md:w-auto"
               onClick={handleManualRefresh}
               disabled={refreshing}
               title="Refresh now"
             >
               <RefreshCw className={cn("mr-1.5 h-4 w-4", refreshing && "animate-spin")} />
-              {refreshing
-                ? "Refreshing…"
-                : `Auto refresh every ${POLL_INTERVAL_MS / 1000}s`}
+              <span className="truncate">
+                {refreshing
+                  ? "Refreshing…"
+                  : `Auto refresh every ${POLL_INTERVAL_MS / 1000}s`}
+              </span>
             </Button>
           </div>
         }
       >
         <Card className="flex min-h-0 flex-1 flex-col">
           <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+            <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 sm:flex-row sm:items-center sm:justify-between">
               <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-slate-700">
                 {usecaseLabel} Records
               </h3>
@@ -166,7 +169,7 @@ function LiveCapturesPage() {
                   Choose Usecase:
                 </span>
                 <Select value={usecase} onValueChange={(value) => setUsecase(value as Usecase)}>
-                  <SelectTrigger className="h-9 w-[180px]">
+                  <SelectTrigger className="h-9 w-full sm:w-[180px]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
