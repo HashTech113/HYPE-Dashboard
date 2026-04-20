@@ -670,7 +670,7 @@ function PresencePage() {
           </div>
 
           {(
-            <div className="grid min-h-0 flex-1 items-stretch gap-2 xl:grid-cols-[minmax(620px,1.15fr)_minmax(0,1fr)]">
+            <div className="grid min-h-0 flex-1 items-stretch gap-2 2xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
               <section className="flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-700">Employee Details</p>
@@ -752,8 +752,8 @@ function PresencePage() {
                 </div>
               </section>
 
-              <section className="flex h-full min-h-0 w-full max-w-[760px] flex-col rounded-xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100/70 p-2.5 shadow-sm">
-                <div className="mb-1.5 flex items-start justify-between gap-2">
+              <section className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100/70 p-2.5 shadow-sm">
+                <div className="mb-1.5 flex flex-wrap items-start justify-between gap-2">
                   <div className="justify-self-start">
                     <h3 className="text-2xl font-semibold leading-none tracking-tight text-slate-900">{monthLabel}</h3>
                   </div>
@@ -786,69 +786,73 @@ function PresencePage() {
                   </div>
                 </div>
 
-                <div className="mb-1 grid grid-cols-7 gap-0.5">
-                  {calendarDayLabels.map((day) => (
-                    <div key={day} className="px-1 text-center text-[11px] font-medium text-slate-600">
-                      {day}
-                    </div>
-                  ))}
+                <div className="mb-1 min-w-0">
+                  <div className="grid grid-cols-[repeat(7,minmax(0,1fr))] gap-0.5">
+                    {calendarDayLabels.map((day) => (
+                      <div key={day} className="min-w-0 px-1 text-center text-[11px] font-medium text-slate-600">
+                        {day}
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="grid flex-1 auto-rows-fr grid-cols-7 gap-0.5">
-                  {calendarCells.map((cell) => {
-                    const statusStyle = cell.status ? calendarStatusStyles[cell.status] : null;
+                <div className="min-h-0 flex-1 min-w-0">
+                  <div className="grid h-full min-h-0 grid-cols-[repeat(7,minmax(0,1fr))] grid-rows-6 gap-0.5">
+                    {calendarCells.map((cell) => {
+                      const statusStyle = cell.status ? calendarStatusStyles[cell.status] : null;
 
-                    return (
-                      <button
-                        type="button"
-                        key={cell.dateKey}
-                        title={cell.holidayName ?? undefined}
-                        onClick={() => {
-                          if (cell.inCurrentMonth) {
-                            setSelectedDate(cell.dateKey);
-                          }
-                        }}
-                        className={cn(
-                          "relative flex h-full min-h-[64px] flex-col rounded-xl border p-1.5 text-left transition-colors",
-                          cell.inCurrentMonth ? "border-slate-200 bg-white/90" : "border-slate-200 bg-slate-50/90 opacity-60",
-                          statusStyle?.cellClassName,
-                          cell.dateKey === selectedDate ? "border-primary/60 ring-2 ring-primary/25" : "",
-                          cell.inCurrentMonth && "hover:border-primary/40"
-                        )}
-                      >
-                        <span
+                      return (
+                        <button
+                          type="button"
+                          key={cell.dateKey}
+                          title={cell.holidayName ?? undefined}
+                          onClick={() => {
+                            if (cell.inCurrentMonth) {
+                              setSelectedDate(cell.dateKey);
+                            }
+                          }}
                           className={cn(
-                            "text-[10px] font-semibold",
-                            cell.inCurrentMonth ? "text-slate-600" : "text-slate-400"
+                            "relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border p-1 text-left transition-colors sm:p-1.5",
+                            cell.inCurrentMonth ? "border-slate-200 bg-white/90" : "border-slate-200 bg-slate-50/90 opacity-60",
+                            statusStyle?.cellClassName,
+                            cell.dateKey === selectedDate ? "border-primary/60 ring-2 ring-primary/25" : "",
+                            cell.inCurrentMonth && "hover:border-primary/40",
                           )}
                         >
-                          {cell.dayNumber}
-                        </span>
+                          <span
+                            className={cn(
+                              "text-[10px] font-semibold",
+                              cell.inCurrentMonth ? "text-slate-600" : "text-slate-400",
+                            )}
+                          >
+                            {cell.dayNumber}
+                          </span>
 
-                        {statusStyle && (
-                          <div className="mt-auto flex justify-center py-0.5">
-                            <span
-                              className={cn(
-                                "inline-flex h-6 w-6 items-center justify-center rounded-full border text-[10px] font-semibold shadow-sm",
-                                statusStyle.bubbleClassName
-                              )}
-                            >
-                              {statusStyle.code}
-                            </span>
-                          </div>
-                        )}
+                          {statusStyle && (
+                            <div className="mt-auto flex justify-center py-0.5">
+                              <span
+                                className={cn(
+                                  "inline-flex h-5 w-5 items-center justify-center rounded-full border text-[9px] font-semibold shadow-sm sm:h-6 sm:w-6 sm:text-[10px]",
+                                  statusStyle.bubbleClassName,
+                                )}
+                              >
+                                {statusStyle.code}
+                              </span>
+                            </div>
+                          )}
 
-                        {cell.inCurrentMonth && cell.status === "Holiday" && (
-                          <div className="mt-auto text-center text-[7px] font-medium leading-tight text-violet-700">
-                            {cell.holidayName ?? "Holiday"}
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
+                          {cell.inCurrentMonth && cell.status === "Holiday" && (
+                            <div className="mt-auto w-full truncate text-center text-[7px] font-medium leading-tight text-violet-700">
+                              {cell.holidayName ?? "Holiday"}
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="mt-1 text-right text-[10px] text-slate-500">{monthRecordCount} attendance records</div>
+                <div className="mt-1 shrink-0 text-right text-[10px] text-slate-500">{monthRecordCount} attendance records</div>
               </section>
             </div>
           )}
