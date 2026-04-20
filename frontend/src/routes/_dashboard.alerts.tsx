@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { formatDateTime } from "@/lib/dateFormat";
 
 export const Route = createFileRoute("/_dashboard/alerts")({
   component: AlertsPage,
@@ -20,7 +21,7 @@ function AlertsPage() {
     () =>
       mockAlerts.map((alert) => ({
         ...alert,
-        formattedTimestamp: new Date(alert.timestamp).toLocaleString(),
+        formattedTimestamp: formatDateTime(alert.timestamp),
       })),
     []
   );

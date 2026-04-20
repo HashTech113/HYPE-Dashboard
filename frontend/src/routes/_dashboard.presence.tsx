@@ -6,12 +6,14 @@ import { SectionShell } from "@/components/dashboard/SectionShell";
 import { mockPresenceHistory, type PresenceRecord } from "@/data/mockPresence";
 import { mockHolidayCalendar } from "@/data/mockHolidayCalendar";
 import { useEmployees } from "@/contexts/EmployeesContext";
-import { getFaceHistory, type FaceHistoryItem } from "@/api/dashboardApi";
+import { getAttendanceLogs, type AttendanceSummaryItem } from "@/api/dashboardApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { matchesEmployeeName } from "@/lib/nameMatch";
+import { formatClock12, formatDateKey as formatDisplayDate, formatDurationMinutes } from "@/lib/dateFormat";
 
 export const Route = createFileRoute("/_dashboard/presence")({
   component: PresencePage,
@@ -94,108 +96,117 @@ function formatCalendarTime(time: string | null | undefined) {
   if (!raw || raw === "-" || raw === "—" || raw === "â€”") {
     return "--";
   }
-
-  const match = raw.match(/^(\d{1,2}):(\d{2})$/);
-  if (!match) {
-    return raw;
-  }
-
-  const hours24 = Number(match[1]);
-  const minutes = match[2];
-  const suffix = hours24 >= 12 ? "PM" : "AM";
-  const hours12 = hours24 % 12 || 12;
-  return `${String(hours12).padStart(2, "0")}.${minutes} ${suffix}`;
+  return formatClock12(raw);
 }
 
-function pad2(n: number) {
-  return String(n).padStart(2, "0");
-}
-
-function localDateKey(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-function localTimeHHmm(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
-}
-
-function diffHoursMinutes(startIso: string, endIso: string): string {
-  const start = new Date(startIso).getTime();
-  const end = new Date(endIso).getTime();
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return "—";
-  const minutes = Math.round((end - start) / 60_000);
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return `${hours}h ${pad2(mins)}m`;
-}
-
-function shiftStartMinutes(shift: string | undefined): number | null {
-  if (!shift) return null;
-  const m = shift.replace(/\s+/g, "").match(/^(\d{2}):(\d{2})-(\d{2}):(\d{2})$/);
-  if (!m) return null;
-  return Number(m[1]) * 60 + Number(m[2]);
-}
-
-function nameMatchesEmployee(captureName: string, employeeName: string): boolean {
-  const norm = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
-  return norm(captureName) === norm(employeeName);
-}
-
-function deriveRecordsFromCaptures(
-  captures: FaceHistoryItem[],
-  employee: { name: string; employeeId: string; shift: string }
+function deriveRecordsFromSummaries(
+  summaries: AttendanceSummaryItem[],
+  employee: { name: string; employeeId: string }
 ): PresenceRecord[] {
-  const matching = captures.filter((c) => nameMatchesEmployee(c.name, employee.name));
-  if (matching.length === 0) return [];
-
-  const byDate = new Map<string, FaceHistoryItem[]>();
-  matching.forEach((item) => {
-    const date = localDateKey(item.entry);
-    if (!date) return;
-    const arr = byDate.get(date) ?? [];
-    arr.push(item);
-    byDate.set(date, arr);
-  });
-
-  const shiftStart = shiftStartMinutes(employee.shift);
-
-  const records: PresenceRecord[] = [];
-  byDate.forEach((items, date) => {
-    items.sort((a, b) => a.entry.localeCompare(b.entry));
-    const firstEntryIso = items[0].entry;
-    const lastExitIso = items[items.length - 1].exit;
-    const entryTime = localTimeHHmm(firstEntryIso);
-    const exitTime = localTimeHHmm(lastExitIso) || null;
-    const totalHours = exitTime ? diffHoursMinutes(firstEntryIso, lastExitIso) : "—";
-
-    let status: PresenceRecord["status"] = "Present";
-    if (shiftStart !== null && entryTime) {
-      const [hh, mm] = entryTime.split(":").map(Number);
-      const entryMinutes = hh * 60 + mm;
-      if (entryMinutes > shiftStart + 5) status = "Late";
-    }
-
-    records.push({
-      id: `api-${employee.employeeId}-${date}`,
+  return summaries
+    .filter((s) => matchesEmployeeName(s.name, employee.name))
+    .map((s) => ({
+      id: `api-${employee.employeeId}-${s.date}`,
       employeeName: employee.name,
       employeeId: employee.employeeId,
-      entryTime,
-      exitTime,
-      totalHours,
-      status,
-      date,
-      entryImage: items[0].image_url,
-      exitImage: items[items.length - 1].image_url,
-    });
-  });
-  return records;
+      entryTime: s.entry_time ?? "",
+      exitTime: s.exit_time,
+      totalHours: s.total_hours,
+      status: s.status,
+      date: s.date,
+      entryImage: s.entry_image_url ?? undefined,
+      exitImage: s.exit_image_url ?? undefined,
+      lateEntryMinutes: s.late_entry_minutes,
+      earlyExitMinutes: s.early_exit_minutes,
+    }));
 }
 
-const FACE_HISTORY_REFRESH_MS = 30_000;
+function lateEntryLabel(record: PresenceRecord | null): string {
+  if (!record || !record.entryTime) return "—";
+  const minutes = record.lateEntryMinutes ?? 0;
+  return minutes > 0 ? formatDurationMinutes(minutes) : "On Time";
+}
+
+function earlyExitLabel(record: PresenceRecord | null): string {
+  if (!record || !record.exitTime) return "—";
+  const minutes = record.earlyExitMinutes ?? 0;
+  return minutes > 0 ? formatDurationMinutes(minutes) : "On Time";
+}
+
+const statusPillClassName: Record<"Present" | "Late" | "Early Exit" | "Absent" | "Holiday", string> = {
+  Present: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  Late: "border-amber-200 bg-amber-50 text-amber-700",
+  "Early Exit": "border-orange-200 bg-orange-50 text-orange-700",
+  Absent: "border-rose-200 bg-rose-50 text-rose-700",
+  Holiday: "border-violet-200 bg-violet-50 text-violet-700",
+};
+
+function DetailField({
+  label,
+  value,
+  imageUrl,
+  pill,
+}: {
+  label: string;
+  value: string;
+  imageUrl?: string;
+  pill?: { label: string; className: string } | null;
+}) {
+  const hasImage = imageUrl !== undefined;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+      {hasImage ? (
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{label}</p>
+            <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{value}</p>
+          </div>
+          {imageUrl ? (
+            <a
+              href={imageUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="block h-12 w-14 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+              title={`View ${label.toLowerCase()} capture`}
+            >
+              <img
+                src={imageUrl}
+                alt={`${label} capture`}
+                className="h-full w-full object-cover"
+                loading="lazy"
+              />
+            </a>
+          ) : (
+            <div className="flex h-12 w-14 shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-400">
+              <ImageIcon className="h-4 w-4" />
+              <span className="mt-0.5 text-[8px] font-medium uppercase tracking-[0.12em]">Image</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
+          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{label}</p>
+          {pill ? (
+            <p className="mt-1">
+              <span
+                className={cn(
+                  "inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold",
+                  pill.className,
+                )}
+              >
+                {pill.label}
+              </span>
+            </p>
+          ) : (
+            <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{value}</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+const ATTENDANCE_REFRESH_MS = 30_000;
 
 function PresencePage() {
   const { employees } = useEmployees();
@@ -203,24 +214,24 @@ function PresencePage() {
   const [selectedEmployee, setSelectedEmployee] = useState<string>("none");
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date("2026-01-01"));
   const [selectedDate, setSelectedDate] = useState<string>("");
-  const [faceCaptures, setFaceCaptures] = useState<FaceHistoryItem[]>([]);
+  const [attendanceSummaries, setAttendanceSummaries] = useState<AttendanceSummaryItem[]>([]);
 
   useEffect(() => {
     let active = true;
 
     const load = () => {
-      getFaceHistory({ latest: 500 })
+      getAttendanceLogs({ limit: 500 })
         .then((data) => {
           if (!active) return;
-          setFaceCaptures(data.items);
+          setAttendanceSummaries(data.items);
         })
         .catch((error) => {
-          console.error("Failed to load face history", error);
+          console.error("Failed to load attendance summaries", error);
         });
     };
 
     load();
-    const id = window.setInterval(load, FACE_HISTORY_REFRESH_MS);
+    const id = window.setInterval(load, ATTENDANCE_REFRESH_MS);
     return () => {
       active = false;
       window.clearInterval(id);
@@ -260,12 +271,11 @@ function PresencePage() {
     if (selectedEmployee === "none") return [];
     const employee = employees.find((e) => e.employeeId === selectedEmployee);
     if (!employee) return [];
-    return deriveRecordsFromCaptures(faceCaptures, {
+    return deriveRecordsFromSummaries(attendanceSummaries, {
       name: employee.name,
       employeeId: employee.employeeId,
-      shift: employee.shift,
     });
-  }, [selectedEmployee, employees, faceCaptures]);
+  }, [selectedEmployee, employees, attendanceSummaries]);
 
   useEffect(() => {
     if (apiRecordsForSelected.length === 0) return;
@@ -291,10 +301,9 @@ function PresencePage() {
 
     const employee = employees.find((e) => e.employeeId === selectedEmployee);
     const apiRecords = employee
-      ? deriveRecordsFromCaptures(faceCaptures, {
+      ? deriveRecordsFromSummaries(attendanceSummaries, {
           name: employee.name,
           employeeId: employee.employeeId,
-          shift: employee.shift,
         })
       : [];
     const apiDates = new Set(apiRecords.map((r) => r.date));
@@ -305,7 +314,7 @@ function PresencePage() {
 
     const merged = [...apiRecords, ...mockRecords];
     return merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [selectedEmployee, employees, faceCaptures]);
+  }, [selectedEmployee, employees, attendanceSummaries]);
 
   const dailyStatusMap = useMemo(() => {
     const groupedByDate = new Map<string, PresenceRecord["status"][]>();
@@ -469,9 +478,7 @@ function PresencePage() {
   const selectedDayRecord = selectedDate ? recordByDateMap.get(selectedDate) ?? null : null;
   const selectedDayStatus = selectedDate ? dailyStatusMap.get(selectedDate) ?? null : null;
   const selectedDayHoliday = selectedDate ? holidayNameByDate.get(selectedDate) ?? null : null;
-  const selectedDayLabel = selectedDate
-    ? new Intl.DateTimeFormat("en-US", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(selectedDate))
-    : "No date selected";
+  const selectedDayLabel = selectedDate ? formatDisplayDate(selectedDate) : "No date selected";
 
   const monthlySummary = useMemo(() => {
     const summary = { present: 0, late: 0, absent: 0, holiday: 0 };
@@ -515,14 +522,14 @@ function PresencePage() {
       const record = recordByDateMap.get(cell.dateKey);
 
       return [
-        cell.dateKey,
+        formatDisplayDate(cell.dateKey),
         weekday,
         selectedEmployeeName,
         cell.status ?? "",
         cell.holidayName ?? "",
         dailyRecordCountMap.get(cell.dateKey) ?? 0,
-        record?.entryTime ?? "",
-        record?.exitTime ?? "",
+        record?.entryTime ? formatClock12(record.entryTime) : "",
+        record?.exitTime ? formatClock12(record.exitTime) : "",
         record?.totalHours ?? "",
       ];
     });
@@ -633,83 +640,51 @@ function PresencePage() {
                 </div>
                 <div className="mt-3 grid gap-2 xl:grid-cols-2">
                   <div className="grid gap-1.5">
-                    {[
-                      { label: "Employee Name", value: selectedEmployeeData?.name ?? "" },
-                      { label: "Company Name", value: selectedEmployeeData?.company ?? "" },
-                      { label: "Employee ID", value: selectedEmployeeData?.employeeId ?? "" },
-                    ].map((item) => (
-                      <div
-                        key={item.label}
-                        className="flex min-w-0 flex-col justify-center rounded-xl border border-slate-200 bg-white px-3.5 py-3"
-                      >
-                        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{item.label}</p>
-                        <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{item.value}</p>
-                      </div>
-                    ))}
+                    <DetailField label="Employee Name" value={selectedEmployeeData?.name ?? ""} />
+                    <DetailField label="Company Name" value={selectedEmployeeData?.company ?? ""} />
+                    <DetailField label="Employee ID" value={selectedEmployeeData?.employeeId ?? ""} />
+                    <DetailField
+                      label="Status"
+                      value={
+                        hasSelectedEmployee
+                          ? selectedDayHoliday ?? selectedDayStatus ?? "No attendance record"
+                          : ""
+                      }
+                      pill={
+                        hasSelectedEmployee
+                          ? (selectedDayHoliday
+                              ? { label: selectedDayHoliday, className: statusPillClassName.Holiday }
+                              : selectedDayStatus
+                                ? { label: selectedDayStatus, className: statusPillClassName[selectedDayStatus] }
+                                : null)
+                          : null
+                      }
+                    />
                   </div>
 
                   <div className="grid gap-1.5">
-                    {[
-                      {
-                        label: "Arrival Time",
-                        value: hasSelectedEmployee ? formatCalendarTime(selectedDayRecord?.entryTime) : "",
-                        imageSlot: true,
-                        imageUrl: hasSelectedEmployee ? selectedDayRecord?.entryImage : undefined,
-                      },
-                      {
-                        label: "Exit Time",
-                        value: hasSelectedEmployee ? formatCalendarTime(selectedDayRecord?.exitTime ?? null) : "",
-                        imageSlot: true,
-                        imageUrl: hasSelectedEmployee ? selectedDayRecord?.exitImage : undefined,
-                      },
-                      { label: "Total Hours", value: hasSelectedEmployee ? (selectedDayRecord?.totalHours ?? "--") : "" },
-                      {
-                        label: "Status",
-                        value: hasSelectedEmployee
-                          ? (selectedDayHoliday ?? selectedDayStatus ?? "No attendance record")
-                          : "",
-                      },
-                    ].map((item) => (
-                      <div
-                        key={item.label}
-                        className="rounded-xl border border-slate-200 bg-white px-3.5 py-3"
-                      >
-                        {item.imageSlot ? (
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{item.label}</p>
-                              <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{item.value}</p>
-                            </div>
-                            {item.imageUrl ? (
-                              <a
-                                href={item.imageUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="block h-12 w-14 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
-                                title={`View ${item.label.toLowerCase()} capture`}
-                              >
-                                <img
-                                  src={item.imageUrl}
-                                  alt={`${item.label} capture`}
-                                  className="h-full w-full object-cover"
-                                  loading="lazy"
-                                />
-                              </a>
-                            ) : (
-                              <div className="flex h-12 w-14 shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-400">
-                                <ImageIcon className="h-4 w-4" />
-                                <span className="mt-0.5 text-[8px] font-medium uppercase tracking-[0.12em]">Image</span>
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{item.label}</p>
-                            <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{item.value}</p>
-                          </>
-                        )}
-                      </div>
-                    ))}
+                    <DetailField
+                      label="Arrival Time"
+                      value={hasSelectedEmployee ? formatCalendarTime(selectedDayRecord?.entryTime) : ""}
+                      imageUrl={hasSelectedEmployee ? selectedDayRecord?.entryImage ?? undefined : undefined}
+                    />
+                    <DetailField
+                      label="Late Entry"
+                      value={hasSelectedEmployee ? lateEntryLabel(selectedDayRecord) : ""}
+                    />
+                    <DetailField
+                      label="Exit Time"
+                      value={hasSelectedEmployee ? formatCalendarTime(selectedDayRecord?.exitTime ?? null) : ""}
+                      imageUrl={hasSelectedEmployee ? selectedDayRecord?.exitImage ?? undefined : undefined}
+                    />
+                    <DetailField
+                      label="Early Exit"
+                      value={hasSelectedEmployee ? earlyExitLabel(selectedDayRecord) : ""}
+                    />
+                    <DetailField
+                      label="Total Hours"
+                      value={hasSelectedEmployee ? selectedDayRecord?.totalHours ?? "—" : ""}
+                    />
                   </div>
                 </div>
               </section>
@@ -759,8 +734,6 @@ function PresencePage() {
                 <div className="grid flex-1 auto-rows-fr grid-cols-7 gap-0.5">
                   {calendarCells.map((cell) => {
                     const statusStyle = cell.status ? calendarStatusStyles[cell.status] : null;
-                    const dayRecord = recordByDateMap.get(cell.dateKey);
-                    const showTimeStrip = cell.inCurrentMonth && !!statusStyle && cell.status !== "Holiday";
 
                     return (
                       <button
@@ -799,12 +772,6 @@ function PresencePage() {
                             >
                               {statusStyle.code}
                             </span>
-                          </div>
-                        )}
-
-                        {showTimeStrip && (
-                          <div className="mt-auto text-center text-[7px] font-medium leading-tight text-slate-700">
-                            {formatCalendarTime(dayRecord?.entryTime)} - {formatCalendarTime(dayRecord?.exitTime ?? null)}
                           </div>
                         )}
 

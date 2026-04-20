@@ -28,7 +28,7 @@ function to12Hour(time24: string) {
   if (!/^\d{2}:\d{2}$/.test(time24)) return "--:--";
   const [hourString, minute] = time24.split(":");
   const hour = Number(hourString);
-  const suffix = hour >= 12 ? "PM" : "AM";
+  const suffix = hour >= 12 ? "pm" : "am";
   const hour12 = hour % 12 || 12;
   return `${String(hour12).padStart(2, "0")}:${minute} ${suffix}`;
 }

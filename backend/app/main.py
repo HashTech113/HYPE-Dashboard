@@ -10,7 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .config import SNAPSHOTS_DIR
-from .routers import attendance, faces, health
+from .db import init_schema
+from .routers import attendance, faces, health, logs
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -18,6 +19,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    init_schema()
     yield
 
 
@@ -42,6 +44,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(faces.router)
     app.include_router(attendance.router)
+    app.include_router(logs.router)
 
     return app
 

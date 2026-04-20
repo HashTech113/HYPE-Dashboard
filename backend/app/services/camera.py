@@ -32,18 +32,30 @@ class CameraClient:
     def _login(self) -> requests.Session:
         log.info("Logging into camera at %s", CAMERA_BASE_URL)
         session = requests.Session()
-        resp = session.post(
-            f"{CAMERA_BASE_URL}/API/Web/Login",
-            json={"data": {}},
-            auth=HTTPDigestAuth(CAMERA_USER, CAMERA_PASS),
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
+        try:
+            resp = session.post(
+                f"{CAMERA_BASE_URL}/API/Web/Login",
+                json={"data": {}},
+                auth=HTTPDigestAuth(CAMERA_USER, CAMERA_PASS),
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+        except requests.ReadTimeout as exc:
+            log.warning(
+                "Camera login timed out after %.1fs at %s",
+                REQUEST_TIMEOUT_SECONDS,
+                CAMERA_BASE_URL,
+            )
+            raise
+        except requests.RequestException:
+            log.warning("Camera login request failed at %s", CAMERA_BASE_URL)
+            raise
         if resp.status_code != 200:
             raise RuntimeError(f"Login failed: {resp.status_code} {resp.text[:200]}")
         token = resp.headers.get("X-csrftoken")
         if not token:
             raise RuntimeError("Login response missing X-csrftoken header")
         session.headers.update({"X-csrftoken": token, "Content-Type": "application/json"})
+        log.info("Camera login succeeded; X-csrftoken received")
         return session
 
     def _ensure_session(self) -> requests.Session:
@@ -55,13 +67,26 @@ class CameraClient:
         self._session = None
 
     def fetch_alarms(self) -> list[dict]:
-        """Return the current `data.FaceInfo[]` list (may be empty)."""
+        """
+        Return the current `data.FaceInfo[]` list.
+
+        Some firmware builds appear to hold `processAlarm/Get` open briefly when
+        there are no live events to return. In that case a read timeout should be
+        treated as an empty poll, not as a dead session that forces a re-login.
+        """
         session = self._ensure_session()
-        resp = session.post(
-            f"{CAMERA_BASE_URL}/API/AI/processAlarm/Get",
-            json={},
-            timeout=REQUEST_TIMEOUT_SECONDS,
-        )
+        try:
+            resp = session.post(
+                f"{CAMERA_BASE_URL}/API/AI/processAlarm/Get",
+                json={},
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+        except requests.ReadTimeout:
+            log.info(
+                "processAlarm/Get timed out after %.1fs; treating as no live events",
+                REQUEST_TIMEOUT_SECONDS,
+            )
+            return []
         if resp.status_code >= 400:
             log.warning(
                 "processAlarm/Get %s rejected — response=%s",
@@ -71,4 +96,6 @@ class CameraClient:
         resp.raise_for_status()
         data = resp.json().get("data", {}) or {}
         faces = data.get("FaceInfo")
+        if isinstance(faces, list):
+            log.info("processAlarm/Get succeeded; FaceInfo count=%d", len(faces))
         return faces if isinstance(faces, list) else []

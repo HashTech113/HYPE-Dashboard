@@ -122,6 +122,24 @@ export function EmployeeForm({
     onSave({ ...draft, dob: parsedDob, shift: normalizeShift(draft.shift) });
   };
 
+  const handleImageFileChange = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      window.alert("Please choose a valid image file.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const value = typeof reader.result === "string" ? reader.result : "";
+      setDraft((prev) => ({ ...prev, imageUrl: value }));
+    };
+    reader.onerror = () => {
+      window.alert("Failed to read the selected image.");
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -132,6 +150,40 @@ export function EmployeeForm({
         <div className="space-y-2">
           <Label>Employee ID</Label>
           <Input value={draft.employeeId} onChange={(e) => setDraft({ ...draft, employeeId: e.target.value })} />
+        </div>
+        <div className="col-span-2 space-y-2">
+          <Label>Employee Image</Label>
+          <Input
+            placeholder="Image URL (optional)"
+            value={draft.imageUrl ?? ""}
+            onChange={(e) => setDraft((prev) => ({ ...prev, imageUrl: e.target.value }))}
+          />
+          <div className="flex flex-wrap items-center gap-3">
+            <Input
+              type="file"
+              accept="image/*"
+              onChange={(e) => handleImageFileChange(e.target.files?.[0] ?? null)}
+            />
+            {draft.imageUrl ? (
+              <>
+                <img
+                  src={draft.imageUrl}
+                  alt={`${draft.name || "Employee"} profile`}
+                  className="h-14 w-14 rounded-md border border-slate-300 object-cover"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setDraft((prev) => ({ ...prev, imageUrl: "" }))}
+                >
+                  Remove
+                </Button>
+              </>
+            ) : (
+              <div className="h-14 w-14 rounded-md border border-dashed border-slate-300 bg-slate-50" />
+            )}
+          </div>
         </div>
         <div className="col-span-2 space-y-2">
           <Label>Password</Label>

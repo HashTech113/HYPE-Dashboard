@@ -2,6 +2,7 @@ export type Employee = {
   id: string;
   name: string;
   employeeId: string;
+  imageUrl?: string;
   company: string;
   department: string;
   shift: string;
@@ -155,6 +156,40 @@ export type FaceHistoryResponse = {
   items: FaceHistoryItem[];
 };
 
+export type AttendanceStatus = "Present" | "Late" | "Early Exit" | "Absent";
+
+export type AttendanceShiftConfig = {
+  start: string;
+  end: string;
+  late_grace_min: number;
+  early_exit_grace_min: number;
+  timezone_offset_minutes: number;
+};
+
+export type AttendanceDayItem = {
+  name: string;
+  date: string;
+  entry: string | null;
+  exit: string | null;
+  entry_iso: string | null;
+  exit_iso: string | null;
+  total_hours: string;
+  total_minutes: number;
+  status: AttendanceStatus;
+  late_minutes: number;
+  early_exit_minutes: number;
+  capture_count: number;
+  entry_image_url: string | null;
+  exit_image_url: string | null;
+};
+
+export type AttendanceDayResponse = {
+  date: string;
+  shift: AttendanceShiftConfig;
+  count: number;
+  items: AttendanceDayItem[];
+};
+
 const FACE_API_BASE =
   (import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ??
   "http://localhost:8000";
@@ -181,4 +216,100 @@ export async function getFaceHistory(params: {
     throw new Error(`Failed to load face history: ${response.status}`);
   }
   return response.json() as Promise<FaceHistoryResponse>;
+}
+
+export async function getDailyAttendance(params: {
+  date?: string;
+  names?: string;
+} = {}): Promise<AttendanceDayResponse> {
+  const search = new URLSearchParams();
+  if (params.date) search.set("date", params.date);
+  if (params.names) search.set("names", params.names);
+
+  const qs = search.toString();
+  const url = `${FACE_API_BASE}/api/attendance/daily${qs ? `?${qs}` : ""}`;
+
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load attendance: ${response.status}`);
+  }
+  return response.json() as Promise<AttendanceDayResponse>;
+}
+
+export type SnapshotLogItem = {
+  id: number;
+  name: string;
+  timestamp: string;
+  image_url: string;
+};
+
+export type SnapshotLogResponse = {
+  items: SnapshotLogItem[];
+};
+
+export type AttendanceSummaryItem = {
+  id: string;
+  name: string;
+  date: string;
+  entry_time: string | null;
+  exit_time: string | null;
+  late_entry_minutes: number;
+  early_exit_minutes: number;
+  status: "Present" | "Late" | "Early Exit" | "Absent";
+  total_hours: string;
+  entry_image_url: string | null;
+  exit_image_url: string | null;
+};
+
+export type AttendanceSummaryResponse = {
+  items: AttendanceSummaryItem[];
+};
+
+export type SnapshotQueryParams = {
+  limit?: number;
+  offset?: number;
+  name?: string;
+};
+
+export type AttendanceQueryParams = SnapshotQueryParams & {
+  start?: string;
+  end?: string;
+};
+
+function buildUrl(path: string, params: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === "") continue;
+    search.set(key, String(value));
+  }
+  const qs = search.toString();
+  return `${FACE_API_BASE}${path}${qs ? `?${qs}` : ""}`;
+}
+
+export async function getAttendanceLogs(params: AttendanceQueryParams = {}): Promise<AttendanceSummaryResponse> {
+  const url = buildUrl("/api/attendance", {
+    start: params.start,
+    end: params.end,
+    name: params.name,
+    limit: params.limit,
+    offset: params.offset,
+  });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load attendance: ${response.status}`);
+  }
+  return response.json() as Promise<AttendanceSummaryResponse>;
+}
+
+export async function getSnapshotLogs(params: SnapshotQueryParams = {}): Promise<SnapshotLogResponse> {
+  const url = buildUrl("/api/snapshots", {
+    name: params.name,
+    limit: params.limit,
+    offset: params.offset,
+  });
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to load snapshots: ${response.status}`);
+  }
+  return response.json() as Promise<SnapshotLogResponse>;
 }

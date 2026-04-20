@@ -69,6 +69,11 @@ def run() -> int:
             client.invalidate()
             time.sleep(RECONNECT_BACKOFF_SECONDS)
             continue
+        except RuntimeError as e:
+            log.warning("Camera runtime error: %s — re-logging in", e)
+            client.invalidate()
+            time.sleep(RECONNECT_BACKOFF_SECONDS)
+            continue
         except requests.RequestException as e:
             log.warning("Camera request failed: %s — retrying", e)
             client.invalidate()

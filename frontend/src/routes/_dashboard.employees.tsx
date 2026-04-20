@@ -1,11 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
-import { Plus, Download, Search, Pencil, Trash2, Users, Filter } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Download, Pencil, Trash2, Users, Filter } from "lucide-react";
 import { type Employee } from "@/api/dashboardApi";
 import { useEmployees } from "@/contexts/EmployeesContext";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
@@ -45,7 +44,6 @@ function EmployeesPage() {
   const navigate = Route.useNavigate();
   const { role: roleFromSearch } = Route.useSearch();
 
-  const [search, setSearch] = useState("");
   const [selectedCompany, setSelectedCompany] = useState<string>("all");
   const [selectedEmployee, setSelectedEmployee] = useState<string>("all");
   const [selectedRole, setSelectedRole] = useState<RoleFilter>(roleFromSearch ?? "all");
@@ -57,7 +55,6 @@ function EmployeesPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
-  const deferredSearch = useDeferredValue(search);
 
   const companyOptions = useMemo(() => {
     const fromData = Array.from(new Set(employees.map((employee) => employee.company)));
@@ -79,18 +76,12 @@ function EmployeesPage() {
   }, [employeesForSelectedCompany, selectedEmployee]);
 
   const filtered = useMemo(() => {
-    const query = deferredSearch.trim().toLowerCase();
     return employeesForSelectedCompany.filter((employee) => {
       if (selectedRole !== "all" && employee.role !== selectedRole) return false;
       if (selectedEmployee !== "all" && employee.employeeId !== selectedEmployee) return false;
-      if (!query) return true;
-      return (
-        employee.name.toLowerCase().includes(query) ||
-        employee.employeeId.toLowerCase().includes(query) ||
-        employee.department.toLowerCase().includes(query)
-      );
+      return true;
     });
-  }, [employeesForSelectedCompany, deferredSearch, selectedEmployee, selectedRole]);
+  }, [employeesForSelectedCompany, selectedEmployee, selectedRole]);
 
   const handleEdit = (employee: Employee) => {
     setEditingEmployee(employee);
@@ -118,6 +109,7 @@ function EmployeesPage() {
     id: "",
     name: "",
     employeeId: "",
+    imageUrl: "",
     company: COMPANY_OPTIONS[0],
     department: "",
     shift: "09:00-18:00",
@@ -127,10 +119,12 @@ function EmployeesPage() {
   };
 
   return (
-    <div className="flex min-h-full flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       <SectionShell
         title="Employee Management"
         icon={<Users className="h-5 w-5 text-primary" />}
+        className="animate-fade-in-up"
+        contentClassName="flex min-h-0 flex-1 flex-col gap-3 p-4"
         actions={
           <div className="flex gap-2">
             <Button variant="outline" size="sm">
@@ -159,86 +153,75 @@ function EmployeesPage() {
         }
       >
 
-      <Card className="p-4">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-wrap items-center gap-3">
-            <Filter className="h-4 w-4 text-muted-foreground" />
+      <Card className="shrink-0 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <Filter className="h-4 w-4 text-muted-foreground" />
 
-            <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Employees:</span>
-              <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                <SelectTrigger className="h-10 w-[260px]">
-                  <SelectValue placeholder="Select employee" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Employees</SelectItem>
-                  {employeesForSelectedCompany.map((emp) => (
-                    <SelectItem key={emp.employeeId} value={emp.employeeId}>
-                      {emp.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Companies:</span>
-              <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                <SelectTrigger className="h-10 w-[240px]">
-                  <SelectValue placeholder="Select company" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Companies</SelectItem>
-                  {companyOptions.map((company) => (
-                    <SelectItem key={company} value={company}>
-                      {company}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Role:</span>
-              <Select
-                value={selectedRole}
-                onValueChange={(value) => {
-                  const next = value as RoleFilter;
-                  setSelectedRole(next);
-                  navigate({
-                    search: (prev) => ({
-                      ...prev,
-                      role: next === "all" ? undefined : next,
-                    }),
-                    replace: true,
-                  });
-                }}
-              >
-                <SelectTrigger className="h-10 w-[180px]">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Roles</SelectItem>
-                  <SelectItem value="Admin">Admin</SelectItem>
-                  <SelectItem value="Employee">Employee</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="flex items-center gap-2">
+            <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Employees:</span>
+            <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
+              <SelectTrigger className="h-10 w-[260px]">
+                <SelectValue placeholder="Select employee" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Employees</SelectItem>
+                {employeesForSelectedCompany.map((emp) => (
+                  <SelectItem key={emp.employeeId} value={emp.employeeId}>
+                    {emp.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          <div className="relative w-full max-w-sm">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder="Search by name, ID, or department..."
-              className="pl-9"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div className="flex items-center gap-2">
+            <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Companies:</span>
+            <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+              <SelectTrigger className="h-10 w-[240px]">
+                <SelectValue placeholder="Select company" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Companies</SelectItem>
+                {companyOptions.map((company) => (
+                  <SelectItem key={company} value={company}>
+                    {company}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Role:</span>
+            <Select
+              value={selectedRole}
+              onValueChange={(value) => {
+                const next = value as RoleFilter;
+                setSelectedRole(next);
+                navigate({
+                  search: (prev) => ({
+                    ...prev,
+                    role: next === "all" ? undefined : next,
+                  }),
+                  replace: true,
+                });
+              }}
+            >
+              <SelectTrigger className="h-10 w-[180px]">
+                <SelectValue placeholder="Select role" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Roles</SelectItem>
+                <SelectItem value="Admin">Admin</SelectItem>
+                <SelectItem value="Employee">Employee</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
       </Card>
 
-      <Card className="animate-fade-in-up">
+      <Card className="min-h-0 flex-1 overflow-hidden">
+        <div className="h-full overflow-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -286,6 +269,7 @@ function EmployeesPage() {
             ) : null}
           </TableBody>
         </Table>
+        </div>
       </Card>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

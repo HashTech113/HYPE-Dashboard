@@ -198,6 +198,3 @@ Prints every `FaceInfo` record the camera currently has in its alarm buffer, wit
 exports `getFaceHistory({ start, end, limit, offset, latest })`. The Live
 Captures page ([../frontend/src/routes/_dashboard.requests.tsx](../frontend/src/routes/_dashboard.requests.tsx))
 polls it every 5 s.
-
-
-camera ip : http://172.18.10.123/

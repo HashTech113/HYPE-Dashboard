@@ -192,4 +192,11 @@ def save_face(item: dict) -> Optional[str]:
         "Saved snapId=%s name=%s entry=%s exit=%s -> /snapshots/%s",
         snap_id, name, start_dt.isoformat(), end_dt.isoformat(), filename,
     )
+
+    from . import logs as logs_service  # deferred to avoid circular import
+    logs_service.record_capture(
+        name=name.replace("_", " "),
+        timestamp_iso=start_dt.isoformat(),
+        image_path=filename,
+    )
     return filename

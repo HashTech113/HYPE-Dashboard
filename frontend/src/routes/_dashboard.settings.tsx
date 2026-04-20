@@ -17,7 +17,7 @@ function SettingsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <Users className="h-4 w-4 text-primary" />
-                Manage Employees
+                Employee Management
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -27,7 +27,7 @@ function SettingsPage() {
               <Link to="/employees" className="w-full">
                 <Button className="mt-2 w-full" variant="default">
                   <Users className="mr-2 h-4 w-4" />
-                  View All Employees
+                  Open Employee Management
                   <ArrowRight className="ml-auto h-4 w-4" />
                 </Button>
               </Link>
@@ -38,7 +38,7 @@ function SettingsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <UserCog className="h-4 w-4 text-primary" />
-                Manage Admins
+                Admin Management
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -48,7 +48,7 @@ function SettingsPage() {
               <Link to="/employees" search={{ role: "Admin" }} className="w-full">
                 <Button className="mt-2 w-full" variant="default">
                   <UserCog className="mr-2 h-4 w-4" />
-                  View All Admins
+                  Open Admin Management
                   <ArrowRight className="ml-auto h-4 w-4" />
                 </Button>
               </Link>
