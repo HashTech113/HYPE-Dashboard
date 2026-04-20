@@ -1,10 +1,18 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Cropper, { type Area } from "react-easy-crop";
 import { Eye, EyeOff } from "lucide-react";
 import { type Employee } from "@/api/dashboardApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   ShiftTimingPicker,
   isValidShift,
@@ -65,6 +73,33 @@ function parseDobFromDisplay(display: string): string {
   return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
 }
 
+async function getCroppedDataUrl(src: string, crop: Area): Promise<string> {
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Failed to load image for cropping"));
+    img.src = src;
+  });
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(crop.width));
+  canvas.height = Math.max(1, Math.round(crop.height));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D context unavailable");
+  ctx.drawImage(
+    image,
+    crop.x,
+    crop.y,
+    crop.width,
+    crop.height,
+    0,
+    0,
+    canvas.width,
+    canvas.height,
+  );
+  return canvas.toDataURL("image/jpeg", 0.92);
+}
+
 type EmployeeFormProps = {
   employee: Employee;
   onSave: (employee: Employee) => void;
@@ -87,6 +122,41 @@ export function EmployeeForm({
   });
   const [dobDisplay, setDobDisplay] = useState<string>(formatDobForDisplay(employee.dob));
   const [showPassword, setShowPassword] = useState(false);
+  const [cropSource, setCropSource] = useState<string | null>(null);
+  const [cropPosition, setCropPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [cropZoom, setCropZoom] = useState<number>(1);
+  const [croppedArea, setCroppedArea] = useState<Area | null>(null);
+  const [cropSaving, setCropSaving] = useState<boolean>(false);
+
+  const openCropper = useCallback((src: string) => {
+    setCropSource(src);
+    setCropPosition({ x: 0, y: 0 });
+    setCropZoom(1);
+    setCroppedArea(null);
+  }, []);
+
+  const closeCropper = useCallback(() => {
+    setCropSource(null);
+    setCroppedArea(null);
+    setCropSaving(false);
+  }, []);
+
+  const onCropComplete = useCallback((_: Area, pixels: Area) => {
+    setCroppedArea(pixels);
+  }, []);
+
+  const handleCropSave = useCallback(async () => {
+    if (!cropSource || !croppedArea) return;
+    try {
+      setCropSaving(true);
+      const dataUrl = await getCroppedDataUrl(cropSource, croppedArea);
+      setDraft((prev) => ({ ...prev, imageUrl: dataUrl }));
+      closeCropper();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Failed to crop image");
+      setCropSaving(false);
+    }
+  }, [cropSource, croppedArea, closeCropper]);
 
   useEffect(() => {
     setDraft({
@@ -132,7 +202,7 @@ export function EmployeeForm({
     const reader = new FileReader();
     reader.onload = () => {
       const value = typeof reader.result === "string" ? reader.result : "";
-      setDraft((prev) => ({ ...prev, imageUrl: value }));
+      if (value) openCropper(value);
     };
     reader.onerror = () => {
       window.alert("Failed to read the selected image.");
@@ -153,35 +223,39 @@ export function EmployeeForm({
         </div>
         <div className="col-span-2 space-y-2">
           <Label>Employee Image</Label>
-          <Input
-            placeholder="Image URL (optional)"
-            value={draft.imageUrl ?? ""}
-            onChange={(e) => setDraft((prev) => ({ ...prev, imageUrl: e.target.value }))}
-          />
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-3">
             <Input
               type="file"
               accept="image/*"
+              className="min-w-0 flex-1"
               onChange={(e) => handleImageFileChange(e.target.files?.[0] ?? null)}
             />
             {draft.imageUrl ? (
               <>
-                <img
-                  src={draft.imageUrl}
-                  alt={`${draft.name || "Employee"} profile`}
-                  className="h-14 w-14 rounded-md border border-slate-300 object-cover"
-                />
+                <button
+                  type="button"
+                  onClick={() => draft.imageUrl && openCropper(draft.imageUrl)}
+                  className="h-14 w-14 shrink-0 overflow-hidden rounded-md border border-slate-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  title="Crop image"
+                >
+                  <img
+                    src={draft.imageUrl}
+                    alt={`${draft.name || "Employee"} profile`}
+                    className="h-full w-full object-cover"
+                  />
+                </button>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
+                  className="shrink-0"
                   onClick={() => setDraft((prev) => ({ ...prev, imageUrl: "" }))}
                 >
                   Remove
                 </Button>
               </>
             ) : (
-              <div className="h-14 w-14 rounded-md border border-dashed border-slate-300 bg-slate-50" />
+              <div className="h-14 w-14 shrink-0 rounded-md border border-dashed border-slate-300 bg-slate-50" />
             )}
           </div>
         </div>
@@ -263,6 +337,56 @@ export function EmployeeForm({
         ) : null}
         <Button onClick={handleSave}>{saveLabel}</Button>
       </div>
+
+      <Dialog
+        open={cropSource !== null}
+        onOpenChange={(open) => {
+          if (!open) closeCropper();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Crop Image</DialogTitle>
+          </DialogHeader>
+          {cropSource ? (
+            <div className="space-y-3">
+              <div className="relative h-64 w-full overflow-hidden rounded-lg bg-slate-900">
+                <Cropper
+                  image={cropSource}
+                  crop={cropPosition}
+                  zoom={cropZoom}
+                  aspect={1}
+                  cropShape="round"
+                  showGrid={false}
+                  onCropChange={setCropPosition}
+                  onZoomChange={setCropZoom}
+                  onCropComplete={onCropComplete}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <Label className="text-xs font-medium text-slate-600">Zoom</Label>
+                <input
+                  type="range"
+                  min={1}
+                  max={3}
+                  step={0.01}
+                  value={cropZoom}
+                  onChange={(e) => setCropZoom(Number(e.target.value))}
+                  className="flex-1 accent-primary"
+                />
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <Button variant="outline" onClick={closeCropper} disabled={cropSaving}>
+              Cancel
+            </Button>
+            <Button onClick={handleCropSave} disabled={!croppedArea || cropSaving}>
+              {cropSaving ? "Saving…" : "Save Crop"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

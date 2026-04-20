@@ -1,6 +1,6 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useEffect } from "react";
-import { Calendar, Filter, ChevronLeft, ChevronRight, Download, Image as ImageIcon } from "lucide-react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
+import { Calendar, Filter, ChevronLeft, ChevronRight, Download, Image as ImageIcon, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/dashboard/PageHeader";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { mockPresenceHistory, type PresenceRecord } from "@/data/mockPresence";
@@ -11,9 +11,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/dashboard/DatePicker";
 import { cn } from "@/lib/utils";
 import { matchesEmployeeName } from "@/lib/nameMatch";
 import { formatClock12, formatDateKey as formatDisplayDate, formatDurationMinutes } from "@/lib/dateFormat";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/_dashboard/presence")({
   component: PresencePage,
@@ -60,6 +63,7 @@ function formatDateKey(date: Date) {
   const day = String(date.getDate()).padStart(2, "0");
   return `${date.getFullYear()}-${month}-${day}`;
 }
+
 
 function toCalendarStatus(status: PresenceRecord["status"]): Exclude<CalendarCellStatus, null> {
   if (status === "Absent") {
@@ -146,15 +150,17 @@ function DetailField({
   value,
   imageUrl,
   pill,
+  onImageClick,
 }: {
   label: string;
   value: string;
   imageUrl?: string;
   pill?: { label: string; className: string } | null;
+  onImageClick?: (url: string, label: string) => void;
 }) {
   const hasImage = imageUrl !== undefined;
   return (
-    <div className="rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+    <div className="flex h-full min-h-0 flex-col justify-center rounded-xl border border-slate-200 bg-white px-3.5 py-3">
       {hasImage ? (
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -162,20 +168,37 @@ function DetailField({
             <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{value}</p>
           </div>
           {imageUrl ? (
-            <a
-              href={imageUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="block h-12 w-14 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
-              title={`View ${label.toLowerCase()} capture`}
+            <button
+              type="button"
+              onClick={() => onImageClick?.(imageUrl, label)}
+              className="group relative block h-12 w-14 shrink-0 overflow-visible rounded-lg border border-slate-200 bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              title={`Preview ${label.toLowerCase()} capture`}
             >
               <img
                 src={imageUrl}
                 alt={`${label} capture`}
-                className="h-full w-full object-cover"
+                className="h-full w-full rounded-lg object-cover"
                 loading="lazy"
               />
-            </a>
+              <div
+                className="pointer-events-none invisible absolute right-full top-1/2 z-50 mr-3 w-max -translate-y-1/2 opacity-0 transition-opacity duration-150 group-hover:visible group-hover:opacity-100"
+                role="presentation"
+              >
+                <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
+                    {label}
+                  </p>
+                  <div className="mt-2 flex h-40 w-56 items-center justify-center overflow-hidden rounded-lg bg-slate-100">
+                    <img
+                      src={imageUrl}
+                      alt=""
+                      className="block max-h-full max-w-full object-contain"
+                      loading="lazy"
+                    />
+                  </div>
+                </div>
+              </div>
+            </button>
           ) : (
             <div className="flex h-12 w-14 shrink-0 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-slate-50 text-slate-400">
               <ImageIcon className="h-4 w-4" />
@@ -212,31 +235,38 @@ function PresencePage() {
   const { employees } = useEmployees();
   const [selectedCompany, setSelectedCompany] = useState<string>("all");
   const [selectedEmployee, setSelectedEmployee] = useState<string>("none");
+  const [imagePreview, setImagePreview] = useState<{ url: string; label: string } | null>(null);
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date("2026-01-01"));
   const [selectedDate, setSelectedDate] = useState<string>("");
   const [attendanceSummaries, setAttendanceSummaries] = useState<AttendanceSummaryItem[]>([]);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const activeRef = useRef(true);
+
+  const loadAttendance = useCallback(
+    async ({ manual = false }: { manual?: boolean } = {}) => {
+      if (manual) setRefreshing(true);
+      try {
+        const data = await getAttendanceLogs({ limit: 500 });
+        if (!activeRef.current) return;
+        setAttendanceSummaries(data.items);
+      } catch (error) {
+        console.error("Failed to load attendance summaries", error);
+      } finally {
+        if (manual && activeRef.current) setRefreshing(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    let active = true;
-
-    const load = () => {
-      getAttendanceLogs({ limit: 500 })
-        .then((data) => {
-          if (!active) return;
-          setAttendanceSummaries(data.items);
-        })
-        .catch((error) => {
-          console.error("Failed to load attendance summaries", error);
-        });
-    };
-
-    load();
-    const id = window.setInterval(load, ATTENDANCE_REFRESH_MS);
+    activeRef.current = true;
+    loadAttendance();
+    const id = window.setInterval(() => loadAttendance(), ATTENDANCE_REFRESH_MS);
     return () => {
-      active = false;
+      activeRef.current = false;
       window.clearInterval(id);
     };
-  }, []);
+  }, [loadAttendance]);
 
   const companyOptions = useMemo(
     () => Array.from(new Set(employees.map((employee) => employee.company))),
@@ -601,32 +631,43 @@ function PresencePage() {
 
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Choose Date:</span>
-                <Input
-                  type="date"
-                  className="h-10 w-[220px]"
+                <DatePicker
                   value={selectedDate}
-                  onChange={(e) => {
-                    const nextDate = e.target.value;
-                    setSelectedDate(nextDate);
-                    if (nextDate) {
-                      const [year, month] = nextDate.split("-").map(Number);
+                  onChange={(next) => {
+                    setSelectedDate(next);
+                    if (next) {
+                      const [year, month] = next.split("-").map(Number);
                       setCalendarMonth(new Date(year, month - 1, 1));
                     }
                   }}
+                  className="w-[220px]"
                 />
               </div>
             </div>
 
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-10 shrink-0 gap-1.5 px-4 self-start xl:self-auto"
-              onClick={handleExportReport}
-              disabled={!hasSelectedEmployee}
-            >
-              <Download className="h-4 w-4" />
-              Export Report
-            </Button>
+            <div className="flex shrink-0 items-center gap-2 self-start xl:self-auto">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-10 gap-1.5 px-4"
+                onClick={() => loadAttendance({ manual: true })}
+                disabled={refreshing}
+                title="Refresh attendance data"
+              >
+                <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+                {refreshing ? "Refreshing…" : "Refresh"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-10 gap-1.5 px-4"
+                onClick={handleExportReport}
+                disabled={!hasSelectedEmployee}
+              >
+                <Download className="h-4 w-4" />
+                Export Report
+              </Button>
+            </div>
           </div>
 
           {(
@@ -638,11 +679,35 @@ function PresencePage() {
                     {hasSelectedEmployee ? selectedDayLabel : ""}
                   </p>
                 </div>
-                <div className="mt-3 grid gap-2 xl:grid-cols-2">
-                  <div className="grid gap-1.5">
+                <div className="mt-3 grid min-h-0 flex-1 gap-2 xl:grid-cols-2">
+                  <div className="grid min-h-0 grid-rows-[repeat(6,minmax(0,1fr))] gap-1.5">
+                    <div className="row-span-3 flex min-h-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+                      <Avatar className="h-32 w-32 border border-slate-200 bg-slate-100">
+                        {selectedEmployeeData?.imageUrl ? (
+                          <AvatarImage
+                            src={selectedEmployeeData.imageUrl}
+                            alt={selectedEmployeeData.name}
+                            className="object-cover"
+                          />
+                        ) : null}
+                        <AvatarFallback className="text-2xl font-semibold text-slate-600">
+                          {selectedEmployeeData
+                            ? selectedEmployeeData.name
+                                .split(/\s+/)
+                                .filter(Boolean)
+                                .slice(0, 2)
+                                .map((part) => part[0]?.toUpperCase() ?? "")
+                                .join("")
+                            : ""}
+                        </AvatarFallback>
+                      </Avatar>
+                    </div>
                     <DetailField label="Employee Name" value={selectedEmployeeData?.name ?? ""} />
                     <DetailField label="Company Name" value={selectedEmployeeData?.company ?? ""} />
                     <DetailField label="Employee ID" value={selectedEmployeeData?.employeeId ?? ""} />
+                  </div>
+
+                  <div className="grid min-h-0 grid-rows-[repeat(6,minmax(0,1fr))] gap-1.5">
                     <DetailField
                       label="Status"
                       value={
@@ -660,13 +725,11 @@ function PresencePage() {
                           : null
                       }
                     />
-                  </div>
-
-                  <div className="grid gap-1.5">
                     <DetailField
                       label="Arrival Time"
                       value={hasSelectedEmployee ? formatCalendarTime(selectedDayRecord?.entryTime) : ""}
                       imageUrl={hasSelectedEmployee ? selectedDayRecord?.entryImage ?? undefined : undefined}
+                      onImageClick={(url, lbl) => setImagePreview({ url, label: lbl })}
                     />
                     <DetailField
                       label="Late Entry"
@@ -676,6 +739,7 @@ function PresencePage() {
                       label="Exit Time"
                       value={hasSelectedEmployee ? formatCalendarTime(selectedDayRecord?.exitTime ?? null) : ""}
                       imageUrl={hasSelectedEmployee ? selectedDayRecord?.exitImage ?? undefined : undefined}
+                      onImageClick={(url, lbl) => setImagePreview({ url, label: lbl })}
                     />
                     <DetailField
                       label="Early Exit"
@@ -790,6 +854,30 @@ function PresencePage() {
             </div>
           )}
       </SectionShell>
+
+      <Dialog
+        open={imagePreview !== null}
+        onOpenChange={(open) => {
+          if (!open) setImagePreview(null);
+        }}
+      >
+        <DialogContent className="w-auto max-w-none gap-2 p-3 sm:rounded-xl">
+          <DialogHeader className="space-y-0">
+            <DialogTitle className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
+              {imagePreview?.label ?? "Capture"}
+            </DialogTitle>
+          </DialogHeader>
+          {imagePreview ? (
+            <div className="flex h-40 w-56 items-center justify-center overflow-hidden rounded-lg bg-slate-100">
+              <img
+                src={imagePreview.url}
+                alt={`${imagePreview.label} capture`}
+                className="block max-h-full max-w-full object-contain"
+              />
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

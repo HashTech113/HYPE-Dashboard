@@ -21,11 +21,11 @@ import logging
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from ..config import SNAPSHOTS_DIR
+from ..config import LOCAL_TZ_OFFSET_MIN, SNAPSHOTS_DIR
 
 log = logging.getLogger(__name__)
 
@@ -71,9 +71,11 @@ def _to_utc(value: Any) -> Optional[datetime]:
             if v.isdigit():
                 return datetime.fromtimestamp(float(v), tz=timezone.utc)
             try:
-                return datetime.fromisoformat(v.replace("Z", "+00:00"))
+                return datetime.fromisoformat(v.replace("Z", "+00:00")).astimezone(timezone.utc)
             except ValueError:
-                return datetime.strptime(v, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                local_tz = timezone(timedelta(minutes=LOCAL_TZ_OFFSET_MIN))
+                local_dt = datetime.strptime(v, "%Y-%m-%d %H:%M:%S").replace(tzinfo=local_tz)
+                return local_dt.astimezone(timezone.utc)
     except (ValueError, OSError, OverflowError):
         return None
     return None
