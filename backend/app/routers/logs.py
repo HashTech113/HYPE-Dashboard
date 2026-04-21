@@ -55,11 +55,16 @@ def _parse_date(value: str, field: str) -> date_cls:
 
 def _to_snapshot_item(request: Request, row: dict) -> SnapshotItem:
     base = str(request.base_url).rstrip("/")
+    data = row.get("image_data")
+    if data:
+        image_url = f"data:image/jpeg;base64,{data}"
+    else:
+        image_url = f"{base}/snapshots/{row['image_path']}"
     return SnapshotItem(
         id=row["id"],
         name=row["name"],
         timestamp=row["timestamp"],
-        image_url=f"{base}/snapshots/{row['image_path']}",
+        image_url=image_url,
     )
 
 

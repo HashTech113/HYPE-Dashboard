@@ -53,6 +53,7 @@ class Snapshot:
     name: str
     entry: datetime
     exit: datetime
+    image_data: Optional[str] = None
 
 
 def sanitize_name(name: str) -> str:

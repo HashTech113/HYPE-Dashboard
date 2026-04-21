@@ -1,4 +1,4 @@
-"""GET /api/faces/history — paginated face-capture history."""
+"""GET /api/faces/history — paginated face-capture history (DB-backed)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from ..config import DEFAULT_HISTORY_START, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
+from ..db import connect
 from ..schemas.faces import FaceHistoryItem, FaceHistoryResponse
-from ..services import snapshots
 
 router = APIRouter(tags=["faces"])
 
@@ -35,9 +35,11 @@ def _parse_boundary(value: str, field: str, *, end: bool) -> datetime:
         )
 
 
-def _image_url(request: Request, filename: str) -> str:
-    base = str(request.base_url).rstrip("/")
-    return f"{base}/snapshots/{filename}"
+def _build_image_url(base_url: str, row: dict) -> str:
+    data = row.get("image_data")
+    if data:
+        return f"data:image/jpeg;base64,{data}"
+    return f"{base_url.rstrip('/')}/snapshots/{row['image_path']}"
 
 
 @router.get("/api/faces/history", response_model=FaceHistoryResponse)
@@ -49,12 +51,13 @@ def face_history(
     offset: int = Query(0, ge=0),
     latest: Optional[int] = Query(None, ge=1, le=MAX_PAGE_LIMIT),
 ) -> FaceHistoryResponse:
-    all_snapshots = snapshots.scan()
+    base_url = str(request.base_url).rstrip("/")
 
     if latest is not None:
-        filtered = all_snapshots
         effective_limit = latest
         effective_offset = 0
+        where_sql = ""
+        where_args: list = []
     else:
         start_dt = _parse_boundary(start, "start", end=False)
         end_dt = _parse_boundary(end, "end", end=True)
@@ -63,22 +66,33 @@ def face_history(
                 status_code=400,
                 detail=f"'start' ({start}) must be on or before 'end' ({end}).",
             )
-        filtered = [s for s in all_snapshots if start_dt <= s.exit <= end_dt]
         effective_limit = limit
         effective_offset = offset
+        where_sql = " WHERE timestamp >= ? AND timestamp <= ?"
+        where_args = [start_dt.isoformat(), end_dt.isoformat()]
 
-    total = len(filtered)
-    window = filtered[effective_offset : effective_offset + effective_limit]
+    with connect() as conn:
+        total = conn.execute(
+            f"SELECT COUNT(*) AS c FROM snapshot_logs{where_sql}", where_args
+        ).fetchone()["c"]
+        rows = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT id, name, timestamp, image_path, image_data FROM snapshot_logs"
+                f"{where_sql} ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?",
+                [*where_args, effective_limit, effective_offset],
+            ).fetchall()
+        ]
 
     items = [
         FaceHistoryItem(
-            id=s.filename,
-            name=s.name,
-            entry=s.entry.isoformat(),
-            exit=s.exit.isoformat(),
-            image_url=_image_url(request, s.filename),
+            id=row["image_path"],
+            name=row["name"],
+            entry=row["timestamp"],
+            exit=row["timestamp"],
+            image_url=_build_image_url(base_url, row),
         )
-        for s in window
+        for row in rows
     ]
     return FaceHistoryResponse(
         count=len(items),

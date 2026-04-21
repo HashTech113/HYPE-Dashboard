@@ -13,14 +13,16 @@ CREATE TABLE IF NOT EXISTS snapshot_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     timestamp TEXT NOT NULL,
-    image_path TEXT NOT NULL UNIQUE
+    image_path TEXT NOT NULL UNIQUE,
+    image_data TEXT
 );
 
 CREATE TABLE IF NOT EXISTS attendance_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     timestamp TEXT NOT NULL,
-    image_path TEXT NOT NULL UNIQUE
+    image_path TEXT NOT NULL UNIQUE,
+    image_data TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_timestamp ON snapshot_logs (timestamp DESC);
@@ -47,6 +49,14 @@ def connect() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in rows)
+
+
 def init_schema() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        for table in ("snapshot_logs", "attendance_logs"):
+            if not _column_exists(conn, table, "image_data"):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN image_data TEXT")
