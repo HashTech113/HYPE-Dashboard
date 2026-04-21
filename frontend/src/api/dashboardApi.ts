@@ -110,7 +110,18 @@ export async function getOverviewData() {
   return data.overview;
 }
 
-export async function getEmployees() {
+export async function getEmployees(): Promise<Employee[]> {
+  try {
+    const resp = await fetch(buildUrl("/api/employees", {}));
+    if (resp.ok) {
+      const payload = (await resp.json()) as { items: Employee[] };
+      if (Array.isArray(payload.items) && payload.items.length > 0) {
+        return payload.items;
+      }
+    }
+  } catch {
+    // fall through to mock
+  }
   const data = await loadDashboardData();
   return data.employees;
 }
@@ -239,6 +250,7 @@ export async function getDailyAttendance(params: {
 export type SnapshotLogItem = {
   id: number;
   name: string;
+  company: string | null;
   timestamp: string;
   image_url: string;
 };
@@ -250,6 +262,7 @@ export type SnapshotLogResponse = {
 export type AttendanceSummaryItem = {
   id: string;
   name: string;
+  company: string | null;
   date: string;
   entry_time: string | null;
   exit_time: string | null;

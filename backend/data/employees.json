@@ -1,0 +1,74 @@
+[
+  {
+    "id": "1",
+    "name": "Akash",
+    "employeeId": "EMP-001",
+    "company": "WAWU",
+    "department": "Engineering",
+    "shift": "08:00-17:00",
+    "role": "Employee"
+  },
+  {
+    "id": "2",
+    "name": "Aswin",
+    "employeeId": "EMP-002",
+    "company": "WAWU",
+    "department": "HR",
+    "shift": "09:00-18:00",
+    "role": "Admin"
+  },
+  {
+    "id": "3",
+    "name": "Aromal",
+    "employeeId": "EMP-003",
+    "company": "Branch A",
+    "department": "Operations",
+    "shift": "07:00-16:00",
+    "role": "Employee"
+  },
+  {
+    "id": "4",
+    "name": "Akhil",
+    "employeeId": "EMP-004",
+    "company": "WAWU",
+    "department": "Finance",
+    "shift": "08:00-17:00",
+    "role": "Employee"
+  },
+  {
+    "id": "5",
+    "name": "Greeshma",
+    "employeeId": "EMP-005",
+    "company": "Branch B",
+    "department": "Security",
+    "shift": "06:00-14:00",
+    "role": "Employee"
+  },
+  {
+    "id": "6",
+    "name": "Vaishnavi",
+    "employeeId": "EMP-006",
+    "company": "WAWU",
+    "department": "Engineering",
+    "shift": "08:00-17:00",
+    "role": "Employee"
+  },
+  {
+    "id": "7",
+    "name": "Maria",
+    "employeeId": "EMP-007",
+    "company": "Branch A",
+    "department": "Logistics",
+    "shift": "07:00-16:00",
+    "role": "Employee"
+  },
+  {
+    "id": "8",
+    "name": "Ambika Menon",
+    "employeeId": "EMP-008",
+    "company": "WAWU",
+    "department": "Marketing",
+    "shift": "09:00-18:00",
+    "role": "Employee"
+  }
+]

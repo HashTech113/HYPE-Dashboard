@@ -22,7 +22,7 @@ from ..schemas.logs import (
     SnapshotItem,
     SnapshotListResponse,
 )
-from ..services import logs
+from ..services import employees as employees_service, logs
 from ..services.attendance import ShiftSettings, parse_hhmm
 
 router = APIRouter(tags=["logs"])
@@ -53,7 +53,7 @@ def _parse_date(value: str, field: str) -> date_cls:
         raise HTTPException(status_code=400, detail=f"{field} must be YYYY-MM-DD")
 
 
-def _to_snapshot_item(request: Request, row: dict) -> SnapshotItem:
+def _to_snapshot_item(request: Request, row: dict, directory: list) -> SnapshotItem:
     base = str(request.base_url).rstrip("/")
     data = row.get("image_data")
     if data:
@@ -63,15 +63,17 @@ def _to_snapshot_item(request: Request, row: dict) -> SnapshotItem:
     return SnapshotItem(
         id=row["id"],
         name=row["name"],
+        company=employees_service.company_for(row["name"], employees=directory),
         timestamp=row["timestamp"],
         image_url=image_url,
     )
 
 
-def _to_summary_item(row: dict) -> AttendanceSummaryItem:
+def _to_summary_item(row: dict, directory: list) -> AttendanceSummaryItem:
     return AttendanceSummaryItem(
         id=f"{row['name']}|{row['date']}",
         name=row["name"],
+        company=employees_service.company_for(row["name"], employees=directory),
         date=row["date"],
         entry_time=row.get("entry"),
         exit_time=row.get("exit"),
@@ -112,7 +114,8 @@ def list_attendance(
         name_filter=name,
     )
     window = rows[offset : offset + limit]
-    return AttendanceSummaryResponse(items=[_to_summary_item(r) for r in window])
+    directory = employees_service.all_employees()
+    return AttendanceSummaryResponse(items=[_to_summary_item(r, directory) for r in window])
 
 
 @router.get("/api/snapshots", response_model=SnapshotListResponse)
@@ -123,4 +126,5 @@ def list_snapshots(
     name: Optional[str] = Query(None, description="Prefix filter, case-insensitive."),
 ) -> SnapshotListResponse:
     rows = logs.fetch_snapshot_logs(limit=limit, offset=offset, name=name)
-    return SnapshotListResponse(items=[_to_snapshot_item(request, r) for r in rows])
+    directory = employees_service.all_employees()
+    return SnapshotListResponse(items=[_to_snapshot_item(request, r, directory) for r in rows])

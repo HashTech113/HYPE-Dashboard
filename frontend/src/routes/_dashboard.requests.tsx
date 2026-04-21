@@ -261,7 +261,7 @@ function LiveCapturesPage() {
         const emp = findEmployeeForName(employees, item.name);
         return [
           item.name,
-          emp?.company ?? "—",
+          item.company ?? emp?.company ?? "—",
           formatDateKeyDash(item.date),
           formatClock12(item.entry_time),
           lateEntryCell(item),
@@ -280,7 +280,7 @@ function LiveCapturesPage() {
         const emp = findEmployeeForName(employees, item.name);
         return [
           item.name,
-          emp?.company ?? "—",
+          item.company ?? emp?.company ?? "—",
           formatDateDash(item.timestamp),
           formatTime12(item.timestamp),
         ];
@@ -472,13 +472,14 @@ function SnapshotTable({
         ) : (
           items.map((item) => {
             const emp = findEmployeeForName(employees, item.name);
+            const company = item.company ?? emp?.company ?? "—";
             return (
               <TableRow key={item.id}>
                 <TableCell className="py-2 align-middle">
                   <span className="font-medium text-foreground">{item.name}</span>
                 </TableCell>
                 <TableCell className="py-2 align-middle text-muted-foreground">
-                  {emp?.company ?? "—"}
+                  {company}
                 </TableCell>
                 <TableCell className="py-2 align-middle">
                   <img
@@ -537,6 +538,7 @@ function AttendanceTable({
         ) : (
           items.map((item) => {
             const emp = findEmployeeForName(employees, item.name);
+            const company = item.company ?? emp?.company ?? "—";
             return (
               <TableRow key={item.id}>
                 <TableCell className="py-2 align-middle">
@@ -555,7 +557,7 @@ function AttendanceTable({
                   )}
                 </TableCell>
                 <TableCell className="py-2 align-middle text-muted-foreground">
-                  {emp?.company ?? "—"}
+                  {company}
                 </TableCell>
                 <TableCell className="py-2 align-middle text-muted-foreground">
                   {formatDateKeyDash(item.date)}

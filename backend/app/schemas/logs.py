@@ -10,6 +10,7 @@ from pydantic import BaseModel
 class SnapshotItem(BaseModel):
     id: int
     name: str
+    company: Optional[str] = None
     timestamp: str
     image_url: str
 
@@ -21,6 +22,7 @@ class SnapshotListResponse(BaseModel):
 class AttendanceSummaryItem(BaseModel):
     id: str
     name: str
+    company: Optional[str] = None
     date: str
     entry_time: Optional[str]
     exit_time: Optional[str]

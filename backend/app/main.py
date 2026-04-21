@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import SNAPSHOTS_DIR
 from .db import init_schema
-from .routers import attendance, faces, health, ingest, logs
+from .routers import attendance, employees, faces, health, ingest, logs
 from .services.logs import seed_from_filesystem_if_empty
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -74,6 +74,7 @@ def create_app() -> FastAPI:
     app.include_router(attendance.router)
     app.include_router(logs.router)
     app.include_router(ingest.router)
+    app.include_router(employees.router)
 
     return app
 
