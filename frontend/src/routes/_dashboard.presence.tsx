@@ -592,7 +592,7 @@ function PresencePage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+    <div className="flex min-h-0 flex-col md:h-full md:overflow-hidden">
       <SectionShell
         title="Attendance History"
         icon={<Calendar className="h-5 w-5 text-primary" />}
@@ -688,7 +688,7 @@ function PresencePage() {
                   </p>
                 </div>
                 <div className="mt-2 grid min-h-0 flex-1 gap-2 xl:grid-cols-[minmax(260px,0.95fr)_minmax(0,1fr)]">
-                  <div className="grid min-h-0 grid-rows-[1.7fr_repeat(3,minmax(0,1fr))] gap-1.5">
+                  <div className="grid min-h-0 grid-rows-[auto_repeat(3,auto)] gap-1.5 xl:grid-rows-[1.7fr_repeat(3,minmax(0,1fr))]">
                     <div className="flex min-h-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2.5">
                       <Avatar className="h-32 w-32 border border-slate-200 bg-slate-100">
                         {selectedEmployeeData?.imageUrl ? (
@@ -715,7 +715,7 @@ function PresencePage() {
                     <DetailField label="Employee ID" value={selectedEmployeeData?.employeeId ?? ""} />
                   </div>
 
-                  <div className="grid min-h-0 grid-rows-[repeat(6,minmax(0,1fr))] gap-1.5">
+                  <div className="grid min-h-0 grid-rows-[repeat(6,auto)] gap-1.5 xl:grid-rows-[repeat(6,minmax(0,1fr))]">
                     <DetailField
                       label="Status"
                       value={
