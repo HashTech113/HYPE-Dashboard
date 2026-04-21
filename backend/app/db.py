@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS employees (
     company TEXT NOT NULL DEFAULT '',
     department TEXT NOT NULL DEFAULT '',
     shift TEXT NOT NULL DEFAULT '',
-    role TEXT NOT NULL DEFAULT 'Employee'
+    role TEXT NOT NULL DEFAULT 'Employee',
+    dob TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_timestamp ON snapshot_logs (timestamp DESC);
@@ -71,3 +72,5 @@ def init_schema() -> None:
         for table in ("snapshot_logs", "attendance_logs"):
             if not _column_exists(conn, table, "image_data"):
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN image_data TEXT")
+        if not _column_exists(conn, "employees", "dob"):
+            conn.execute("ALTER TABLE employees ADD COLUMN dob TEXT NOT NULL DEFAULT ''")

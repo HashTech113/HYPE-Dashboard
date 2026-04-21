@@ -66,8 +66,8 @@ def list_employees(base: str) -> list[dict]:
 
 
 def _payload(emp: dict, *, include_id: bool) -> dict:
-    # Backend EmployeeCreate/Update only understands these 7 fields.
-    fields = ["name", "employeeId", "company", "department", "shift", "role"]
+    # Backend EmployeeCreate/Update understands these fields.
+    fields = ["name", "employeeId", "company", "department", "shift", "role", "dob"]
     out: dict[str, Any] = {k: emp[k] for k in fields if k in emp and emp[k] is not None}
     if include_id and "id" in emp:
         out["id"] = emp["id"]

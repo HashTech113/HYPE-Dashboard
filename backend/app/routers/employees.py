@@ -21,6 +21,7 @@ class EmployeeOut(BaseModel):
     department: str
     shift: str
     role: str
+    dob: str = ""
 
 
 class EmployeeListResponse(BaseModel):
@@ -35,6 +36,7 @@ class EmployeeCreate(BaseModel):
     department: str = ""
     shift: str = ""
     role: str = "Employee"
+    dob: str = ""
 
 
 class EmployeeUpdate(BaseModel):
@@ -44,6 +46,7 @@ class EmployeeUpdate(BaseModel):
     department: Optional[str] = None
     shift: Optional[str] = None
     role: Optional[str] = None
+    dob: Optional[str] = None
 
 
 def _serialize(emp) -> EmployeeOut:
@@ -55,6 +58,7 @@ def _serialize(emp) -> EmployeeOut:
         department=emp.department,
         shift=emp.shift,
         role=emp.role,
+        dob=emp.dob,
     )
 
 
@@ -76,6 +80,7 @@ def create_employee(payload: EmployeeCreate) -> EmployeeOut:
         department=payload.department,
         shift=payload.shift,
         role=payload.role,
+        dob=payload.dob,
     )
     return _serialize(created)
 

@@ -36,6 +36,7 @@ class Employee:
     department: str
     shift: str
     role: str
+    dob: str = ""
 
 
 def _row_to_employee(row) -> Employee:
@@ -47,14 +48,17 @@ def _row_to_employee(row) -> Employee:
         department=str(row["department"] or ""),
         shift=str(row["shift"] or ""),
         role=str(row["role"] or "Employee"),
+        dob=str(row["dob"] or "") if "dob" in row.keys() else "",
     )
+
+
+_SELECT_COLUMNS = "id, name, employee_id, company, department, shift, role, dob"
 
 
 def all_employees() -> list[Employee]:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id, name, employee_id, company, department, shift, role "
-            "FROM employees ORDER BY name COLLATE NOCASE"
+            f"SELECT {_SELECT_COLUMNS} FROM employees ORDER BY name COLLATE NOCASE"
         ).fetchall()
     return [_row_to_employee(r) for r in rows]
 
@@ -62,8 +66,7 @@ def all_employees() -> list[Employee]:
 def get_by_id(employee_id: str) -> Optional[Employee]:
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, name, employee_id, company, department, shift, role "
-            "FROM employees WHERE id = ?",
+            f"SELECT {_SELECT_COLUMNS} FROM employees WHERE id = ?",
             (employee_id,),
         ).fetchone()
     return _row_to_employee(row) if row else None
@@ -78,12 +81,13 @@ def create(
     department: str = "",
     shift: str = "",
     role: str = "Employee",
+    dob: str = "",
 ) -> Employee:
     with connect() as conn:
         conn.execute(
-            "INSERT INTO employees (id, name, employee_id, company, department, shift, role) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (id, name, employee_id, company, department, shift, role),
+            "INSERT INTO employees (id, name, employee_id, company, department, shift, role, dob) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (id, name, employee_id, company, department, shift, role, dob),
         )
     loaded = get_by_id(id)
     assert loaded is not None, "created employee should load back"
@@ -91,7 +95,7 @@ def create(
 
 
 _UPDATABLE_COLUMNS = {
-    "name", "employee_id", "company", "department", "shift", "role",
+    "name", "employee_id", "company", "department", "shift", "role", "dob",
 }
 
 
@@ -137,7 +141,7 @@ def seed_if_empty() -> int:
             try:
                 conn.execute(
                     "INSERT OR IGNORE INTO employees (id, name, employee_id, company, "
-                    "department, shift, role) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "department, shift, role, dob) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         str(row["id"]),
                         str(row["name"]),
@@ -146,6 +150,7 @@ def seed_if_empty() -> int:
                         str(row.get("department") or ""),
                         str(row.get("shift") or ""),
                         str(row.get("role") or "Employee"),
+                        str(row.get("dob") or ""),
                     ),
                 )
             except KeyError as e:
