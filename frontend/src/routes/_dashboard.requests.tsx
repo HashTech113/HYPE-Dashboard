@@ -317,17 +317,25 @@ function LiveCapturesPage() {
               type="button"
               variant="outline"
               size="sm"
-              className="w-full md:w-auto"
+              className="h-10 w-full gap-1.5 px-4 md:w-auto"
               onClick={handleManualRefresh}
               disabled={refreshing}
-              title="Refresh now"
+              title="Refresh captures data"
             >
-              <RefreshCw className={cn("mr-1.5 h-4 w-4", refreshing && "animate-spin")} />
-              <span className="truncate">
-                {refreshing
-                  ? "Refreshing…"
-                  : `Auto refresh every ${POLL_INTERVAL_MS / 1000}s`}
-              </span>
+              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-10 gap-1.5 px-4"
+              onClick={handleExport}
+              disabled={itemCount === 0}
+              title="Export filtered rows as CSV"
+            >
+              <Download className="h-4 w-4" />
+              Export Report
             </Button>
           </div>
         }
@@ -358,7 +366,7 @@ function LiveCapturesPage() {
                   Employees:
                 </span>
                 <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                  <SelectTrigger className="h-9 w-[200px]">
+                  <SelectTrigger className="h-9 w-[140px] sm:w-[150px] md:w-[160px]">
                     <SelectValue placeholder="All Employees" />
                   </SelectTrigger>
                   <SelectContent>
@@ -377,7 +385,7 @@ function LiveCapturesPage() {
                   Companies:
                 </span>
                 <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="h-9 w-[180px]">
+                  <SelectTrigger className="h-9 w-[125px] sm:w-[135px] md:w-[145px]">
                     <SelectValue placeholder="All Companies" />
                   </SelectTrigger>
                   <SelectContent>
@@ -402,18 +410,6 @@ function LiveCapturesPage() {
                 />
               </div>
 
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="ml-auto gap-1.5"
-                onClick={handleExport}
-                disabled={itemCount === 0}
-                title="Export filtered rows as CSV"
-              >
-                <Download className="h-4 w-4" />
-                Export Report
-              </Button>
             </div>
 
             {error && (

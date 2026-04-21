@@ -608,7 +608,7 @@ function PresencePage() {
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Employees:</span>
                 <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                  <SelectTrigger className="h-10 w-[260px]">
+                  <SelectTrigger className="h-10 w-[145px] sm:w-[155px] md:w-[165px]">
                     <SelectValue placeholder="Select employee" />
                   </SelectTrigger>
                   <SelectContent>
@@ -625,7 +625,7 @@ function PresencePage() {
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Companies:</span>
                 <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="h-10 w-[240px]">
+                  <SelectTrigger className="h-10 w-[130px] sm:w-[140px] md:w-[150px]">
                     <SelectValue placeholder="Select company" />
                   </SelectTrigger>
                   <SelectContent>
