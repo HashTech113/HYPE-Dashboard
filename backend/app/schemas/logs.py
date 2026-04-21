@@ -25,7 +25,9 @@ class AttendanceSummaryItem(BaseModel):
     entry_time: Optional[str]
     exit_time: Optional[str]
     late_entry_minutes: int
+    late_entry_seconds: int
     early_exit_minutes: int
+    early_exit_seconds: int
     status: str
     total_hours: str
     entry_image_url: Optional[str]

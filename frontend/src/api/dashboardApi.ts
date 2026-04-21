@@ -254,7 +254,9 @@ export type AttendanceSummaryItem = {
   entry_time: string | null;
   exit_time: string | null;
   late_entry_minutes: number;
+  late_entry_seconds: number;
   early_exit_minutes: number;
+  early_exit_seconds: number;
   status: "Present" | "Late" | "Early Exit" | "Absent";
   total_hours: string;
   entry_image_url: string | null;

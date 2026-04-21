@@ -29,7 +29,9 @@ class AttendanceRecord(BaseModel):
     total_minutes: int                     # 0 when absent
     status: Status
     late_minutes: int
+    late_seconds: int
     early_exit_minutes: int
+    early_exit_seconds: int
     capture_count: int
     entry_image_url: Optional[str] = None
     exit_image_url: Optional[str] = None

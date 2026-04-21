@@ -50,8 +50,8 @@ def _classify(
     entry_local: datetime,
     exit_local: datetime,
     shift: ShiftSettings,
-) -> tuple[str, int, int]:
-    """Returns (status, late_minutes, early_exit_minutes)."""
+) -> tuple[str, int, int, int, int]:
+    """Returns (status, late_minutes, early_exit_minutes, late_seconds, early_exit_seconds)."""
     shift_start = entry_local.replace(
         hour=shift.start.hour, minute=shift.start.minute, second=0, microsecond=0
     )
@@ -59,11 +59,13 @@ def _classify(
         hour=shift.end.hour, minute=shift.end.minute, second=0, microsecond=0
     )
 
-    late_min = max(0, int((entry_local - shift_start).total_seconds() // 60))
-    early_min = max(0, int((shift_end - exit_local).total_seconds() // 60))
+    late_seconds = max(0, int((entry_local - shift_start).total_seconds()))
+    early_exit_seconds = max(0, int((shift_end - exit_local).total_seconds()))
+    late_min = late_seconds // 60
+    early_min = early_exit_seconds // 60
 
-    is_late = late_min > shift.late_grace_min
-    is_early = early_min > shift.early_exit_grace_min
+    is_late = late_seconds > shift.late_grace_min * 60
+    is_early = early_exit_seconds > shift.early_exit_grace_min * 60
 
     # Priority: arriving late dominates, then early exit, else present.
     if is_late:
@@ -73,7 +75,7 @@ def _classify(
     else:
         status = "Present"
 
-    return status, late_min, early_min
+    return status, late_min, early_min, late_seconds, early_exit_seconds
 
 
 def _image_url(base_url: str, filename: str) -> str:
@@ -114,7 +116,7 @@ def build_daily_records(
         exit_local = _to_local(last.exit, shift.tz_offset_min)
 
         total_min = max(0, int((exit_local - entry_local).total_seconds() // 60))
-        status, late_min, early_min = _classify(entry_local, exit_local, shift)
+        status, late_min, early_min, late_seconds, early_exit_seconds = _classify(entry_local, exit_local, shift)
 
         records.append({
             "name": name,
@@ -127,7 +129,9 @@ def build_daily_records(
             "total_minutes": total_min,
             "status": status,
             "late_minutes": late_min,
+            "late_seconds": late_seconds,
             "early_exit_minutes": early_min,
+            "early_exit_seconds": early_exit_seconds,
             "capture_count": len(snaps_sorted),
             "entry_image_url": _image_url(base_url, first.filename),
             "exit_image_url": _image_url(base_url, last.filename),
@@ -150,7 +154,9 @@ def build_daily_records(
                 "total_minutes": 0,
                 "status": "Absent",
                 "late_minutes": 0,
+                "late_seconds": 0,
                 "early_exit_minutes": 0,
+                "early_exit_seconds": 0,
                 "capture_count": 0,
                 "entry_image_url": None,
                 "exit_image_url": None,

@@ -121,20 +121,32 @@ function deriveRecordsFromSummaries(
       entryImage: s.entry_image_url ?? undefined,
       exitImage: s.exit_image_url ?? undefined,
       lateEntryMinutes: s.late_entry_minutes,
+      lateEntrySeconds: s.late_entry_seconds,
       earlyExitMinutes: s.early_exit_minutes,
+      earlyExitSeconds: s.early_exit_seconds,
     }));
+}
+
+function formatDurationSeconds(totalSeconds: number): string {
+  if (totalSeconds <= 0) return "On Time";
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 function lateEntryLabel(record: PresenceRecord | null): string {
   if (!record || !record.entryTime) return "—";
-  const minutes = record.lateEntryMinutes ?? 0;
-  return minutes > 0 ? formatDurationMinutes(minutes) : "On Time";
+  const seconds = record.lateEntrySeconds ?? ((record.lateEntryMinutes ?? 0) * 60);
+  return formatDurationSeconds(seconds);
 }
 
 function earlyExitLabel(record: PresenceRecord | null): string {
   if (!record || !record.exitTime) return "—";
-  const minutes = record.earlyExitMinutes ?? 0;
-  return minutes > 0 ? formatDurationMinutes(minutes) : "On Time";
+  const seconds = record.earlyExitSeconds ?? ((record.earlyExitMinutes ?? 0) * 60);
+  return formatDurationSeconds(seconds);
 }
 
 const statusPillClassName: Record<"Present" | "Late" | "Early Exit" | "Absent" | "Holiday", string> = {

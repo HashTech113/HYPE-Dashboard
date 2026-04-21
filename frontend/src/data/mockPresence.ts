@@ -10,7 +10,9 @@ export interface PresenceRecord {
   entryImage?: string;
   exitImage?: string;
   lateEntryMinutes?: number;
+  lateEntrySeconds?: number;
   earlyExitMinutes?: number;
+  earlyExitSeconds?: number;
 }
 
 export const mockPresence: PresenceRecord[] = [
