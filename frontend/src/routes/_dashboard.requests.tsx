@@ -418,19 +418,21 @@ function LiveCapturesPage() {
               </div>
             )}
 
-            {usecase === "attendance" ? (
-              <AttendanceTable
-                items={filteredAttendance}
-                employees={employees}
-                loading={loading}
-              />
-            ) : (
-              <SnapshotTable
-                items={filteredSnapshots}
-                employees={employees}
-                loading={loading}
-              />
-            )}
+            <div className="w-full overflow-x-auto">
+              {usecase === "attendance" ? (
+                <AttendanceTable
+                  items={filteredAttendance}
+                  employees={employees}
+                  loading={loading}
+                />
+              ) : (
+                <SnapshotTable
+                  items={filteredSnapshots}
+                  employees={employees}
+                  loading={loading}
+                />
+              )}
+            </div>
           </CardContent>
         </Card>
       </SectionShell>
