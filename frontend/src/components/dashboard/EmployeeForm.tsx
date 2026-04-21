@@ -47,8 +47,9 @@ export function normalizeDob(value: string) {
 }
 
 export function isValidDob(value: string) {
-  if (!ISO_DOB_PATTERN.test(value)) return false;
-  const [yyyy, mm, dd] = value.split("-").map(Number);
+  const normalized = normalizeDob(value);
+  if (!ISO_DOB_PATTERN.test(normalized)) return false;
+  const [yyyy, mm, dd] = normalized.split("-").map(Number);
   if (mm < 1 || mm > 12 || dd < 1 || dd > 31) return false;
   const date = new Date(Date.UTC(yyyy, mm - 1, dd));
   return (
@@ -189,7 +190,8 @@ export function EmployeeForm({
       window.alert("Employee ID is required.");
       return;
     }
-    if (!isValidDob(draft.dob)) {
+    const normalizedDob = normalizeDob(draft.dob);
+    if (!isValidDob(normalizedDob)) {
       window.alert("Date of Birth must be a valid date in DD-MM-YYYY format.");
       return;
     }
@@ -197,7 +199,7 @@ export function EmployeeForm({
       window.alert("Shift Timing is invalid — pick a start and end time, with end after start.");
       return;
     }
-    onSave({ ...draft, dob: normalizeDob(draft.dob), shift: normalizeShift(draft.shift) });
+    onSave({ ...draft, dob: normalizedDob, shift: normalizeShift(draft.shift) });
   };
 
   const handleImageFileChange = (file: File | null) => {
