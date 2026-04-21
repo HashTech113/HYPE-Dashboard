@@ -190,9 +190,14 @@ export function EmployeeForm({
       window.alert("Employee ID is required.");
       return;
     }
+    // DOB is optional. Only enforce a format check when the user entered/kept
+    // a value — when editing an employee the backend roster doesn't store DOB
+    // (not in the schema), so `draft.dob` is often empty and should save fine.
+    // DatePicker always emits strict YYYY-MM-DD (or "" on partial selection),
+    // so there's no longer any DD-MM-YYYY handling here.
     const normalizedDob = normalizeDob(draft.dob);
-    if (!isValidDob(normalizedDob)) {
-      window.alert("Date of Birth must be a valid date in DD-MM-YYYY format.");
+    if (normalizedDob && !isValidDob(normalizedDob)) {
+      window.alert("Please select a valid Date of Birth (Month / Day / Year).");
       return;
     }
     if (!isValidShift(draft.shift)) {
