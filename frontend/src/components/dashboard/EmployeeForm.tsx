@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DatePicker } from "@/components/dashboard/DatePicker";
 import {
   Dialog,
   DialogContent,
@@ -67,10 +68,20 @@ export function formatDobForDisplay(value: string): string {
 
 function parseDobFromDisplay(display: string): string {
   const trimmed = (display || "").trim();
-  const match = trimmed.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  const match = trimmed.match(DMY_DOB_PATTERN);
   if (!match) return trimmed;
   const [, dd, mm, yyyy] = match;
-  return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatDobInput(raw: string): string {
+  const digitsOnly = (raw || "").replace(/\D/g, "").slice(0, 8);
+  const dd = digitsOnly.slice(0, 2);
+  const mm = digitsOnly.slice(2, 4);
+  const yyyy = digitsOnly.slice(4, 8);
+  if (digitsOnly.length <= 2) return dd;
+  if (digitsOnly.length <= 4) return `${dd}-${mm}`;
+  return `${dd}-${mm}-${yyyy}`;
 }
 
 async function getCroppedDataUrl(src: string, crop: Area): Promise<string> {
@@ -120,7 +131,6 @@ export function EmployeeForm({
     dob: normalizeDob(employee.dob),
     shift: normalizeShift(employee.shift),
   });
-  const [dobDisplay, setDobDisplay] = useState<string>(formatDobForDisplay(employee.dob));
   const [showPassword, setShowPassword] = useState(false);
   const [cropSource, setCropSource] = useState<string | null>(null);
   const [cropPosition, setCropPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -164,7 +174,6 @@ export function EmployeeForm({
       dob: normalizeDob(employee.dob),
       shift: normalizeShift(employee.shift),
     });
-    setDobDisplay(formatDobForDisplay(employee.dob));
   }, [employee]);
 
   const companyOptions = COMPANY_OPTIONS.includes(draft.company as (typeof COMPANY_OPTIONS)[number])
@@ -180,8 +189,7 @@ export function EmployeeForm({
       window.alert("Employee ID is required.");
       return;
     }
-    const parsedDob = parseDobFromDisplay(dobDisplay);
-    if (!isValidDob(parsedDob)) {
+    if (!isValidDob(draft.dob)) {
       window.alert("Date of Birth must be a valid date in DD-MM-YYYY format.");
       return;
     }
@@ -189,7 +197,7 @@ export function EmployeeForm({
       window.alert("Shift Timing is invalid — pick a start and end time, with end after start.");
       return;
     }
-    onSave({ ...draft, dob: parsedDob, shift: normalizeShift(draft.shift) });
+    onSave({ ...draft, dob: normalizeDob(draft.dob), shift: normalizeShift(draft.shift) });
   };
 
   const handleImageFileChange = (file: File | null) => {
@@ -299,11 +307,12 @@ export function EmployeeForm({
         </div>
         <div className="space-y-2">
           <Label>Date of Birth</Label>
-          <Input
-            inputMode="numeric"
-            placeholder="DD-MM-YYYY"
-            value={dobDisplay}
-            onChange={(e) => setDobDisplay(e.target.value)}
+          <DatePicker
+            value={normalizeDob(draft.dob)}
+            onChange={(next) => setDraft({ ...draft, dob: normalizeDob(next) })}
+            minYear={1900}
+            maxYear={2100}
+            className="w-full"
           />
         </div>
         <div className="space-y-2">

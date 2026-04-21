@@ -650,7 +650,7 @@ function PresencePage() {
                       setCalendarMonth(new Date(year, month - 1, 1));
                     }
                   }}
-                  className="w-[220px]"
+                  className="w-[280px]"
                 />
               </div>
             </div>

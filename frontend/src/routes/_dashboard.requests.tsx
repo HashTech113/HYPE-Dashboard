@@ -398,7 +398,7 @@ function LiveCapturesPage() {
                 <DatePicker
                   value={selectedDate}
                   onChange={setSelectedDate}
-                  className="w-[180px]"
+                  className="w-[280px]"
                 />
               </div>
 
