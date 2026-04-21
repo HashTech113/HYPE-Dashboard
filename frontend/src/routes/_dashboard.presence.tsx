@@ -22,12 +22,12 @@ export const Route = createFileRoute("/_dashboard/presence")({
   component: PresencePage,
 });
 
-type CalendarCellStatus = "Present" | "Late" | "Absent" | "Holiday" | null;
+type CalendarCellStatus = "Present" | "Absent" | "Holiday" | null;
 
 const calendarDayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const calendarStatusStyles: Record<Exclude<CalendarCellStatus, null>, {
-  code: "P" | "L" | "A" | "H";
+  code: "P" | "A" | "H";
   label: string;
   cellClassName: string;
   numberClass: string;
@@ -43,15 +43,6 @@ const calendarStatusStyles: Record<Exclude<CalendarCellStatus, null>, {
     labelClass: "text-emerald-700",
     dotClass: "bg-emerald-500",
     bubbleClassName: "border-emerald-300 bg-emerald-100 text-emerald-700",
-  },
-  Late: {
-    code: "L",
-    label: "Late",
-    cellClassName: "border-orange-200 bg-orange-100/80",
-    numberClass: "text-orange-800",
-    labelClass: "text-orange-700",
-    dotClass: "bg-orange-500",
-    bubbleClassName: "border-orange-300 bg-orange-100 text-orange-700",
   },
   Absent: {
     code: "A",
@@ -84,9 +75,6 @@ function toCalendarStatus(status: PresenceRecord["status"]): Exclude<CalendarCel
   if (status === "Absent") {
     return "Absent";
   }
-  if (status === "Late" || status === "Early Exit") {
-    return "Late";
-  }
   return "Present";
 }
 
@@ -95,9 +83,6 @@ function summarizeDailyStatus(statuses: PresenceRecord["status"][]): Exclude<Cal
 
   if (normalizedStatuses.includes("Absent")) {
     return "Absent";
-  }
-  if (normalizedStatuses.includes("Late")) {
-    return "Late";
   }
   return "Present";
 }
@@ -520,7 +505,7 @@ function PresencePage() {
 
   const hasSelectedEmployee = selectedEmployee !== "none";
   const selectedDayRecord = selectedDate ? recordByDateMap.get(selectedDate) ?? null : null;
-  const selectedDayStatus = selectedDate ? dailyStatusMap.get(selectedDate) ?? null : null;
+  const selectedDayStatus = selectedDayRecord?.status ?? null;
   const selectedDayHoliday = selectedDate ? holidayNameByDate.get(selectedDate) ?? null : null;
   const selectedDayLabel = selectedDate ? formatDisplayDate(selectedDate) : "No date selected";
 
@@ -532,7 +517,6 @@ function PresencePage() {
       }
 
       if (cell.status === "Present") summary.present += 1;
-      if (cell.status === "Late") summary.late += 1;
       if (cell.status === "Absent") summary.absent += 1;
       if (cell.status === "Holiday") summary.holiday += 1;
     });
@@ -867,7 +851,7 @@ function PresencePage() {
                             >
                               {cell.status === "Holiday" && cell.holidayName
                                 ? cell.holidayName
-                                : statusStyle.label}
+                                : statusStyle.code}
                             </span>
                           ) : null}
                         </button>
