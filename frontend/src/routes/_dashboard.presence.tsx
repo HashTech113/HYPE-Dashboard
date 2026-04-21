@@ -1,13 +1,11 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Calendar, Filter, ChevronLeft, ChevronRight, Download, Image as ImageIcon, RefreshCw } from "lucide-react";
-import { PageHeader } from "@/components/dashboard/PageHeader";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { mockPresenceHistory, type PresenceRecord } from "@/data/mockPresence";
 import { mockHolidayCalendar } from "@/data/mockHolidayCalendar";
 import { useEmployees } from "@/contexts/EmployeesContext";
 import { getAttendanceLogs, type AttendanceSummaryItem } from "@/api/dashboardApi";
-import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

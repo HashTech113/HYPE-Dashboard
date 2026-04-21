@@ -1,7 +1,6 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Bell, Settings, AlertTriangle, Info, AlertOctagon } from "lucide-react";
-import { PageHeader } from "@/components/dashboard/PageHeader";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { mockAlerts, alertRules } from "@/data/mockAlerts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
