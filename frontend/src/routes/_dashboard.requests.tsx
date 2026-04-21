@@ -59,6 +59,30 @@ function formatMinutes(minutes: number): string {
   return rest === 0 ? `${hours}h` : `${hours}h ${String(rest).padStart(2, "0")}m`;
 }
 
+// Mirrors formatDurationSeconds() in _dashboard.presence.tsx so Live Captures
+// renders late/early durations identically to Attendance History.
+function formatDurationSeconds(totalSeconds: number): string {
+  if (!totalSeconds || totalSeconds <= 0) return "On Time";
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+function lateEntryCell(item: { entry_time: string | null; late_entry_seconds: number; late_entry_minutes: number }): string {
+  if (!item.entry_time) return "—";
+  const seconds = item.late_entry_seconds ?? item.late_entry_minutes * 60;
+  return formatDurationSeconds(seconds);
+}
+
+function earlyExitCell(item: { exit_time: string | null; early_exit_seconds: number; early_exit_minutes: number }): string {
+  if (!item.exit_time) return "—";
+  const seconds = item.early_exit_seconds ?? item.early_exit_minutes * 60;
+  return formatDurationSeconds(seconds);
+}
+
 function snapshotLocalDateKey(isoTimestamp: string): string {
   const d = new Date(isoTimestamp);
   if (Number.isNaN(d.getTime())) return "";
@@ -240,9 +264,9 @@ function LiveCapturesPage() {
           emp?.company ?? "—",
           formatDateKeyDash(item.date),
           formatClock12(item.entry_time),
-          formatMinutes(item.late_entry_minutes),
+          lateEntryCell(item),
           formatClock12(item.exit_time),
-          formatMinutes(item.early_exit_minutes),
+          earlyExitCell(item),
           item.total_hours,
         ];
       });
@@ -492,15 +516,15 @@ function AttendanceTable({
     <Table className="table-fixed">
       <TableHeader>
         <TableRow>
-          <TableHead className="w-[200px] font-semibold text-slate-700">Employee Name</TableHead>
-          <TableHead className="w-[110px] font-semibold text-slate-700">Image</TableHead>
-          <TableHead className="w-[180px] font-semibold text-slate-700">Company</TableHead>
-          <TableHead className="w-[130px] font-semibold text-slate-700">Date</TableHead>
-          <TableHead className="w-[140px] font-semibold text-slate-700">Entry Time</TableHead>
+          <TableHead className="w-[160px] font-semibold text-slate-700">Employee Name</TableHead>
+          <TableHead className="w-[90px] font-semibold text-slate-700">Image</TableHead>
+          <TableHead className="w-[130px] font-semibold text-slate-700">Company</TableHead>
+          <TableHead className="w-[110px] font-semibold text-slate-700">Date</TableHead>
+          <TableHead className="w-[110px] font-semibold text-slate-700">Entry Time</TableHead>
           <TableHead className="w-[130px] font-semibold text-slate-700">Late Entry Time</TableHead>
-          <TableHead className="w-[140px] font-semibold text-slate-700">Exit Time</TableHead>
+          <TableHead className="w-[110px] font-semibold text-slate-700">Exit Time</TableHead>
           <TableHead className="w-[130px] font-semibold text-slate-700">Early Exit Time</TableHead>
-          <TableHead className="font-semibold text-slate-700">Total Hours</TableHead>
+          <TableHead className="w-[110px] font-semibold text-slate-700">Total Hours</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -540,13 +564,13 @@ function AttendanceTable({
                   {formatClock12(item.entry_time)}
                 </TableCell>
                 <TableCell className="py-2 align-middle text-muted-foreground">
-                  {formatMinutes(item.late_entry_minutes)}
+                  {lateEntryCell(item)}
                 </TableCell>
                 <TableCell className="py-2 align-middle text-muted-foreground">
                   {formatClock12(item.exit_time)}
                 </TableCell>
                 <TableCell className="py-2 align-middle text-muted-foreground">
-                  {formatMinutes(item.early_exit_minutes)}
+                  {earlyExitCell(item)}
                 </TableCell>
                 <TableCell className="py-2 align-middle text-muted-foreground">
                   {item.total_hours}
