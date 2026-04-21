@@ -126,6 +126,33 @@ export async function getEmployees(): Promise<Employee[]> {
   return data.employees;
 }
 
+export async function createEmployeeRemote(employee: Employee): Promise<Employee> {
+  const resp = await fetch(buildUrl("/api/employees", {}), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(employee),
+  });
+  if (!resp.ok) throw new Error(`createEmployee ${resp.status}`);
+  return (await resp.json()) as Employee;
+}
+
+export async function updateEmployeeRemote(id: string, patch: Partial<Employee>): Promise<Employee> {
+  const resp = await fetch(buildUrl(`/api/employees/${encodeURIComponent(id)}`, {}), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!resp.ok) throw new Error(`updateEmployee ${resp.status}`);
+  return (await resp.json()) as Employee;
+}
+
+export async function deleteEmployeeRemote(id: string): Promise<void> {
+  const resp = await fetch(buildUrl(`/api/employees/${encodeURIComponent(id)}`, {}), {
+    method: "DELETE",
+  });
+  if (!resp.ok && resp.status !== 404) throw new Error(`deleteEmployee ${resp.status}`);
+}
+
 export async function getPresenceHistory() {
   const data = await loadDashboardData();
   return data.presenceHistory;

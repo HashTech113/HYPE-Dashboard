@@ -1,7 +1,13 @@
 """Employee directory — name/company mapping consumed by routers.
 
-Single source of truth is ``backend/data/employees.json``. In the future this
-can be backed by a DB table without changing the callers.
+Backed by SQLite (``employees`` table). On first boot an empty table is
+seeded from ``backend/data/employees.json`` so the roster is never
+accidentally blank after a fresh Railway deploy.
+
+Edits go through create/update/delete; all writes persist as long as the
+SQLite file survives (forever locally; until the next deploy on Railway
+without a volume mount — consider Railway volumes or Postgres if long-
+term persistence across redeploys is required).
 """
 
 from __future__ import annotations
@@ -9,14 +15,15 @@ from __future__ import annotations
 import json
 import logging
 import re
-import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+from ..db import connect
+
 log = logging.getLogger(__name__)
 
-_DATA_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "employees.json"
+_SEED_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "employees.json"
 _NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
 
 
@@ -31,50 +38,119 @@ class Employee:
     role: str
 
 
-_cache_lock = threading.Lock()
-_cache: Optional[list[Employee]] = None
-
-
-def _load() -> list[Employee]:
-    try:
-        raw = json.loads(_DATA_PATH.read_text())
-    except (OSError, ValueError) as e:
-        log.warning("Could not read %s: %s — employees unavailable", _DATA_PATH, e)
-        return []
-
-    out: list[Employee] = []
-    for item in raw:
-        try:
-            out.append(
-                Employee(
-                    id=str(item["id"]),
-                    name=str(item["name"]),
-                    employee_id=str(item.get("employeeId") or item["id"]),
-                    company=str(item.get("company") or ""),
-                    department=str(item.get("department") or ""),
-                    shift=str(item.get("shift") or ""),
-                    role=str(item.get("role") or "Employee"),
-                )
-            )
-        except KeyError as e:
-            log.warning("Skipping malformed employee row (missing %s): %s", e, item)
-    return out
+def _row_to_employee(row) -> Employee:
+    return Employee(
+        id=str(row["id"]),
+        name=str(row["name"]),
+        employee_id=str(row["employee_id"]),
+        company=str(row["company"] or ""),
+        department=str(row["department"] or ""),
+        shift=str(row["shift"] or ""),
+        role=str(row["role"] or "Employee"),
+    )
 
 
 def all_employees() -> list[Employee]:
-    global _cache
-    with _cache_lock:
-        if _cache is None:
-            _cache = _load()
-        return list(_cache)
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id, name, employee_id, company, department, shift, role "
+            "FROM employees ORDER BY name COLLATE NOCASE"
+        ).fetchall()
+    return [_row_to_employee(r) for r in rows]
 
 
-def reload() -> int:
-    """Force a reload — call after editing employees.json on disk."""
-    global _cache
-    with _cache_lock:
-        _cache = _load()
-        return len(_cache)
+def get_by_id(employee_id: str) -> Optional[Employee]:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT id, name, employee_id, company, department, shift, role "
+            "FROM employees WHERE id = ?",
+            (employee_id,),
+        ).fetchone()
+    return _row_to_employee(row) if row else None
+
+
+def create(
+    *,
+    id: str,
+    name: str,
+    employee_id: str,
+    company: str = "",
+    department: str = "",
+    shift: str = "",
+    role: str = "Employee",
+) -> Employee:
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO employees (id, name, employee_id, company, department, shift, role) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (id, name, employee_id, company, department, shift, role),
+        )
+    loaded = get_by_id(id)
+    assert loaded is not None, "created employee should load back"
+    return loaded
+
+
+_UPDATABLE_COLUMNS = {
+    "name", "employee_id", "company", "department", "shift", "role",
+}
+
+
+def update(employee_id: str, patch: dict) -> Optional[Employee]:
+    fields = [(k, v) for k, v in patch.items() if k in _UPDATABLE_COLUMNS and v is not None]
+    if not fields:
+        return get_by_id(employee_id)
+    set_clause = ", ".join(f"{k} = ?" for k, _ in fields)
+    values = [v for _, v in fields]
+    with connect() as conn:
+        cur = conn.execute(
+            f"UPDATE employees SET {set_clause} WHERE id = ?",
+            [*values, employee_id],
+        )
+        if cur.rowcount == 0:
+            return None
+    return get_by_id(employee_id)
+
+
+def delete(employee_id: str) -> bool:
+    with connect() as conn:
+        cur = conn.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
+        return cur.rowcount > 0
+
+
+def _seed_rows_from_json() -> list[dict]:
+    try:
+        raw = json.loads(_SEED_PATH.read_text())
+    except (OSError, ValueError) as e:
+        log.warning("Could not read seed %s: %s", _SEED_PATH, e)
+        return []
+    return raw if isinstance(raw, list) else []
+
+
+def seed_if_empty() -> int:
+    """Populate employees from the bundled JSON if the table is empty."""
+    with connect() as conn:
+        count = conn.execute("SELECT COUNT(*) AS c FROM employees").fetchone()["c"]
+        if count > 0:
+            return 0
+        seed = _seed_rows_from_json()
+        for row in seed:
+            try:
+                conn.execute(
+                    "INSERT OR IGNORE INTO employees (id, name, employee_id, company, "
+                    "department, shift, role) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(row["id"]),
+                        str(row["name"]),
+                        str(row.get("employeeId") or row["id"]),
+                        str(row.get("company") or ""),
+                        str(row.get("department") or ""),
+                        str(row.get("shift") or ""),
+                        str(row.get("role") or "Employee"),
+                    ),
+                )
+            except KeyError as e:
+                log.warning("Skipping malformed seed row (missing %s): %s", e, row)
+    return len(seed)
 
 
 def _normalize(value: str) -> str:

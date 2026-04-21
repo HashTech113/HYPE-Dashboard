@@ -25,10 +25,21 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
     image_data TEXT
 );
 
+CREATE TABLE IF NOT EXISTS employees (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    employee_id TEXT NOT NULL,
+    company TEXT NOT NULL DEFAULT '',
+    department TEXT NOT NULL DEFAULT '',
+    shift TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'Employee'
+);
+
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_timestamp ON snapshot_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_timestamp ON attendance_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_name ON snapshot_logs (name);
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_name ON attendance_logs (name);
+CREATE INDEX IF NOT EXISTS idx_employees_name ON employees (name);
 """
 
 

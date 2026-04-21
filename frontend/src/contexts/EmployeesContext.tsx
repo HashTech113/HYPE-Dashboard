@@ -1,5 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { getEmployees, type Employee } from "@/api/dashboardApi";
+import {
+  createEmployeeRemote,
+  deleteEmployeeRemote,
+  getEmployees,
+  updateEmployeeRemote,
+  type Employee,
+} from "@/api/dashboardApi";
 
 const STORAGE_KEY = "attendance-dashboard:employees:v1";
 
@@ -14,18 +20,6 @@ type EmployeesContextValue = {
 
 const EmployeesContext = createContext<EmployeesContextValue | null>(null);
 
-function readFromStorage(): Employee[] | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Employee[];
-    return Array.isArray(parsed) ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
 function writeToStorage(employees: Employee[]) {
   if (typeof window === "undefined") return;
   try {
@@ -39,14 +33,10 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Always fetch from the backend so the deployed frontend and any local
+  // device see the same roster. localStorage is now a write-behind cache
+  // used only if the fetch fails.
   useEffect(() => {
-    const fromStorage = readFromStorage();
-    if (fromStorage && fromStorage.length > 0) {
-      setEmployees(fromStorage);
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
     getEmployees()
       .then((list) => {
@@ -56,37 +46,90 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       })
       .catch((error) => {
         console.error("Failed to load employees", error);
+        try {
+          const raw = window.localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw) as Employee[];
+            if (Array.isArray(parsed)) setEmployees(parsed);
+          }
+        } catch {
+          // ignore
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-
     return () => {
       cancelled = true;
     };
   }, []);
 
   const updateEmployee = useCallback((id: string, patch: Partial<Employee>) => {
+    // Optimistic UI update; rollback on failure.
+    let rollback: Employee[] | null = null;
     setEmployees((prev) => {
-      const next = prev.map((employee) => (employee.id === id ? { ...employee, ...patch } : employee));
+      rollback = prev;
+      const next = prev.map((e) => (e.id === id ? { ...e, ...patch } : e));
       writeToStorage(next);
       return next;
     });
+    updateEmployeeRemote(id, patch)
+      .then((saved) => {
+        setEmployees((prev) => {
+          const next = prev.map((e) => (e.id === id ? { ...e, ...saved } : e));
+          writeToStorage(next);
+          return next;
+        });
+      })
+      .catch((error) => {
+        console.error("updateEmployee failed, rolling back", error);
+        if (rollback) {
+          setEmployees(rollback);
+          writeToStorage(rollback);
+        }
+      });
   }, []);
 
   const addEmployee = useCallback((employee: Employee) => {
+    let rollback: Employee[] | null = null;
     setEmployees((prev) => {
+      rollback = prev;
       const next = [...prev, employee];
       writeToStorage(next);
       return next;
     });
+    createEmployeeRemote(employee)
+      .then((saved) => {
+        // Backend may have assigned a new id — reconcile.
+        setEmployees((prev) => {
+          const next = prev.map((e) => (e.id === employee.id ? saved : e));
+          writeToStorage(next);
+          return next;
+        });
+      })
+      .catch((error) => {
+        console.error("addEmployee failed, rolling back", error);
+        if (rollback) {
+          setEmployees(rollback);
+          writeToStorage(rollback);
+        }
+      });
   }, []);
 
   const deleteEmployee = useCallback((id: string) => {
+    let rollback: Employee[] | null = null;
     setEmployees((prev) => {
-      const next = prev.filter((employee) => employee.id !== id);
+      rollback = prev;
+      const next = prev.filter((e) => e.id !== id);
       writeToStorage(next);
       return next;
+    });
+    deleteEmployeeRemote(id).catch((error) => {
+      console.error("deleteEmployee failed, rolling back", error);
+      if (rollback) {
+        setEmployees(rollback);
+        writeToStorage(rollback);
+      }
     });
   }, []);
 
