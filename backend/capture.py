@@ -1,17 +1,24 @@
-"""Camera → ingest pipeline.
+"""Camera → ingest pipeline (dual-write capable).
 
 Runs on the machine that has LAN access to the camera. Pulls FaceInfo records
 from the camera API, extracts the captured face image, and POSTs each one to
-the backend's /api/ingest endpoint — locally in dev, Railway in prod.
+one or more backends' /api/ingest endpoints (local, Railway, or both).
 
 Environment variables
 ---------------------
-MODE               "local" | "production"   (default: local)
-INGEST_API_URL     Overrides MODE's default URL (optional)
+MODE               "local" | "production" | "both"  (default: local)
+                   - local       → http://localhost:8000/api/ingest
+                   - production  → https://hype-dashboard-production-8938.up.railway.app/api/ingest
+                   - both        → posts to both of the above
+INGEST_API_URL     Optional override: comma-separated list of ingest URLs.
+                   Takes precedence over MODE when set.
+
 CAMERA_HOST/USER/PASS — passed through to app.services.camera
 
-The loop never crashes on a single failure: camera errors reset the session,
-ingest errors retry on the next tick.
+The loop never crashes on a single failure: camera errors reconnect, ingest
+errors retry per-target on the next tick. A snap_id is considered processed
+once *any* target accepts it — rerun sync_snapshots_to_prod.py later if a
+specific target was down to catch it up.
 """
 
 from __future__ import annotations
@@ -42,13 +49,20 @@ SEEN_SNAP_IDS_MAX = 2000
 
 MODE = os.getenv("MODE", "local").strip().lower()
 
-DEFAULT_INGEST_URLS = {
-    "local": "http://localhost:8000/api/ingest",
-    "production": "https://hype-dashboard-production-8938.up.railway.app/api/ingest",
+DEFAULT_INGEST_URLS: dict[str, list[str]] = {
+    "local": ["http://localhost:8000/api/ingest"],
+    "production": ["https://hype-dashboard-production-8938.up.railway.app/api/ingest"],
+    "both": [
+        "http://localhost:8000/api/ingest",
+        "https://hype-dashboard-production-8938.up.railway.app/api/ingest",
+    ],
 }
-INGEST_API_URL = os.getenv("INGEST_API_URL", "").strip() or DEFAULT_INGEST_URLS.get(
-    MODE, DEFAULT_INGEST_URLS["local"]
-)
+
+_urls_env = os.getenv("INGEST_API_URL", "").strip()
+if _urls_env:
+    INGEST_API_URLS = [u.strip() for u in _urls_env.split(",") if u.strip()]
+else:
+    INGEST_API_URLS = DEFAULT_INGEST_URLS.get(MODE, DEFAULT_INGEST_URLS["local"])
 
 
 def _extract_image_b64(item: dict) -> Optional[str]:
@@ -82,21 +96,33 @@ def _extract_snap_id(item: dict) -> Optional[str]:
     return None
 
 
-def post_ingest(session: requests.Session, payload: dict) -> bool:
+def _post_one(session: requests.Session, url: str, payload: dict) -> bool:
+    """POST to a single target with bounded retry. Never raises."""
     for attempt in range(1, INGEST_RETRY_MAX + 1):
         try:
-            resp = session.post(INGEST_API_URL, json=payload, timeout=INGEST_TIMEOUT_SECONDS)
+            resp = session.post(url, json=payload, timeout=INGEST_TIMEOUT_SECONDS)
             if resp.status_code == 200:
                 return True
             log.warning(
-                "ingest returned %d (attempt %d/%d) body=%s",
-                resp.status_code, attempt, INGEST_RETRY_MAX, resp.text[:200],
+                "%s returned %d (attempt %d/%d) body=%s",
+                url, resp.status_code, attempt, INGEST_RETRY_MAX, resp.text[:200],
             )
         except requests.RequestException as e:
-            log.warning("ingest post failed (attempt %d/%d): %s", attempt, INGEST_RETRY_MAX, e)
+            log.warning("%s post failed (attempt %d/%d): %s", url, attempt, INGEST_RETRY_MAX, e)
         if attempt < INGEST_RETRY_MAX:
             time.sleep(INGEST_RETRY_BACKOFF * attempt)
     return False
+
+
+def post_ingest(session: requests.Session, payload: dict) -> tuple[int, int]:
+    """POST payload to every configured target. Returns (ok_count, fail_count)."""
+    ok = fail = 0
+    for url in INGEST_API_URLS:
+        if _post_one(session, url, payload):
+            ok += 1
+        else:
+            fail += 1
+    return ok, fail
 
 
 def run() -> int:
@@ -109,7 +135,7 @@ def run() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    log.info("MODE=%s ingest_url=%s", MODE, INGEST_API_URL)
+    log.info("MODE=%s targets=%s", MODE, INGEST_API_URLS)
 
     camera = CameraClient()
     session = requests.Session()
@@ -136,8 +162,10 @@ def run() -> int:
             time.sleep(RECONNECT_BACKOFF_SECONDS)
             continue
 
+        n_faces = len(faces)
         posted = 0
         skipped = 0
+        partial = 0
         failed = 0
         for item in faces:
             snap_id = _extract_snap_id(item)
@@ -156,20 +184,24 @@ def run() -> int:
                 "image_base64": image_b64,
                 "snap_id": snap_id,
             }
-            if post_ingest(session, payload):
+            ok, fail = post_ingest(session, payload)
+            if ok > 0 and fail == 0:
                 posted += 1
-                if snap_id:
-                    if len(seen_ids) == seen_ids.maxlen:
-                        seen_set.discard(seen_ids[0])
-                    seen_ids.append(snap_id)
-                    seen_set.add(snap_id)
+            elif ok > 0:
+                partial += 1
             else:
                 failed += 1
 
-        if faces:
+            if snap_id and ok > 0:
+                if len(seen_ids) == seen_ids.maxlen:
+                    seen_set.discard(seen_ids[0])
+                seen_ids.append(snap_id)
+                seen_set.add(snap_id)
+
+        if n_faces:
             log.info(
-                "Poll returned %d face(s) — posted=%d skipped=%d failed=%d",
-                len(faces), posted, skipped, failed,
+                "Poll returned %d face(s) — posted=%d partial=%d skipped=%d failed=%d",
+                n_faces, posted, partial, skipped, failed,
             )
 
         time.sleep(CAPTURE_INTERVAL_SECONDS)
