@@ -16,7 +16,7 @@ const attendanceSegments = [
   { label: "Late", color: "#f4c542" },
 ] as const;
 
-const OVERVIEW_POLL_MS = 30_000;
+const OVERVIEW_POLL_MS = 5_000;
 const WORKDAY_MINUTES = 9 * 60; // 09:30 → 18:30
 
 function todayIsoDate(): string {

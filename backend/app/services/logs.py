@@ -13,7 +13,7 @@ from typing import Optional
 
 from ..db import connect
 from .attendance import ShiftSettings, build_range_records
-from .snapshots import Snapshot
+from .snapshots import Snapshot, scan as scan_snapshots
 
 log = logging.getLogger(__name__)
 
@@ -44,6 +44,31 @@ def record_capture(*, name: str, timestamp_iso: str, image_path: str) -> None:
                 )
     except sqlite3.DatabaseError as e:
         log.warning("Failed to record capture %s: %s", image_path, e)
+
+
+def seed_from_filesystem_if_empty() -> int:
+    """On first boot (e.g. fresh Railway container with shipped snapshots but
+    no database.db), populate snapshot_logs + attendance_logs from the
+    filenames already on disk. Idempotent — only runs when both tables are
+    empty. Returns the number of rows seeded.
+    """
+    with connect() as conn:
+        snap_count = conn.execute("SELECT COUNT(*) AS c FROM snapshot_logs").fetchone()["c"]
+        attn_count = conn.execute("SELECT COUNT(*) AS c FROM attendance_logs").fetchone()["c"]
+    if snap_count or attn_count:
+        return 0
+
+    seeded = 0
+    for snap in scan_snapshots():
+        record_capture(
+            name=snap.name,
+            timestamp_iso=snap.entry.isoformat(),
+            image_path=snap.filename,
+        )
+        seeded += 1
+    if seeded:
+        log.info("Seeded %d rows into snapshot_logs from filesystem", seeded)
+    return seeded
 
 
 def fetch_snapshot_logs(*, limit: int, offset: int, name: Optional[str]) -> list[dict]:

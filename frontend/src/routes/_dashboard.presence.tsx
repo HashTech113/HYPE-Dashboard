@@ -240,7 +240,7 @@ function DetailField({
   );
 }
 
-const ATTENDANCE_REFRESH_MS = 30_000;
+const ATTENDANCE_REFRESH_MS = 5_000;
 
 function PresencePage() {
   const { employees } = useEmployees();

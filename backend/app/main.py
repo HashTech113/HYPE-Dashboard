@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import SNAPSHOTS_DIR
 from .db import init_schema
 from .routers import attendance, faces, health, logs
+from .services.logs import seed_from_filesystem_if_empty
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -20,6 +21,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 async def lifespan(_app: FastAPI):
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
     init_schema()
+    seed_from_filesystem_if_empty()
     yield
 
 
