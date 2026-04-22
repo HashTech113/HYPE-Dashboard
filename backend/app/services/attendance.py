@@ -38,12 +38,13 @@ def _to_local(dt: datetime, tz_offset_min: int) -> datetime:
     return dt.astimezone(_local_tz(tz_offset_min))
 
 
-def _format_hours_minutes(minutes: int) -> str:
-    if minutes <= 0:
+def _format_hours_minutes_seconds(total_seconds: int) -> str:
+    if total_seconds <= 0:
         return "—"
-    hours = minutes // 60
-    mins = minutes % 60
-    return f"{hours}h {mins:02d}m"
+    hours = total_seconds // 3600
+    mins = (total_seconds % 3600) // 60
+    secs = total_seconds % 60
+    return f"{hours}h {mins}m {secs}s"
 
 
 def _classify(
@@ -121,7 +122,8 @@ def build_daily_records(
         entry_local = _to_local(first.entry, shift.tz_offset_min)
         exit_local = _to_local(last.exit, shift.tz_offset_min)
 
-        total_min = max(0, int((exit_local - entry_local).total_seconds() // 60))
+        total_sec = max(0, int((exit_local - entry_local).total_seconds()))
+        total_min = total_sec // 60
         status, late_min, early_min, late_seconds, early_exit_seconds = _classify(entry_local, exit_local, shift)
 
         records.append({
@@ -131,7 +133,7 @@ def build_daily_records(
             "exit": exit_local.strftime("%H:%M:%S"),
             "entry_iso": entry_local.isoformat(),
             "exit_iso": exit_local.isoformat(),
-            "total_hours": _format_hours_minutes(total_min),
+            "total_hours": _format_hours_minutes_seconds(total_sec),
             "total_minutes": total_min,
             "status": status,
             "late_minutes": late_min,

@@ -25,7 +25,7 @@ class AttendanceRecord(BaseModel):
     exit: Optional[str] = None             # "HH:MM:SS" (local)
     entry_iso: Optional[str] = None        # ISO 8601 with tz offset
     exit_iso: Optional[str] = None
-    total_hours: str                       # "Hh Mm" — "—" when absent
+    total_hours: str                       # "Hh Mm Ss" — "—" when absent
     total_minutes: int                     # 0 when absent
     status: Status
     late_minutes: int
