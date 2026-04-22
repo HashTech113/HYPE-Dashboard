@@ -34,6 +34,7 @@ function daysInMonth(year: number, month1Based: number): number {
 }
 
 function asIso(year: string, month: string, day: string): string {
+  if (!year || !month || !day) return "";
   const y = Number(year);
   const m = Number(month);
   const d = Number(day);

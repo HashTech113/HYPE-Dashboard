@@ -1,6 +1,6 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { Calendar, Filter, ChevronLeft, ChevronRight, Download, Image as ImageIcon, RefreshCw } from "lucide-react";
+import { Calendar, Filter, ChevronLeft, ChevronRight, Image as ImageIcon, RefreshCw } from "lucide-react";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { mockPresenceHistory, type PresenceRecord } from "@/data/mockPresence";
 import { mockHolidayCalendar } from "@/data/mockHolidayCalendar";
@@ -83,14 +83,6 @@ function summarizeDailyStatus(statuses: PresenceRecord["status"][]): Exclude<Cal
     return "Absent";
   }
   return "Present";
-}
-
-function csvEscape(value: string | number | null | undefined) {
-  const text = String(value ?? "");
-  if (text.includes(",") || text.includes("\"") || text.includes("\n")) {
-    return `"${text.replace(/"/g, "\"\"")}"`;
-  }
-  return text;
 }
 
 function formatCalendarTime(time: string | null | undefined) {
@@ -548,64 +540,6 @@ function PresencePage() {
     return summary;
   }, [calendarCells]);
 
-  const handleExportReport = () => {
-    if (!hasSelectedEmployee) {
-      return;
-    }
-
-    const currentMonthCells = calendarCells.filter((cell) => cell.inCurrentMonth);
-    const selectedEmployeeName =
-      employees.find((emp) => emp.employeeId === selectedEmployee)?.name ?? "Selected Employee";
-
-    const headers = [
-      "Date",
-      "Day",
-      "Employee",
-      "Status",
-      "Holiday",
-      "Attendance Entries",
-      "Entry Time",
-      "Exit Time",
-      "Total Hours",
-    ];
-
-    const rows = currentMonthCells.map((cell) => {
-      const date = new Date(cell.dateKey);
-      const weekday = new Intl.DateTimeFormat("en-US", { weekday: "short" }).format(date);
-      const record = recordByDateMap.get(cell.dateKey);
-
-      return [
-        formatDisplayDate(cell.dateKey),
-        weekday,
-        selectedEmployeeName,
-        cell.status ?? "",
-        cell.holidayName ?? "",
-        dailyRecordCountMap.get(cell.dateKey) ?? 0,
-        record?.entryTime ? formatClock12(record.entryTime) : "",
-        record?.exitTime ? formatClock12(record.exitTime) : "",
-        record?.totalHours ?? "",
-      ];
-    });
-
-    const csvContent = [headers, ...rows]
-      .map((row) => row.map((value) => csvEscape(value)).join(","))
-      .join("\n");
-
-    const monthTag = `${calendarMonth.getFullYear()}-${String(calendarMonth.getMonth() + 1).padStart(2, "0")}`;
-    const employeeTag = selectedEmployee.toLowerCase();
-    const fileName = `attendance-report-${employeeTag}-${monthTag}.csv`;
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="flex min-h-0 flex-col md:h-full md:overflow-hidden">
       <SectionShell
@@ -679,16 +613,6 @@ function PresencePage() {
               >
                 <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
                 {refreshing ? "Refreshing…" : "Refresh"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-10 gap-1.5 px-4"
-                onClick={handleExportReport}
-                disabled={!hasSelectedEmployee}
-              >
-                <Download className="h-4 w-4" />
-                Export Report
               </Button>
             </div>
           </div>

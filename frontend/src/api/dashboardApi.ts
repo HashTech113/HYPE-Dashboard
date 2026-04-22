@@ -336,7 +336,7 @@ export async function getAttendanceLogs(params: AttendanceQueryParams = {}): Pro
     limit: params.limit,
     offset: params.offset,
   });
-  const response = await fetch(url);
+  const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Failed to load attendance: ${response.status}`);
   }
@@ -349,7 +349,7 @@ export async function getSnapshotLogs(params: SnapshotQueryParams = {}): Promise
     limit: params.limit,
     offset: params.offset,
   });
-  const response = await fetch(url);
+  const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Failed to load snapshots: ${response.status}`);
   }

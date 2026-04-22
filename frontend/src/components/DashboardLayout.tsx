@@ -8,6 +8,7 @@ import {
   User,
   Users,
   UserCog,
+  FileText,
   Menu,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -31,6 +32,7 @@ type NavItem = {
 const navItems: NavItem[] = [
   { label: "Dashboard", to: "/", icon: LayoutDashboard },
   { label: "Attendance History", to: "/presence", icon: Clock },
+  { label: "Reports", to: "/reports", icon: FileText },
   { label: "Live Captures", to: "/requests", icon: MessageSquare },
   {
     label: "Settings",

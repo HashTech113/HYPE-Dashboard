@@ -13,6 +13,7 @@ import { Route as DashboardRouteImport } from './routes/_dashboard'
 import { Route as DashboardIndexRouteImport } from './routes/_dashboard.index'
 import { Route as DashboardSettingsRouteImport } from './routes/_dashboard.settings'
 import { Route as DashboardRequestsRouteImport } from './routes/_dashboard.requests'
+import { Route as DashboardReportsRouteImport } from './routes/_dashboard.reports'
 import { Route as DashboardPresenceRouteImport } from './routes/_dashboard.presence'
 import { Route as DashboardEmployeesRouteImport } from './routes/_dashboard.employees'
 import { Route as DashboardAlertsRouteImport } from './routes/_dashboard.alerts'
@@ -36,6 +37,11 @@ const DashboardRequestsRoute = DashboardRequestsRouteImport.update({
   path: '/requests',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardReportsRoute = DashboardReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardPresenceRoute = DashboardPresenceRouteImport.update({
   id: '/presence',
   path: '/presence',
@@ -57,6 +63,7 @@ export interface FileRoutesByFullPath {
   '/alerts': typeof DashboardAlertsRoute
   '/employees': typeof DashboardEmployeesRoute
   '/presence': typeof DashboardPresenceRoute
+  '/reports': typeof DashboardReportsRoute
   '/requests': typeof DashboardRequestsRoute
   '/settings': typeof DashboardSettingsRoute
 }
@@ -64,6 +71,7 @@ export interface FileRoutesByTo {
   '/alerts': typeof DashboardAlertsRoute
   '/employees': typeof DashboardEmployeesRoute
   '/presence': typeof DashboardPresenceRoute
+  '/reports': typeof DashboardReportsRoute
   '/requests': typeof DashboardRequestsRoute
   '/settings': typeof DashboardSettingsRoute
   '/': typeof DashboardIndexRoute
@@ -74,6 +82,7 @@ export interface FileRoutesById {
   '/_dashboard/alerts': typeof DashboardAlertsRoute
   '/_dashboard/employees': typeof DashboardEmployeesRoute
   '/_dashboard/presence': typeof DashboardPresenceRoute
+  '/_dashboard/reports': typeof DashboardReportsRoute
   '/_dashboard/requests': typeof DashboardRequestsRoute
   '/_dashboard/settings': typeof DashboardSettingsRoute
   '/_dashboard/': typeof DashboardIndexRoute
@@ -85,16 +94,25 @@ export interface FileRouteTypes {
     | '/alerts'
     | '/employees'
     | '/presence'
+    | '/reports'
     | '/requests'
     | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/alerts' | '/employees' | '/presence' | '/requests' | '/settings' | '/'
+  to:
+    | '/alerts'
+    | '/employees'
+    | '/presence'
+    | '/reports'
+    | '/requests'
+    | '/settings'
+    | '/'
   id:
     | '__root__'
     | '/_dashboard'
     | '/_dashboard/alerts'
     | '/_dashboard/employees'
     | '/_dashboard/presence'
+    | '/_dashboard/reports'
     | '/_dashboard/requests'
     | '/_dashboard/settings'
     | '/_dashboard/'
@@ -134,6 +152,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardRequestsRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/_dashboard/reports': {
+      id: '/_dashboard/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof DashboardReportsRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/_dashboard/presence': {
       id: '/_dashboard/presence'
       path: '/presence'
@@ -162,6 +187,7 @@ interface DashboardRouteChildren {
   DashboardAlertsRoute: typeof DashboardAlertsRoute
   DashboardEmployeesRoute: typeof DashboardEmployeesRoute
   DashboardPresenceRoute: typeof DashboardPresenceRoute
+  DashboardReportsRoute: typeof DashboardReportsRoute
   DashboardRequestsRoute: typeof DashboardRequestsRoute
   DashboardSettingsRoute: typeof DashboardSettingsRoute
   DashboardIndexRoute: typeof DashboardIndexRoute
@@ -171,6 +197,7 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAlertsRoute: DashboardAlertsRoute,
   DashboardEmployeesRoute: DashboardEmployeesRoute,
   DashboardPresenceRoute: DashboardPresenceRoute,
+  DashboardReportsRoute: DashboardReportsRoute,
   DashboardRequestsRoute: DashboardRequestsRoute,
   DashboardSettingsRoute: DashboardSettingsRoute,
   DashboardIndexRoute: DashboardIndexRoute,

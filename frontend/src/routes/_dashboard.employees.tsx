@@ -45,6 +45,7 @@ function EmployeesPage() {
   const { role: roleFromSearch } = Route.useSearch();
 
   const [selectedCompany, setSelectedCompany] = useState<string>("all");
+  const [selectedDepartment, setSelectedDepartment] = useState<string>("all");
   const [selectedEmployee, setSelectedEmployee] = useState<string>("all");
   const [selectedRole, setSelectedRole] = useState<RoleFilter>(roleFromSearch ?? "all");
 
@@ -69,6 +70,20 @@ function EmployeesPage() {
     [employees, selectedCompany]
   );
 
+  const departmentOptions = useMemo(() => {
+    const unique = new Set<string>();
+    for (const e of employeesForSelectedCompany) {
+      const dept = (e.department ?? "").trim();
+      if (dept) unique.add(dept);
+    }
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [employeesForSelectedCompany]);
+
+  useEffect(() => {
+    if (selectedDepartment === "all") return;
+    if (!departmentOptions.includes(selectedDepartment)) setSelectedDepartment("all");
+  }, [departmentOptions, selectedDepartment]);
+
   useEffect(() => {
     if (selectedEmployee === "all") return;
     const exists = employeesForSelectedCompany.some((e) => e.employeeId === selectedEmployee);
@@ -79,9 +94,10 @@ function EmployeesPage() {
     return employeesForSelectedCompany.filter((employee) => {
       if (selectedRole !== "all" && employee.role !== selectedRole) return false;
       if (selectedEmployee !== "all" && employee.employeeId !== selectedEmployee) return false;
+      if (selectedDepartment !== "all" && (employee.department ?? "").trim() !== selectedDepartment) return false;
       return true;
     });
-  }, [employeesForSelectedCompany, selectedEmployee, selectedRole]);
+  }, [employeesForSelectedCompany, selectedEmployee, selectedRole, selectedDepartment]);
 
   const handleEdit = (employee: Employee) => {
     setEditingEmployee(employee);
@@ -160,7 +176,7 @@ function EmployeesPage() {
           <div className="flex items-center gap-2">
             <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Employees:</span>
             <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-              <SelectTrigger className="h-10 w-[260px]">
+              <SelectTrigger className="h-10 w-[180px]">
                 <SelectValue placeholder="Select employee" />
               </SelectTrigger>
               <SelectContent>
@@ -177,7 +193,7 @@ function EmployeesPage() {
           <div className="flex items-center gap-2">
             <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Companies:</span>
             <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-              <SelectTrigger className="h-10 w-[240px]">
+              <SelectTrigger className="h-10 w-[160px]">
                 <SelectValue placeholder="Select company" />
               </SelectTrigger>
               <SelectContent>
@@ -185,6 +201,23 @@ function EmployeesPage() {
                 {companyOptions.map((company) => (
                   <SelectItem key={company} value={company}>
                     {company}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Departments:</span>
+            <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+              <SelectTrigger className="h-10 w-[160px]">
+                <SelectValue placeholder="Select department" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Departments</SelectItem>
+                {departmentOptions.map((department) => (
+                  <SelectItem key={department} value={department}>
+                    {department}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -221,7 +254,6 @@ function EmployeesPage() {
       </Card>
 
       <Card className="min-h-0 flex-1 overflow-hidden">
-        <div className="h-full overflow-auto">
         <Table>
           <TableHeader>
             <TableRow>
@@ -269,7 +301,6 @@ function EmployeesPage() {
             ) : null}
           </TableBody>
         </Table>
-        </div>
       </Card>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
