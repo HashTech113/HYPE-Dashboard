@@ -14,7 +14,6 @@ from .config import SNAPSHOTS_DIR
 from .db import init_schema
 from .routers import admin, attendance, employees, faces, health, ingest, logs
 from .services.employees import seed_if_empty as seed_employees_if_empty
-from .services.logs import seed_from_filesystem_if_empty
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -53,7 +52,6 @@ async def lifespan(_app: FastAPI):
     SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
     init_schema()
     seed_employees_if_empty()
-    seed_from_filesystem_if_empty()
     yield
 
 
