@@ -1,4 +1,4 @@
-"""GET /api/attendance/* — daily and range attendance derived from face captures."""
+"""GET /api/attendance/* — daily and range attendance, sourced from the DB."""
 
 from __future__ import annotations
 
@@ -20,13 +20,8 @@ from ..schemas.attendance import (
     AttendanceRecord,
     ShiftConfig,
 )
-from ..services import snapshots
-from ..services.attendance import (
-    ShiftSettings,
-    build_daily_records,
-    build_range_records,
-    parse_hhmm,
-)
+from ..services.attendance import ShiftSettings, parse_hhmm
+from ..services.logs import build_attendance_daily, build_attendance_range
 
 router = APIRouter(tags=["attendance"], prefix="/api/attendance")
 
@@ -103,8 +98,7 @@ def daily(
     expected = [n for n in (names.split(",") if names else []) if n.strip()]
     base_url = str(request.base_url).rstrip("/")
 
-    rows = build_daily_records(
-        snapshots.scan(),
+    rows = build_attendance_daily(
         target_date=target,
         shift=shift,
         base_url=base_url,
@@ -140,8 +134,7 @@ def range_(
         raise HTTPException(status_code=400, detail="range cannot exceed 366 days")
 
     base_url = str(request.base_url).rstrip("/")
-    rows = build_range_records(
-        snapshots.scan(),
+    rows = build_attendance_range(
         start_date=start_d,
         end_date=end_d,
         shift=shift,

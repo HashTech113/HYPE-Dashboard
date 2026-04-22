@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from pydantic import BaseModel
 
 
@@ -10,7 +12,7 @@ class FaceHistoryItem(BaseModel):
     name: str
     entry: str
     exit: str
-    image_url: str
+    image_url: Optional[str] = None
 
 
 class FaceHistoryResponse(BaseModel):

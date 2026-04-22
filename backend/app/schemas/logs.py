@@ -12,7 +12,7 @@ class SnapshotItem(BaseModel):
     name: str
     company: Optional[str] = None
     timestamp: str
-    image_url: str
+    image_url: Optional[str] = None
 
 
 class SnapshotListResponse(BaseModel):

@@ -8,12 +8,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
-from .config import SNAPSHOTS_DIR
+from .config import DB_PATH
 from .db import init_schema
-from .routers import admin, attendance, employees, faces, health, ingest, logs
+from .routers import attendance, employees, faces, health, ingest, logs
 from .services.employees import seed_if_empty as seed_employees_if_empty
+from .services.logs import snapshot_log_count
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
@@ -47,16 +47,29 @@ ALLOWED_ORIGIN_REGEX = (
 )
 
 
+log = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+    log.info("using database at %s", DB_PATH)
     init_schema()
     seed_employees_if_empty()
+    count = snapshot_log_count()
+    if count == 0:
+        log.warning(
+            "snapshot_logs is empty — if this is production, check that the "
+            "Railway persistent volume is mounted and DATABASE_PATH points "
+            "inside it (current DB path: %s).",
+            DB_PATH,
+        )
+    else:
+        log.info("snapshot_logs has %d rows", count)
     yield
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Camera Capture API", version="0.6.0", lifespan=lifespan)
+    app = FastAPI(title="Camera Capture API", version="0.7.0", lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -67,15 +80,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.mount("/snapshots", StaticFiles(directory=str(SNAPSHOTS_DIR)), name="snapshots")
-
     app.include_router(health.router)
     app.include_router(faces.router)
     app.include_router(attendance.router)
     app.include_router(logs.router)
     app.include_router(ingest.router)
     app.include_router(employees.router)
-    app.include_router(admin.router)
 
     return app
 

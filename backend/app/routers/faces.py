@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query
 
 from ..config import DEFAULT_HISTORY_START, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 from ..db import connect
@@ -35,24 +35,19 @@ def _parse_boundary(value: str, field: str, *, end: bool) -> datetime:
         )
 
 
-def _build_image_url(base_url: str, row: dict) -> str:
+def _build_image_url(row: dict) -> Optional[str]:
     data = row.get("image_data")
-    if data:
-        return f"data:image/jpeg;base64,{data}"
-    return f"{base_url.rstrip('/')}/snapshots/{row['image_path']}"
+    return f"data:image/jpeg;base64,{data}" if data else None
 
 
 @router.get("/api/faces/history", response_model=FaceHistoryResponse)
 def face_history(
-    request: Request,
     start: str = Query(DEFAULT_HISTORY_START),
     end: str = Query("now"),
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
     offset: int = Query(0, ge=0),
     latest: Optional[int] = Query(None, ge=1, le=MAX_PAGE_LIMIT),
 ) -> FaceHistoryResponse:
-    base_url = str(request.base_url).rstrip("/")
-
     if latest is not None:
         effective_limit = latest
         effective_offset = 0
@@ -90,7 +85,7 @@ def face_history(
             name=row["name"],
             entry=row["timestamp"],
             exit=row["timestamp"],
-            image_url=_build_image_url(base_url, row),
+            image_url=_build_image_url(row),
         )
         for row in rows
     ]

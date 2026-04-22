@@ -1,24 +1,22 @@
-"""Camera → ingest pipeline (dual-write capable).
+"""Camera → ingest pipeline.
 
 Runs on the machine that has LAN access to the camera. Pulls FaceInfo records
 from the camera API, extracts the captured face image, and POSTs each one to
-one or more backends' /api/ingest endpoints (local, Railway, or both).
+the configured ``INGEST_API_URL`` (comma-separated list for fan-out).
 
 Environment variables
 ---------------------
-MODE               "local" | "production" | "both"  (default: local)
-                   - local       → http://localhost:8000/api/ingest
-                   - production  → https://hype-dashboard-production-8938.up.railway.app/api/ingest
-                   - both        → posts to both of the above
-INGEST_API_URL     Optional override: comma-separated list of ingest URLs.
-                   Takes precedence over MODE when set.
+INGEST_API_URL     Required. Comma-separated list of ingest URLs — the
+                   capture loop refuses to start if this is unset. Examples:
+                     INGEST_API_URL=http://localhost:8000/api/ingest
+                     INGEST_API_URL=https://your-prod/api/ingest
+                     INGEST_API_URL=http://localhost:8000/api/ingest,https://your-prod/api/ingest
 
-CAMERA_HOST/USER/PASS — passed through to app.services.camera
+CAMERA_HOST/USER/PASS — passed through to app.services.camera.
 
 The loop never crashes on a single failure: camera errors reconnect, ingest
 errors retry per-target on the next tick. A snap_id is considered processed
-once *any* target accepts it — rerun sync_snapshots_to_prod.py later if a
-specific target was down to catch it up.
+once *any* target accepts it.
 """
 
 from __future__ import annotations
@@ -47,22 +45,23 @@ INGEST_RETRY_BACKOFF = 2.0
 INGEST_RETRY_MAX = 3
 SEEN_SNAP_IDS_MAX = 2000
 
-MODE = os.getenv("MODE", "local").strip().lower()
 
-DEFAULT_INGEST_URLS: dict[str, list[str]] = {
-    "local": ["http://localhost:8000/api/ingest"],
-    "production": ["https://hype-dashboard-production-8938.up.railway.app/api/ingest"],
-    "both": [
-        "http://localhost:8000/api/ingest",
-        "https://hype-dashboard-production-8938.up.railway.app/api/ingest",
-    ],
-}
+def _resolve_targets() -> list[str]:
+    raw = os.getenv("INGEST_API_URL", "").strip()
+    if not raw:
+        log.error(
+            "INGEST_API_URL is required — set it to the ingest endpoint you want "
+            "captures posted to (comma-separated for multiple targets)."
+        )
+        sys.exit(2)
+    targets = [u.strip() for u in raw.split(",") if u.strip()]
+    if not targets:
+        log.error("INGEST_API_URL contained no non-empty URLs.")
+        sys.exit(2)
+    return targets
 
-_urls_env = os.getenv("INGEST_API_URL", "").strip()
-if _urls_env:
-    INGEST_API_URLS = [u.strip() for u in _urls_env.split(",") if u.strip()]
-else:
-    INGEST_API_URLS = DEFAULT_INGEST_URLS.get(MODE, DEFAULT_INGEST_URLS["local"])
+
+INGEST_API_URLS = _resolve_targets()
 
 
 def _extract_image_b64(item: dict) -> Optional[str]:
@@ -135,7 +134,7 @@ def run() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    log.info("MODE=%s targets=%s", MODE, INGEST_API_URLS)
+    log.info("targets=%s", INGEST_API_URLS)
 
     camera = CameraClient()
     session = requests.Session()

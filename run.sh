@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Starts the capture loop + FastAPI together (and optionally the frontend).
+# Starts the capture loop + FastAPI together.
 # Ctrl+C cleanly stops every child process via the trap below.
+#
+# Required env: INGEST_API_URL — where capture.py posts detections.
+# For local dev this is typically http://localhost:8000/api/ingest.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,8 +15,8 @@ if [ -f ".venv/bin/activate" ]; then
   source .venv/bin/activate
 fi
 
-# Make sure the schema exists before anything inserts
-python init_db.py
+: "${INGEST_API_URL:=http://localhost:8000/api/ingest}"
+export INGEST_API_URL
 
 pids=()
 
@@ -29,19 +32,15 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-echo "[capture] starting..."
-python capture.py &
-pids+=($!)
-
 echo "[api] starting on :8000 ..."
 uvicorn app.main:app --reload --port 8000 &
 pids+=($!)
 
-# Uncomment to also launch the Vite dev server:
-# (
-#   cd "$ROOT/frontend"
-#   VITE_API_BASE_URL="http://localhost:8000" npm run dev
-# ) &
-# pids+=($!)
+# Give the API a moment to come up before the capture loop starts posting.
+sleep 2
+
+echo "[capture] starting... (INGEST_API_URL=$INGEST_API_URL)"
+python capture.py &
+pids+=($!)
 
 wait -n "${pids[@]}"

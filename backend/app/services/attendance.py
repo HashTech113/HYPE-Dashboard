@@ -80,12 +80,8 @@ def _classify(
 
 
 def _image_url_for(snap: Snapshot, base_url: str) -> Optional[str]:
-    """Data URL if the image is stored in the DB as base64; else a
-    /snapshots/<filename> URL for legacy filesystem rows."""
     if snap.image_data:
         return f"data:image/jpeg;base64,{snap.image_data}"
-    if snap.filename:
-        return f"{base_url.rstrip('/')}/snapshots/{snap.filename}"
     return None
 
 

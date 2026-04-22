@@ -36,9 +36,8 @@ env/
 *.sqlite
 *.sqlite3
 
-# Local camera captures — never ship these in the image: if present on a
-# fresh Railway container they seed snapshot_logs with legacy `snap_*`
-# paths that diverge from sync-pushed `ingest_*` rows.
+# Legacy: captures are stored inline in the DB (image_data) now. This glob
+# only exists to ignore leftover folders on contributor machines.
 backend/snapshots/
 
 # Build and framework output

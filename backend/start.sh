@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Starts capture.py + uvicorn together. Invoked by `npm run dev` at the repo root
 # via concurrently, or runnable on its own (`bash backend/start.sh`).
+#
+# Required env: INGEST_API_URL — where capture.py posts detections.
+# Defaults to the local API below.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,7 +14,8 @@ if [ -f ".venv/bin/activate" ]; then
   source .venv/bin/activate
 fi
 
-mkdir -p snapshots
+: "${INGEST_API_URL:=http://localhost:8000/api/ingest}"
+export INGEST_API_URL
 
 pids=()
 
@@ -27,12 +31,15 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-echo "[capture] starting..."
-python capture.py &
-pids+=($!)
-
 echo "[api] starting on :8000..."
 uvicorn app.main:app --reload --port 8000 &
+pids+=($!)
+
+# Give the API a moment to come up before capture starts posting.
+sleep 2
+
+echo "[capture] starting... (INGEST_API_URL=$INGEST_API_URL)"
+python capture.py &
 pids+=($!)
 
 # Exit when either child exits, so concurrently sees the failure.

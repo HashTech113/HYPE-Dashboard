@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date as date_cls, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query
 
 from ..config import (
     DEFAULT_PAGE_LIMIT,
@@ -53,19 +53,14 @@ def _parse_date(value: str, field: str) -> date_cls:
         raise HTTPException(status_code=400, detail=f"{field} must be YYYY-MM-DD")
 
 
-def _to_snapshot_item(request: Request, row: dict, directory: list) -> SnapshotItem:
-    base = str(request.base_url).rstrip("/")
+def _to_snapshot_item(row: dict, directory: list) -> SnapshotItem:
     data = row.get("image_data")
-    if data:
-        image_url = f"data:image/jpeg;base64,{data}"
-    else:
-        image_url = f"{base}/snapshots/{row['image_path']}"
     return SnapshotItem(
         id=row["id"],
         name=row["name"],
         company=employees_service.company_for(row["name"], employees=directory),
         timestamp=row["timestamp"],
-        image_url=image_url,
+        image_url=f"data:image/jpeg;base64,{data}" if data else None,
     )
 
 
@@ -90,7 +85,6 @@ def _to_summary_item(row: dict, directory: list) -> AttendanceSummaryItem:
 
 @router.get("/api/attendance", response_model=AttendanceSummaryResponse)
 def list_attendance(
-    request: Request,
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD (local)."),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD (local)."),
     name: Optional[str] = Query(None, description="Prefix filter, case-insensitive."),
@@ -105,12 +99,11 @@ def list_attendance(
     if start_date > end_date:
         raise HTTPException(status_code=400, detail="start must be on or before end")
 
-    base_url = str(request.base_url).rstrip("/")
     rows = logs.build_attendance_summaries(
         start_date=start_date,
         end_date=end_date,
         shift=shift,
-        base_url=base_url,
+        base_url="",
         name_filter=name,
     )
     window = rows[offset : offset + limit]
@@ -120,11 +113,10 @@ def list_attendance(
 
 @router.get("/api/snapshots", response_model=SnapshotListResponse)
 def list_snapshots(
-    request: Request,
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
     offset: int = Query(0, ge=0),
     name: Optional[str] = Query(None, description="Prefix filter, case-insensitive."),
 ) -> SnapshotListResponse:
     rows = logs.fetch_snapshot_logs(limit=limit, offset=offset, name=name)
     directory = employees_service.all_employees()
-    return SnapshotListResponse(items=[_to_snapshot_item(request, r, directory) for r in rows])
+    return SnapshotListResponse(items=[_to_snapshot_item(r, directory) for r in rows])

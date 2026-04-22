@@ -6,7 +6,8 @@
     "company": "Grow",
     "department": "AI Developer",
     "shift": "09:30-18:30",
-    "role": "Employee"
+    "role": "Employee",
+    "dob": ""
   },
   {
     "id": "2",
@@ -15,7 +16,8 @@
     "company": "Grow",
     "department": "Automation Engineer",
     "shift": "09:30-18:30",
-    "role": "Employee"
+    "role": "Employee",
+    "dob": ""
   },
   {
     "id": "3",
@@ -24,7 +26,8 @@
     "company": "Grow",
     "department": "AI Developer",
     "shift": "09:30-18:30",
-    "role": "Employee"
+    "role": "Employee",
+    "dob": ""
   },
   {
     "id": "4",
@@ -33,16 +36,18 @@
     "company": "Grow",
     "department": "Finance",
     "shift": "09:30-18:30",
-    "role": "Employee"
+    "role": "Employee",
+    "dob": ""
   },
   {
     "id": "5",
-    "name": "Greeshma",
+    "name": "Greeshma Harikumar",
     "employeeId": "EMP-005",
     "company": "Owlytics",
     "department": "Market Research Analyst",
     "shift": "09:30-18:30",
-    "role": "Employee"
+    "role": "Employee",
+    "dob": ""
   },
   {
     "id": "6",
@@ -51,16 +56,18 @@
     "company": "Owlytics",
     "department": "Accounts & Operations",
     "shift": "09:30-18:33",
-    "role": "Employee"
+    "role": "Employee",
+    "dob": ""
   },
   {
     "id": "7",
-    "name": "Maria",
+    "name": "Mariya",
     "employeeId": "EMP-007",
     "company": "Perform100x",
     "department": "Sales",
     "shift": "09:30-18:30",
-    "role": "Employee"
+    "role": "Employee",
+    "dob": ""
   },
   {
     "id": "8",
@@ -69,7 +76,8 @@
     "company": "Owlytics",
     "department": "HR",
     "shift": "09:30-18:30",
-    "role": "Employee"
+    "role": "Employee",
+    "dob": ""
   },
   {
     "id": "emp-1776762152730",
@@ -78,6 +86,7 @@
     "company": "Grow",
     "department": "Project Manager",
     "shift": "09:30-18:30",
-    "role": "Employee"
+    "role": "Employee",
+    "dob": ""
   }
 ]
