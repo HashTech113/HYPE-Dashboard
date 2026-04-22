@@ -426,6 +426,9 @@ function PresencePage() {
       });
     }
 
+    const todayKey = formatDateKey(new Date());
+    const employeeSelected = selectedEmployee !== "none";
+
     for (let dayNumber = 1; dayNumber <= daysInMonth; dayNumber += 1) {
       const date = new Date(year, month, dayNumber);
       const dateKey = formatDateKey(date);
@@ -434,6 +437,12 @@ function PresencePage() {
 
       if (!status && holidayName) {
         status = "Holiday";
+      }
+
+      // Absent = an employee is selected, the day is on or before today,
+      // no attendance record exists, and it isn't a holiday.
+      if (!status && employeeSelected && dateKey <= todayKey) {
+        status = "Absent";
       }
 
       cells.push({
@@ -459,7 +468,7 @@ function PresencePage() {
     }
 
     return cells;
-  }, [calendarMonth, dailyStatusMap, holidayNameByDate]);
+  }, [calendarMonth, dailyStatusMap, holidayNameByDate, selectedEmployee]);
 
   const monthLabel = useMemo(
     () => new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(calendarMonth),
@@ -515,8 +524,14 @@ function PresencePage() {
 
   const hasSelectedEmployee = selectedEmployee !== "none";
   const selectedDayRecord = selectedDate ? recordByDateMap.get(selectedDate) ?? null : null;
-  const selectedDayStatus = selectedDayRecord?.status ?? null;
   const selectedDayHoliday = selectedDate ? holidayNameByDate.get(selectedDate) ?? null : null;
+  const selectedDayStatus: PresenceRecord["status"] | null = (() => {
+    if (selectedDayRecord?.status) return selectedDayRecord.status;
+    // Past/today with no record and no holiday → the employee is Absent that day.
+    if (!selectedDate || !hasSelectedEmployee || selectedDayHoliday) return null;
+    const todayKey = formatDateKey(new Date());
+    return selectedDate <= todayKey ? "Absent" : null;
+  })();
   const selectedDayLabel = selectedDate ? formatDisplayDate(selectedDate) : "No date selected";
 
   const monthlySummary = useMemo(() => {
