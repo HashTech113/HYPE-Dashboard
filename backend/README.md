@@ -114,7 +114,7 @@ Paginated log of every capture (recognised + Unknown). Sourced from `snapshot_lo
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CAMERA_HOST` | `172.18.10.123` | Camera IP / hostname |
+| `CAMERA_HOST` | `172.18.11.62` | Camera IP / hostname |
 | `CAMERA_USER` | `admin` | Login username |
 | `CAMERA_PASS` | (set in code) | Login password |
 | `CAPTURE_INTERVAL_SECONDS` | `5` | Seconds between `processAlarm/Get` polls |
