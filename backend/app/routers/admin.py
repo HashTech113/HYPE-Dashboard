@@ -1,17 +1,23 @@
 """Admin utilities — narrow, explicit operations that don't fit elsewhere.
 
-Currently: one endpoint for renaming a captured face name in place across
-snapshot_logs, attendance_logs, and the employees table. Used to correct a
-recognition-side misspelling (e.g. "Mariya" → "Maria") without losing the
-historical rows tied to the old name.
+- ``/api/admin/rename-name`` — rename a captured face across snapshot_logs,
+  attendance_logs, and the employees table in one go.
+- ``/api/admin/backfill-from-camera`` — scan the camera's SnapedFaces history
+  for a time window and re-ingest anything missing from snapshot_logs. Used
+  to recover from capture.py / network outages.
 """
 
 from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..db import connect
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["admin"])
 
@@ -62,3 +68,42 @@ def rename_name(payload: RenameNameRequest) -> RenameNameResponse:
         attendance_logs_updated=att,
         employees_updated=emp,
     )
+
+
+class BackfillFromCameraRequest(BaseModel):
+    start: str = Field(..., description="ISO8601 timestamp, UTC preferred")
+    end: str = Field(..., description="ISO8601 timestamp, UTC preferred")
+    dry_run: bool = Field(False, description="If true, count what would be added without writing")
+
+
+def _parse_iso_utc(value: str, field: str) -> datetime:
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field} must be ISO8601")
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+@router.post("/api/admin/backfill-from-camera")
+def backfill_from_camera(payload: BackfillFromCameraRequest) -> dict:
+    # Imported lazily so a Railway deploy (with no camera reachability) can
+    # still boot the API even if camera config is missing.
+    from ..services.camera import CameraClient
+    from ..services import camera_backfill
+
+    start_utc = _parse_iso_utc(payload.start, "start")
+    end_utc = _parse_iso_utc(payload.end, "end")
+    if start_utc >= end_utc:
+        raise HTTPException(status_code=400, detail="start must be before end")
+
+    try:
+        camera = CameraClient()
+        result = camera_backfill.backfill_window(
+            camera, start_utc, end_utc, dry_run=payload.dry_run
+        )
+    except Exception as exc:
+        log.exception("backfill-from-camera failed")
+        raise HTTPException(status_code=502, detail=f"camera backfill failed: {exc}")
+    return result

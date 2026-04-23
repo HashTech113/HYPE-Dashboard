@@ -1,13 +1,15 @@
 """
 Camera HTTP client.
 
-Thin wrapper around `requests` that handles the Login → X-csrftoken → `/API/AI/processAlarm/Get`
-flow documented in API/login.md and API/processAlarm_get.md.
+Thin wrapper around `requests` that handles the Login → X-csrftoken →
+`/API/AI/processAlarm/Get` (live) and `/API/AI/SnapedFaces/Search` +
+`GetByIndex` (historical backfill) flows.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Optional
 
 import requests
@@ -99,3 +101,75 @@ class CameraClient:
         if isinstance(faces, list):
             log.info("processAlarm/Get succeeded; FaceInfo count=%d", len(faces))
         return faces if isinstance(faces, list) else []
+
+    def search_history(
+        self,
+        start_local: datetime,
+        end_local: datetime,
+        similarity: int = 70,
+    ) -> int:
+        """Initiate a SnapedFaces search over the given local-time window.
+
+        The camera uses this call to seed an internal cursor; actual rows are
+        fetched via ``get_snaped_by_index``. Returns the total match count.
+        """
+        session = self._ensure_session()
+        payload = {
+            "msgType": "AI_searchSnapedFaces",
+            "data": {
+                "MsgId": None,
+                "StartTime": start_local.strftime("%Y-%m-%d %H:%M:%S"),
+                "EndTime": end_local.strftime("%Y-%m-%d %H:%M:%S"),
+                "Similarity": similarity,
+                "Engine": 0,
+            },
+        }
+        resp = session.post(
+            f"{CAMERA_BASE_URL}/API/AI/SnapedFaces/Search",
+            json=payload,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {}) or {}
+        total = int(data.get("Count") or 0)
+        log.info(
+            "SnapedFaces/Search %s→%s total=%d",
+            payload["data"]["StartTime"],
+            payload["data"]["EndTime"],
+            total,
+        )
+        return total
+
+    def get_snaped_by_index(
+        self,
+        start_index: int,
+        count: int,
+        *,
+        with_face_image: bool = True,
+        matched_only: bool = True,
+    ) -> list[dict]:
+        """Page through the current SnapedFaces cursor. Call after search_history."""
+        session = self._ensure_session()
+        payload = {
+            "data": {
+                "MsgId": None,
+                "Engine": 0,
+                "MatchedFaces": 1 if matched_only else 0,
+                "StartIndex": start_index,
+                "Count": count,
+                "SimpleInfo": 0,
+                "WithFaceImage": 1 if with_face_image else 0,
+                "WithBodyImage": 0,
+                "WithBackgroud": 0,
+                "WithFeature": 0,
+            }
+        }
+        resp = session.post(
+            f"{CAMERA_BASE_URL}/API/AI/SnapedFaces/GetByIndex",
+            json=payload,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+        resp.raise_for_status()
+        data = resp.json().get("data", {}) or {}
+        rows = data.get("SnapedFaceInfo")
+        return rows if isinstance(rows, list) else []
