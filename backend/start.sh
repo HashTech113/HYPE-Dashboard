@@ -14,7 +14,7 @@ if [ -f ".venv/bin/activate" ]; then
   source .venv/bin/activate
 fi
 
-: "${INGEST_API_URL:=http://localhost:8000/api/ingest}"
+: "${INGEST_API_URL:=http://localhost:8000/api/ingest,https://hype-dashboard-production-8938.up.railway.app/api/ingest}"
 export INGEST_API_URL
 
 pids=()
