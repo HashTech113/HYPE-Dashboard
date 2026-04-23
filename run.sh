@@ -18,6 +18,10 @@ fi
 : "${INGEST_API_URL:=http://localhost:8000/api/ingest,https://hype-dashboard-production-8938.up.railway.app/api/ingest}"
 export INGEST_API_URL
 
+# Remote auto-sync: replay any local rows that didn't make it to Railway.
+: "${REMOTE_SYNC_URLS:=https://hype-dashboard-production-8938.up.railway.app/api/ingest}"
+: "${REMOTE_SYNC_INTERVAL:=300}"
+
 pids=()
 
 cleanup() {
@@ -42,5 +46,16 @@ sleep 2
 echo "[capture] starting... (INGEST_API_URL=$INGEST_API_URL)"
 python capture.py &
 pids+=($!)
+
+if [ -n "$REMOTE_SYNC_URLS" ]; then
+  IFS=',' read -r -a _sync_targets <<< "$REMOTE_SYNC_URLS"
+  for target in "${_sync_targets[@]}"; do
+    target_trimmed="$(echo "$target" | xargs)"
+    [ -z "$target_trimmed" ] && continue
+    echo "[sync] loop every ${REMOTE_SYNC_INTERVAL}s → $target_trimmed"
+    python replay_to_railway.py --target "$target_trimmed" --loop "$REMOTE_SYNC_INTERVAL" --sleep 0.15 &
+    pids+=($!)
+  done
+fi
 
 wait -n "${pids[@]}"

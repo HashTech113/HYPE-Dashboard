@@ -61,7 +61,7 @@
   },
   {
     "id": "7",
-    "name": "Mariya",
+    "name": "Maria",
     "employeeId": "EMP-007",
     "company": "Perform100x",
     "department": "Sales",
@@ -71,7 +71,7 @@
   },
   {
     "id": "8",
-    "name": "Ambika B",
+    "name": "Ambika B Menon",
     "employeeId": "EMP-008",
     "company": "Owlytics",
     "department": "HR",
@@ -80,8 +80,8 @@
     "dob": ""
   },
   {
-    "id": "emp-1776762152730",
-    "name": "sharif",
+    "id": "9",
+    "name": "Sharif",
     "employeeId": "EM-009",
     "company": "Grow",
     "department": "Project Manager",
