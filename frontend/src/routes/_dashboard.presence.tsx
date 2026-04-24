@@ -147,27 +147,77 @@ const statusPillClassName: Record<"Present" | "Late" | "Early Exit" | "Absent" |
   Holiday: "border-violet-200 bg-violet-50 text-violet-700",
 };
 
+type DetailTone = "neutral" | "emerald" | "sky" | "amber" | "rose" | "violet" | "indigo";
+
+const detailToneStyles: Record<DetailTone, { container: string; label: string; value: string }> = {
+  neutral: {
+    container: "border-slate-200 bg-white",
+    label: "text-slate-500",
+    value: "text-slate-900",
+  },
+  emerald: {
+    container: "border-emerald-200 bg-emerald-50/70",
+    label: "text-emerald-700",
+    value: "text-emerald-900",
+  },
+  sky: {
+    container: "border-sky-200 bg-sky-50/70",
+    label: "text-sky-700",
+    value: "text-sky-900",
+  },
+  amber: {
+    container: "border-amber-200 bg-amber-50/70",
+    label: "text-amber-700",
+    value: "text-amber-900",
+  },
+  rose: {
+    container: "border-rose-200 bg-rose-50/70",
+    label: "text-rose-700",
+    value: "text-rose-900",
+  },
+  violet: {
+    container: "border-violet-200 bg-violet-50/70",
+    label: "text-violet-700",
+    value: "text-violet-900",
+  },
+  indigo: {
+    container: "border-indigo-200 bg-indigo-50/70",
+    label: "text-indigo-700",
+    value: "text-indigo-900",
+  },
+};
+
 function DetailField({
   label,
   value,
   imageUrl,
   pill,
   onImageClick,
+  tone = "neutral",
 }: {
   label: string;
   value: string;
   imageUrl?: string;
   pill?: { label: string; className: string } | null;
   onImageClick?: (url: string, label: string) => void;
+  tone?: DetailTone;
 }) {
   const hasImage = imageUrl !== undefined;
+  const t = detailToneStyles[tone];
   return (
-    <div className="flex h-full min-h-0 flex-col justify-center rounded-xl border border-slate-200 bg-white px-3.5 py-3">
+    <div
+      className={cn(
+        "flex h-full min-h-0 flex-col justify-center rounded-xl border px-3.5 py-3 transition-colors",
+        t.container,
+      )}
+    >
       {hasImage ? (
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{label}</p>
-            <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{value}</p>
+            <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", t.label)}>
+              {label}
+            </p>
+            <p className={cn("mt-1 text-sm font-semibold break-words", t.value)}>{value}</p>
           </div>
           {imageUrl ? (
             <button
@@ -210,7 +260,9 @@ function DetailField({
         </div>
       ) : pill ? (
         <div className="flex items-center justify-between gap-3">
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{label}</p>
+          <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", t.label)}>
+            {label}
+          </p>
           <span
             className={cn(
               "inline-flex shrink-0 rounded-full border px-2.5 py-1 text-xs font-semibold",
@@ -222,8 +274,10 @@ function DetailField({
         </div>
       ) : (
         <>
-          <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">{label}</p>
-          <p className="mt-1 text-sm font-semibold text-slate-900 break-words">{value}</p>
+          <p className={cn("text-[11px] font-medium uppercase tracking-[0.14em]", t.label)}>
+            {label}
+          </p>
+          <p className={cn("mt-1 text-sm font-semibold break-words", t.value)}>{value}</p>
         </>
       )}
     </div>
@@ -550,12 +604,14 @@ function PresencePage() {
       >
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex flex-wrap items-center gap-3">
-              <Filter className="h-4 w-4 text-muted-foreground" />
+              <Filter className="h-4 w-4 text-primary" />
 
               <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Employees:</span>
+                <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-700 transition-colors">
+                  Employees
+                </span>
                 <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                  <SelectTrigger className="h-10 w-[145px] sm:w-[155px] md:w-[165px]">
+                  <SelectTrigger className="h-10 w-[145px] border-sky-200 focus:ring-sky-300 sm:w-[155px] md:w-[165px]">
                     <SelectValue placeholder="Select employee" />
                   </SelectTrigger>
                   <SelectContent>
@@ -570,9 +626,11 @@ function PresencePage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Companies:</span>
+                <span className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700 transition-colors">
+                  Companies
+                </span>
                 <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="h-10 w-[130px] sm:w-[140px] md:w-[150px]">
+                  <SelectTrigger className="h-10 w-[130px] border-indigo-200 focus:ring-indigo-300 sm:w-[140px] md:w-[150px]">
                     <SelectValue placeholder="Select company" />
                   </SelectTrigger>
                   <SelectContent>
@@ -587,7 +645,9 @@ function PresencePage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Choose Date:</span>
+                <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 transition-colors">
+                  Choose Date
+                </span>
                 <DatePicker
                   value={selectedDate}
                   onChange={(next) => {
@@ -649,13 +709,24 @@ function PresencePage() {
                         </AvatarFallback>
                       </Avatar>
                     </div>
-                    <DetailField label="Employee Name" value={selectedEmployeeData?.name ?? ""} />
-                    <DetailField label="Company Name" value={selectedEmployeeData?.company ?? ""} />
-                    <DetailField label="Employee ID" value={selectedEmployeeData?.employeeId ?? ""} />
+                    <DetailField tone="sky" label="Employee Name" value={selectedEmployeeData?.name ?? ""} />
+                    <DetailField tone="indigo" label="Company Name" value={selectedEmployeeData?.company ?? ""} />
+                    <DetailField tone="violet" label="Employee ID" value={selectedEmployeeData?.employeeId ?? ""} />
                   </div>
 
                   <div className="grid min-h-0 grid-rows-[repeat(6,auto)] gap-1.5 xl:grid-rows-[repeat(6,minmax(0,1fr))]">
                     <DetailField
+                      tone={
+                        selectedDayHoliday
+                          ? "violet"
+                          : selectedDayStatus === "Absent"
+                            ? "rose"
+                            : selectedDayStatus === "Late" || selectedDayStatus === "Early Exit"
+                              ? "amber"
+                              : selectedDayStatus === "Present"
+                                ? "emerald"
+                                : "neutral"
+                      }
                       label="Status"
                       value={
                         hasSelectedEmployee
@@ -673,26 +744,39 @@ function PresencePage() {
                       }
                     />
                     <DetailField
+                      tone="sky"
                       label="Arrival Time"
                       value={hasSelectedEmployee ? formatCalendarTime(selectedDayRecord?.entryTime) : ""}
                       imageUrl={hasSelectedEmployee ? selectedDayRecord?.entryImage ?? undefined : undefined}
                       onImageClick={(url, lbl) => setImagePreview({ url, label: lbl })}
                     />
                     <DetailField
+                      tone={
+                        hasSelectedEmployee && (selectedDayRecord?.lateEntryMinutes ?? 0) > 0
+                          ? "amber"
+                          : "emerald"
+                      }
                       label="Late Entry"
                       value={hasSelectedEmployee ? lateEntryLabel(selectedDayRecord) : ""}
                     />
                     <DetailField
+                      tone="sky"
                       label="Exit Time"
                       value={hasSelectedEmployee ? formatCalendarTime(selectedDayRecord?.exitTime ?? null) : ""}
                       imageUrl={hasSelectedEmployee ? selectedDayRecord?.exitImage ?? undefined : undefined}
                       onImageClick={(url, lbl) => setImagePreview({ url, label: lbl })}
                     />
                     <DetailField
+                      tone={
+                        hasSelectedEmployee && (selectedDayRecord?.earlyExitMinutes ?? 0) > 0
+                          ? "amber"
+                          : "emerald"
+                      }
                       label="Early Exit"
                       value={hasSelectedEmployee ? earlyExitLabel(selectedDayRecord) : ""}
                     />
                     <DetailField
+                      tone="indigo"
                       label="Total Hours"
                       value={hasSelectedEmployee ? selectedDayRecord?.totalHours ?? "—" : ""}
                     />

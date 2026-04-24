@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
+from ..config import DB_PATH
 from ..services.logs import snapshot_log_count
 
 router = APIRouter(tags=["health"])
@@ -11,4 +12,8 @@ router = APIRouter(tags=["health"])
 
 @router.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "snapshot_count": snapshot_log_count()}
+    return {
+        "status": "ok",
+        "snapshot_count": snapshot_log_count(),
+        "db_path": str(DB_PATH),
+    }

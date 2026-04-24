@@ -37,9 +37,11 @@ class Employee:
     shift: str
     role: str
     dob: str = ""
+    image_url: str = ""
 
 
 def _row_to_employee(row) -> Employee:
+    keys = row.keys()
     return Employee(
         id=str(row["id"]),
         name=str(row["name"]),
@@ -48,11 +50,12 @@ def _row_to_employee(row) -> Employee:
         department=str(row["department"] or ""),
         shift=str(row["shift"] or ""),
         role=str(row["role"] or "Employee"),
-        dob=str(row["dob"] or "") if "dob" in row.keys() else "",
+        dob=str(row["dob"] or "") if "dob" in keys else "",
+        image_url=str(row["image_url"] or "") if "image_url" in keys else "",
     )
 
 
-_SELECT_COLUMNS = "id, name, employee_id, company, department, shift, role, dob"
+_SELECT_COLUMNS = "id, name, employee_id, company, department, shift, role, dob, image_url"
 
 
 def all_employees() -> list[Employee]:
@@ -82,12 +85,13 @@ def create(
     shift: str = "",
     role: str = "Employee",
     dob: str = "",
+    image_url: str = "",
 ) -> Employee:
     with connect() as conn:
         conn.execute(
-            "INSERT INTO employees (id, name, employee_id, company, department, shift, role, dob) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (id, name, employee_id, company, department, shift, role, dob),
+            "INSERT INTO employees (id, name, employee_id, company, department, shift, role, dob, image_url) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (id, name, employee_id, company, department, shift, role, dob, image_url),
         )
     loaded = get_by_id(id)
     assert loaded is not None, "created employee should load back"
@@ -95,7 +99,7 @@ def create(
 
 
 _UPDATABLE_COLUMNS = {
-    "name", "employee_id", "company", "department", "shift", "role", "dob",
+    "name", "employee_id", "company", "department", "shift", "role", "dob", "image_url",
 }
 
 
@@ -141,7 +145,7 @@ def seed_if_empty() -> int:
             try:
                 conn.execute(
                     "INSERT OR IGNORE INTO employees (id, name, employee_id, company, "
-                    "department, shift, role, dob) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "department, shift, role, dob, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         str(row["id"]),
                         str(row["name"]),
@@ -151,6 +155,7 @@ def seed_if_empty() -> int:
                         str(row.get("shift") or ""),
                         str(row.get("role") or "Employee"),
                         str(row.get("dob") or ""),
+                        str(row.get("imageUrl") or ""),
                     ),
                 )
             except KeyError as e:

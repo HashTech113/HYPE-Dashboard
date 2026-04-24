@@ -183,3 +183,16 @@
   height: 0;
   display: none;
 }
+
+/* Dashboard widgets: line-draw animation for Presence Trend chart */
+@keyframes drawLine {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.dashboard-chart .recharts-line-curve {
+  stroke-dasharray: 1500;
+  stroke-dashoffset: 1500;
+  animation: drawLine 1.2s ease forwards;
+}

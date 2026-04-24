@@ -22,6 +22,7 @@ class EmployeeOut(BaseModel):
     shift: str
     role: str
     dob: str = ""
+    imageUrl: str = ""
 
 
 class EmployeeListResponse(BaseModel):
@@ -37,6 +38,7 @@ class EmployeeCreate(BaseModel):
     shift: str = ""
     role: str = "Employee"
     dob: str = ""
+    imageUrl: str = ""
 
 
 class EmployeeUpdate(BaseModel):
@@ -47,6 +49,7 @@ class EmployeeUpdate(BaseModel):
     shift: Optional[str] = None
     role: Optional[str] = None
     dob: Optional[str] = None
+    imageUrl: Optional[str] = None
 
 
 def _serialize(emp) -> EmployeeOut:
@@ -59,6 +62,7 @@ def _serialize(emp) -> EmployeeOut:
         shift=emp.shift,
         role=emp.role,
         dob=emp.dob,
+        imageUrl=emp.image_url,
     )
 
 
@@ -81,6 +85,7 @@ def create_employee(payload: EmployeeCreate) -> EmployeeOut:
         shift=payload.shift,
         role=payload.role,
         dob=payload.dob,
+        image_url=payload.imageUrl,
     )
     return _serialize(created)
 
@@ -91,6 +96,8 @@ def update_employee(employee_id: str, payload: EmployeeUpdate) -> EmployeeOut:
     # Map camelCase input → snake_case DB columns
     if "employeeId" in patch:
         patch["employee_id"] = patch.pop("employeeId")
+    if "imageUrl" in patch:
+        patch["image_url"] = patch.pop("imageUrl")
     updated = employees_service.update(employee_id, patch)
     if updated is None:
         raise HTTPException(status_code=404, detail=f"employee not found: {employee_id}")
