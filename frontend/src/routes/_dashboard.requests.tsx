@@ -216,9 +216,7 @@ function LiveCapturesPage() {
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               </span>
-              <span>
-                {itemCount} Snapshot record{itemCount === 1 ? "" : "s"}
-              </span>
+              <span>Live Snapshots</span>
             </div>
             <Button
               type="button"
@@ -251,14 +249,14 @@ function LiveCapturesPage() {
           <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
             {/* Filter row */}
             <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-3">
-              <Filter className="h-4 w-4 text-muted-foreground" />
+              <Filter className="h-4 w-4 text-primary" />
 
               <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-xs font-medium text-slate-600">
-                  Employees:
+                <span className="whitespace-nowrap text-xs font-medium text-sky-700">
+                  Employees
                 </span>
                 <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                  <SelectTrigger className="h-9 w-[140px] sm:w-[150px] md:w-[160px]">
+                  <SelectTrigger className="h-9 w-[140px] border-sky-200 focus:ring-sky-300 sm:w-[150px] md:w-[160px]">
                     <SelectValue placeholder="All Employees" />
                   </SelectTrigger>
                   <SelectContent>
@@ -273,11 +271,11 @@ function LiveCapturesPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-xs font-medium text-slate-600">
-                  Companies:
+                <span className="whitespace-nowrap text-xs font-medium text-indigo-700">
+                  Companies
                 </span>
                 <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="h-9 w-[125px] sm:w-[135px] md:w-[145px]">
+                  <SelectTrigger className="h-9 w-[125px] border-indigo-200 focus:ring-indigo-300 sm:w-[135px] md:w-[145px]">
                     <SelectValue placeholder="All Companies" />
                   </SelectTrigger>
                   <SelectContent>
@@ -292,8 +290,8 @@ function LiveCapturesPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-xs font-medium text-slate-600">
-                  Choose Date:
+                <span className="whitespace-nowrap text-xs font-medium text-emerald-700">
+                  Date
                 </span>
                 <DatePicker
                   value={selectedDate}
@@ -334,15 +332,15 @@ function SnapshotTable({
   loading: boolean;
 }) {
   return (
-    <Table className="table-fixed">
+    <Table className="min-w-[910px] table-fixed">
       <TableHeader>
-        <TableRow>
-          <TableHead className="w-14 font-bold text-slate-700">S/N</TableHead>
-          <TableHead className="w-[260px] font-bold text-slate-700">Employee Name</TableHead>
-          <TableHead className="w-[200px] font-bold text-slate-700">Company</TableHead>
-          <TableHead className="w-[120px] font-bold text-slate-700">Image</TableHead>
-          <TableHead className="w-[160px] font-bold text-slate-700">Date</TableHead>
-          <TableHead className="font-bold text-slate-700">Time</TableHead>
+        <TableRow className="bg-slate-50/60 hover:bg-slate-50/80">
+          <TableHead className="w-14 whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-slate-700 last:border-r-0">S/N</TableHead>
+          <TableHead className="w-[260px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Employee Name</TableHead>
+          <TableHead className="w-[200px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Company</TableHead>
+          <TableHead className="w-[120px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Image</TableHead>
+          <TableHead className="w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-emerald-700 last:border-r-0">Date</TableHead>
+          <TableHead className="w-[130px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Time</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -357,28 +355,28 @@ function SnapshotTable({
             const emp = findEmployeeForName(employees, item.name);
             const company = item.company ?? emp?.company ?? "—";
             return (
-              <TableRow key={item.id}>
-                <TableCell className="py-2 align-middle text-muted-foreground">
+              <TableRow key={item.id} className="transition-colors hover:bg-slate-50/60">
+                <TableCell className="border-r border-slate-200 py-2 align-middle text-slate-500 last:border-r-0">
                   {index + 1}
                 </TableCell>
-                <TableCell className="py-2 align-middle">
+                <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
                   <span className="font-medium text-foreground">{item.name}</span>
                 </TableCell>
-                <TableCell className="py-2 align-middle text-muted-foreground">
+                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-indigo-700 last:border-r-0">
                   {company}
                 </TableCell>
-                <TableCell className="py-2 align-middle">
+                <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
                   <img
                     src={item.image_url}
                     alt={item.name}
-                    className="h-14 w-14 shrink-0 rounded-md border border-border object-cover"
+                    className="h-14 w-14 shrink-0 rounded-md border border-sky-200 object-cover"
                     loading="lazy"
                   />
                 </TableCell>
-                <TableCell className="py-2 align-middle text-muted-foreground">
+                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-emerald-700 last:border-r-0">
                   {formatDateDash(item.timestamp)}
                 </TableCell>
-                <TableCell className="py-2 align-middle text-muted-foreground">
+                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-sky-700 last:border-r-0">
                   {formatTime12(item.timestamp)}
                 </TableCell>
               </TableRow>

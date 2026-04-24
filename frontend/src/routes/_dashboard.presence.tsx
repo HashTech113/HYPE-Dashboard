@@ -607,7 +607,7 @@ function PresencePage() {
               <Filter className="h-4 w-4 text-primary" />
 
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-700 transition-colors">
+                <span className="whitespace-nowrap text-xs font-medium text-sky-700">
                   Employees
                 </span>
                 <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
@@ -626,7 +626,7 @@ function PresencePage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700 transition-colors">
+                <span className="whitespace-nowrap text-xs font-medium text-indigo-700">
                   Companies
                 </span>
                 <Select value={selectedCompany} onValueChange={setSelectedCompany}>
@@ -645,7 +645,7 @@ function PresencePage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 transition-colors">
+                <span className="whitespace-nowrap text-xs font-medium text-emerald-700">
                   Choose Date
                 </span>
                 <DatePicker

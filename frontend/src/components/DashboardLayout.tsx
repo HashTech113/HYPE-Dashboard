@@ -238,7 +238,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             />
           ) : null}
 
-          <p className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-xs font-semibold tracking-wide text-slate-800 sm:text-sm md:text-xl lg:text-2xl">
+          <p className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-base font-semibold tracking-wide text-slate-800 sm:text-lg md:text-2xl lg:text-3xl xl:text-4xl">
             ᴍᴏᴠᴇᴍᴇɴᴛ ɪɴᴛᴇʟʟɪɢᴇɴᴄᴇ ᴘʟᴀᴛꜰᴏʀᴍ
           </p>
 

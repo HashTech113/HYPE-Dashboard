@@ -281,7 +281,7 @@ function ReportsPage() {
                 <Filter className="h-4 w-4 text-primary" />
 
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-700 transition-colors">
+                  <span className="whitespace-nowrap text-xs font-medium text-sky-700">
                     Employees
                   </span>
                   <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
@@ -300,7 +300,7 @@ function ReportsPage() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-indigo-700 transition-colors">
+                  <span className="whitespace-nowrap text-xs font-medium text-indigo-700">
                     Companies
                   </span>
                   <Select value={selectedCompany} onValueChange={setSelectedCompany}>
@@ -318,21 +318,15 @@ function ReportsPage() {
                   </Select>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-700 transition-colors">
-                    Start Date
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="whitespace-nowrap text-xs font-medium text-emerald-700">
+                    Date Range
                   </span>
                   <DatePicker
                     value={startDate}
                     onChange={setStartDate}
                     className="w-[215px]"
                   />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-rose-700 transition-colors">
-                    End Date
-                  </span>
                   <DatePicker
                     value={endDate}
                     onChange={setEndDate}
@@ -392,16 +386,16 @@ function ReportTable({
     <Table className="min-w-[960px]">
       <TableHeader>
         <TableRow className="bg-slate-50/60 hover:bg-slate-50/80">
-          <TableHead className="w-[170px] whitespace-nowrap font-bold uppercase tracking-wide text-sky-700">Employee</TableHead>
-          <TableHead className="w-[90px] whitespace-nowrap font-bold uppercase tracking-wide text-indigo-700">Company</TableHead>
-          <TableHead className="w-[95px] whitespace-nowrap font-bold uppercase tracking-wide text-emerald-700">Date</TableHead>
-          <TableHead className="w-[80px] whitespace-nowrap font-bold uppercase tracking-wide text-sky-700">Entry Image</TableHead>
-          <TableHead className="w-[95px] whitespace-nowrap font-bold uppercase tracking-wide text-sky-700">Entry Time</TableHead>
-          <TableHead className="w-[110px] whitespace-nowrap font-bold uppercase tracking-wide text-amber-700">Late Entry</TableHead>
-          <TableHead className="w-[80px] whitespace-nowrap font-bold uppercase tracking-wide text-rose-700">Exit Image</TableHead>
-          <TableHead className="w-[95px] whitespace-nowrap font-bold uppercase tracking-wide text-rose-700">Exit Time</TableHead>
-          <TableHead className="w-[110px] whitespace-nowrap font-bold uppercase tracking-wide text-amber-700">Early Exit</TableHead>
-          <TableHead className="w-[90px] whitespace-nowrap font-bold uppercase tracking-wide text-indigo-700">Total Hours</TableHead>
+          <TableHead className="w-[170px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Employee Name</TableHead>
+          <TableHead className="w-[90px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Company</TableHead>
+          <TableHead className="w-[95px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-emerald-700 last:border-r-0">Date</TableHead>
+          <TableHead className="w-[80px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Entry Image</TableHead>
+          <TableHead className="w-[95px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Entry Time</TableHead>
+          <TableHead className="w-[110px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Late Entry</TableHead>
+          <TableHead className="w-[80px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-rose-700 last:border-r-0">Exit Image</TableHead>
+          <TableHead className="w-[95px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-rose-700 last:border-r-0">Exit Time</TableHead>
+          <TableHead className="w-[110px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Early Exit</TableHead>
+          <TableHead className="w-[90px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Total Hours</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -419,7 +413,7 @@ function ReportTable({
             const isEarly = (item.early_exit_minutes ?? 0) > 0;
             return (
               <TableRow key={item.id} className="transition-colors hover:bg-slate-50/60">
-                <TableCell className="py-2 align-middle">
+                <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
                   <div className="flex items-center gap-2">
                     <Avatar className="h-8 w-8 shrink-0 border border-sky-200 bg-sky-50">
                       {emp?.imageUrl ? (
@@ -438,13 +432,13 @@ function ReportTable({
                     </span>
                   </div>
                 </TableCell>
-                <TableCell className="whitespace-nowrap py-2 align-middle font-medium text-indigo-700">
+                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-indigo-700 last:border-r-0">
                   {company}
                 </TableCell>
-                <TableCell className="whitespace-nowrap py-2 align-middle font-medium text-emerald-700">
+                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-emerald-700 last:border-r-0">
                   {formatDateKeyDash(item.date)}
                 </TableCell>
-                <TableCell className="py-2 align-middle">
+                <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
                   {item.entry_image_url ? (
                     <img
                       src={item.entry_image_url}
@@ -456,18 +450,18 @@ function ReportTable({
                     <div className="h-10 w-10 rounded-md border border-dashed border-sky-200 bg-sky-50/40" />
                   )}
                 </TableCell>
-                <TableCell className="whitespace-nowrap py-2 align-middle text-sky-700">
+                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-sky-700 last:border-r-0">
                   {formatClock12(item.entry_time)}
                 </TableCell>
                 <TableCell
                   className={cn(
-                    "whitespace-nowrap py-2 align-middle font-semibold",
+                    "whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold last:border-r-0",
                     isLate ? "text-amber-700" : "text-emerald-700",
                   )}
                 >
                   {lateEntryCell(item)}
                 </TableCell>
-                <TableCell className="py-2 align-middle">
+                <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
                   {item.exit_image_url ? (
                     <img
                       src={item.exit_image_url}
@@ -479,18 +473,18 @@ function ReportTable({
                     <div className="h-10 w-10 rounded-md border border-dashed border-rose-200 bg-rose-50/40" />
                   )}
                 </TableCell>
-                <TableCell className="whitespace-nowrap py-2 align-middle text-rose-700">
+                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-rose-700 last:border-r-0">
                   {formatClock12(item.exit_time)}
                 </TableCell>
                 <TableCell
                   className={cn(
-                    "whitespace-nowrap py-2 align-middle font-semibold",
+                    "whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold last:border-r-0",
                     isEarly ? "text-amber-700" : "text-emerald-700",
                   )}
                 >
                   {earlyExitCell(item)}
                 </TableCell>
-                <TableCell className="whitespace-nowrap py-2 align-middle font-semibold text-indigo-700">
+                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold text-indigo-700 last:border-r-0">
                   {item.total_hours}
                 </TableCell>
               </TableRow>

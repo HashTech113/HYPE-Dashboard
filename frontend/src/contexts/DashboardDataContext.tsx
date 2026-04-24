@@ -55,10 +55,16 @@ async function fetchFromMock(): Promise<AttendanceSummaryItem[]> {
     const resp = await fetch("/mock-api/dashboard.json");
     if (!resp.ok) return [];
     const body = (await resp.json()) as {
+      employees?: Array<{
+        name: string;
+        employeeId: string;
+        company: string;
+      }>;
       presenceHistory?: Array<{
         id: string;
         employeeName: string;
         employeeId: string;
+        company?: string | null;
         entryTime: string;
         exitTime: string | null;
         totalHours: string;
@@ -67,10 +73,13 @@ async function fetchFromMock(): Promise<AttendanceSummaryItem[]> {
       }>;
     };
     const rows = body.presenceHistory ?? [];
+    const companyByEmployeeId = new Map(
+      (body.employees ?? []).map((employee) => [employee.employeeId, employee.company]),
+    );
     return rows.map<AttendanceSummaryItem>((r) => ({
       id: `${r.employeeId}|${r.date}`,
       name: r.employeeName,
-      company: null,
+      company: r.company ?? companyByEmployeeId.get(r.employeeId) ?? null,
       date: r.date,
       entry_time: r.entryTime || null,
       exit_time: r.exitTime,

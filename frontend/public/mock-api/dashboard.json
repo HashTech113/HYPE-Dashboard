@@ -63,7 +63,8 @@
     { "id": "5", "name": "Greeshma", "employeeId": "EMP-005", "company": "Branch B", "department": "Security", "shift": "06:00-14:00", "role": "Employee", "password": "gre7890", "dob": "1985-06-12" },
     { "id": "6", "name": "Vaishnavi", "employeeId": "EMP-006", "company": "WAWU", "department": "Engineering", "shift": "08:00-17:00", "role": "Employee", "password": "vai1234", "dob": "1993-09-25" },
     { "id": "7", "name": "Maria", "employeeId": "EMP-007", "company": "Branch A", "department": "Logistics", "shift": "07:00-16:00", "role": "Employee", "password": "mar5678", "dob": "1991-04-18" },
-    { "id": "8", "name": "Ambika Menon", "employeeId": "EMP-008", "company": "WAWU", "department": "Marketing", "shift": "09:00-18:00", "role": "Employee", "password": "amb9012", "dob": "1994-12-05" }
+    { "id": "8", "name": "Ambika Menon", "employeeId": "EMP-008", "company": "WAWU", "department": "Marketing", "shift": "09:00-18:00", "role": "Employee", "password": "amb9012", "dob": "1994-12-05" },
+    { "id": "9", "name": "Niharika", "employeeId": "EMP-009", "company": "Branch C", "department": "Support", "shift": "09:00-18:00", "role": "Employee", "password": "nih2468", "dob": "1996-02-14" }
   ],
   "presenceHistory": [
     { "id": "h1", "employeeName": "Akash", "employeeId": "EMP-001", "entryTime": "08:02", "exitTime": "17:05", "totalHours": "9h 03m", "status": "Present", "date": "2025-04-13" },
@@ -89,7 +90,9 @@
     { "id": "h21", "employeeName": "Ambika Menon", "employeeId": "EMP-008", "entryTime": "09:00", "exitTime": "18:10", "totalHours": "9h 10m", "status": "Present", "date": "2025-04-13" },
     { "id": "h22", "employeeName": "Ambika Menon", "employeeId": "EMP-008", "entryTime": "09:05", "exitTime": "18:00", "totalHours": "8h 55m", "status": "Present", "date": "2025-04-12" },
     { "id": "h23", "employeeName": "Akhil", "employeeId": "EMP-004", "entryTime": "—", "exitTime": null, "totalHours": "—", "status": "Absent", "date": "2025-04-13" },
-    { "id": "h24", "employeeName": "Akhil", "employeeId": "EMP-004", "entryTime": "08:00", "exitTime": "17:00", "totalHours": "9h 00m", "status": "Present", "date": "2025-04-12" }
+    { "id": "h24", "employeeName": "Akhil", "employeeId": "EMP-004", "entryTime": "08:00", "exitTime": "17:00", "totalHours": "9h 00m", "status": "Present", "date": "2025-04-12" },
+    { "id": "h25", "employeeName": "Niharika", "employeeId": "EMP-009", "entryTime": "09:35", "exitTime": "18:00", "totalHours": "8h 25m", "status": "Late", "date": "2025-04-13" },
+    { "id": "h26", "employeeName": "Niharika", "employeeId": "EMP-009", "entryTime": "—", "exitTime": null, "totalHours": "—", "status": "Absent", "date": "2025-04-12" }
   ],
   "holidayCalendar": [
     { "id": "hol-2026-01-01", "date": "2026-01-01", "day": "Thursday", "name": "New Year", "type": "Public Holiday" },

@@ -5,7 +5,7 @@ import { type Employee } from "@/api/dashboardApi";
 import { useEmployees } from "@/contexts/EmployeesContext";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -140,16 +140,12 @@ function EmployeesPage() {
         title="Employee Management"
         icon={<Users className="h-5 w-5 text-primary" />}
         className="animate-fade-in-up"
-        contentClassName="flex min-h-0 flex-1 flex-col gap-3 p-4"
         actions={
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm">
-              <Download className="mr-1 h-4 w-4" />Export
-            </Button>
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:gap-3">
             <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
               <DialogTrigger asChild>
-                <Button size="sm">
-                  <Plus className="mr-1 h-4 w-4" />Add Employee
+                <Button size="sm" className="h-10 gap-1.5 px-4">
+                  <Plus className="h-4 w-4" />Add Employee
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-lg">
@@ -165,142 +161,163 @@ function EmployeesPage() {
                 />
               </DialogContent>
             </Dialog>
+            <Button variant="outline" size="sm" className="h-10 gap-1.5 px-4">
+              <Download className="h-4 w-4" />Export
+            </Button>
           </div>
         }
       >
+      <Card className="flex min-h-0 flex-1 flex-col">
+        <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
+          {/* Filter row */}
+          <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-3">
+            <Filter className="h-4 w-4 text-primary" />
 
-      <Card className="shrink-0 p-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <Filter className="h-4 w-4 text-muted-foreground" />
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-xs font-medium text-sky-700">Employees</span>
+              <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
+                <SelectTrigger className="h-9 w-[160px] border-sky-200 focus:ring-sky-300">
+                  <SelectValue placeholder="All Employees" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Employees</SelectItem>
+                  {employeesForSelectedCompany.map((emp) => (
+                    <SelectItem key={emp.employeeId} value={emp.employeeId}>
+                      {emp.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-          <div className="flex items-center gap-2">
-            <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Employees:</span>
-            <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-              <SelectTrigger className="h-10 w-[180px]">
-                <SelectValue placeholder="Select employee" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Employees</SelectItem>
-                {employeesForSelectedCompany.map((emp) => (
-                  <SelectItem key={emp.employeeId} value={emp.employeeId}>
-                    {emp.name}
-                  </SelectItem>
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-xs font-medium text-indigo-700">Companies</span>
+              <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                <SelectTrigger className="h-9 w-[150px] border-indigo-200 focus:ring-indigo-300">
+                  <SelectValue placeholder="All Companies" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Companies</SelectItem>
+                  {companyOptions.map((company) => (
+                    <SelectItem key={company} value={company}>
+                      {company}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-xs font-medium text-emerald-700">Departments</span>
+              <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                <SelectTrigger className="h-9 w-[160px] border-emerald-200 focus:ring-emerald-300">
+                  <SelectValue placeholder="All Departments" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Departments</SelectItem>
+                  {departmentOptions.map((department) => (
+                    <SelectItem key={department} value={department}>
+                      {department}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-xs font-medium text-amber-700">Role</span>
+              <Select
+                value={selectedRole}
+                onValueChange={(value) => {
+                  const next = value as RoleFilter;
+                  setSelectedRole(next);
+                  navigate({
+                    search: (prev) => ({
+                      ...prev,
+                      role: next === "all" ? undefined : next,
+                    }),
+                    replace: true,
+                  });
+                }}
+              >
+                <SelectTrigger className="h-9 w-[140px] border-amber-200 focus:ring-amber-300">
+                  <SelectValue placeholder="All Roles" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Roles</SelectItem>
+                  <SelectItem value="Admin">Admin</SelectItem>
+                  <SelectItem value="Employee">Employee</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto">
+            <Table className="min-w-[910px] table-fixed">
+              <TableHeader>
+                <TableRow className="bg-slate-50/60 hover:bg-slate-50/80">
+                  <TableHead className="w-14 whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-slate-700 last:border-r-0">S/N</TableHead>
+                  <TableHead className="w-[220px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Employee Name</TableHead>
+                  <TableHead className="w-[120px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-slate-700 last:border-r-0">ID</TableHead>
+                  <TableHead className="hidden md:table-cell w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Company</TableHead>
+                  <TableHead className="hidden md:table-cell w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-emerald-700 last:border-r-0">Department</TableHead>
+                  <TableHead className="hidden lg:table-cell w-[150px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Shift</TableHead>
+                  <TableHead className="w-[120px] whitespace-nowrap border-r border-slate-200 text-right font-bold uppercase tracking-wide text-slate-700 last:border-r-0">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((employee, index) => (
+                  <TableRow key={employee.id} className="transition-colors hover:bg-slate-50/60">
+                    <TableCell className="border-r border-slate-200 py-2 align-middle text-slate-500 last:border-r-0">{index + 1}</TableCell>
+                    <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
+                      <div className="flex items-center gap-3">
+                        {employee.imageUrl ? (
+                          <img
+                            src={employee.imageUrl}
+                            alt={employee.name}
+                            className="h-10 w-10 shrink-0 rounded-full border border-sky-200 object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-xs font-semibold text-slate-500">
+                            {(employee.name.trim().charAt(0) || "?").toUpperCase()}
+                          </div>
+                        )}
+                        <span className="truncate font-medium text-foreground">{employee.name}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="border-r border-slate-200 py-2 align-middle text-slate-500 last:border-r-0">{employee.employeeId}</TableCell>
+                    <TableCell className="hidden md:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-indigo-700 last:border-r-0">{employee.company}</TableCell>
+                    <TableCell className="hidden md:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-emerald-700 last:border-r-0">{employee.department || "—"}</TableCell>
+                    <TableCell className="hidden lg:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle text-amber-700 last:border-r-0">{formatShiftTo12Hour(employee.shift)}</TableCell>
+                    <TableCell className="border-r border-slate-200 py-2 align-middle text-right last:border-r-0">
+                      <div className="flex justify-end gap-1">
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-sky-700 hover:bg-sky-50 hover:text-sky-800" onClick={() => handleEdit(employee)}>
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-destructive hover:bg-rose-50 hover:text-destructive"
+                          onClick={() => setEmployeeToDelete(employee)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </SelectContent>
-            </Select>
+                {filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                      No employees match the current filters.
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </TableBody>
+            </Table>
           </div>
-
-          <div className="flex items-center gap-2">
-            <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Companies:</span>
-            <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-              <SelectTrigger className="h-10 w-[160px]">
-                <SelectValue placeholder="Select company" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Companies</SelectItem>
-                {companyOptions.map((company) => (
-                  <SelectItem key={company} value={company}>
-                    {company}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Departments:</span>
-            <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-              <SelectTrigger className="h-10 w-[160px]">
-                <SelectValue placeholder="Select department" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Departments</SelectItem>
-                {departmentOptions.map((department) => (
-                  <SelectItem key={department} value={department}>
-                    {department}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="whitespace-nowrap text-sm font-medium leading-none text-slate-600">Role:</span>
-            <Select
-              value={selectedRole}
-              onValueChange={(value) => {
-                const next = value as RoleFilter;
-                setSelectedRole(next);
-                navigate({
-                  search: (prev) => ({
-                    ...prev,
-                    role: next === "all" ? undefined : next,
-                  }),
-                  replace: true,
-                });
-              }}
-            >
-              <SelectTrigger className="h-10 w-[180px]">
-                <SelectValue placeholder="Select role" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Roles</SelectItem>
-                <SelectItem value="Admin">Admin</SelectItem>
-                <SelectItem value="Employee">Employee</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-      </Card>
-
-      <Card className="min-h-0 flex-1 overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-14">S/N</TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead>ID</TableHead>
-              <TableHead className="hidden md:table-cell">Company</TableHead>
-              <TableHead className="hidden md:table-cell">Department</TableHead>
-              <TableHead className="hidden lg:table-cell">Shift</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filtered.map((employee, index) => (
-              <TableRow key={employee.id}>
-                <TableCell className="text-muted-foreground">{index + 1}</TableCell>
-                <TableCell className="font-medium">{employee.name}</TableCell>
-                <TableCell className="text-muted-foreground">{employee.employeeId}</TableCell>
-                <TableCell className="hidden md:table-cell">{employee.company}</TableCell>
-                <TableCell className="hidden md:table-cell">{employee.department}</TableCell>
-                <TableCell className="hidden lg:table-cell text-muted-foreground">{formatShiftTo12Hour(employee.shift)}</TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleEdit(employee)}>
-                      <Pencil className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive"
-                      onClick={() => setEmployeeToDelete(employee)}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-            {filtered.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">
-                  No employees match the current filters.
-                </TableCell>
-              </TableRow>
-            ) : null}
-          </TableBody>
-        </Table>
+        </CardContent>
       </Card>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>

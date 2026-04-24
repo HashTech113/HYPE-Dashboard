@@ -6,11 +6,11 @@ import { buildDisciplineByTeam, type DisciplineStatus } from "@/lib/dashboardDat
 import { cn } from "@/lib/utils";
 
 const STATUS_STYLES: Record<DisciplineStatus, { badge: string; bar: string; label: string }> = {
-  Excellent: { badge: "bg-emerald-50 text-emerald-700", bar: "bg-emerald-500", label: "Excellent" },
-  Good: { badge: "bg-sky-50 text-sky-700", bar: "bg-sky-500", label: "Good" },
-  Average: { badge: "bg-amber-50 text-amber-700", bar: "bg-amber-500", label: "Average" },
-  Poor: { badge: "bg-orange-50 text-orange-700", bar: "bg-orange-500", label: "Poor" },
-  Critical: { badge: "bg-rose-50 text-rose-700", bar: "bg-rose-500", label: "Critical" },
+  Outstanding: { badge: "bg-green-50 text-green-700", bar: "bg-green-500", label: "Outstanding" },
+  Excellent: { badge: "bg-blue-50 text-blue-700", bar: "bg-blue-500", label: "Excellent" },
+  "Very Good": { badge: "bg-orange-50 text-orange-700", bar: "bg-orange-500", label: "Very Good" },
+  Good: { badge: "bg-yellow-50 text-yellow-700", bar: "bg-yellow-500", label: "Good" },
+  Average: { badge: "bg-slate-100 text-slate-600", bar: "bg-slate-400", label: "Average" },
 };
 
 export function DisciplineScore() {
