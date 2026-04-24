@@ -2,10 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Filter, RefreshCw, Users } from "lucide-react";
 import {
-  getIngestLastSeen,
   getSnapshotLogs,
   type Employee,
-  type IngestLastSeen,
   type SnapshotLogItem,
 } from "@/api/dashboardApi";
 import { useEmployees } from "@/contexts/EmployeesContext";
@@ -38,15 +36,6 @@ export const Route = createFileRoute("/_dashboard/requests")({
 
 const POLL_INTERVAL_MS = 5_000;
 const FETCH_LIMIT = 500;
-
-function formatIngestAge(seconds: number | null | undefined): string {
-  if (seconds === null || seconds === undefined) return "no data";
-  if (seconds < 5) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
-  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86_400)}d ago`;
-}
 
 function snapshotLocalDateKey(isoTimestamp: string): string {
   const d = new Date(isoTimestamp);
@@ -98,7 +87,6 @@ function LiveCapturesPage() {
   const [selectedDate, setSelectedDate] = useState<string>("");
 
   const [snapshotItems, setSnapshotItems] = useState<SnapshotLogItem[]>([]);
-  const [ingestStatus, setIngestStatus] = useState<IngestLastSeen | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -130,13 +118,9 @@ function LiveCapturesPage() {
     async ({ manual = false }: { manual?: boolean } = {}) => {
       if (manual) setRefreshing(true);
       try {
-        const [data, ingest] = await Promise.all([
-          getSnapshotLogs({ limit: FETCH_LIMIT }),
-          getIngestLastSeen().catch(() => null),
-        ]);
+        const data = await getSnapshotLogs({ limit: FETCH_LIMIT });
         if (!activeRef.current) return;
         setSnapshotItems(data.items);
-        if (ingest) setIngestStatus(ingest);
         setError(null);
       } catch (err) {
         if (!activeRef.current) return;
@@ -236,29 +220,6 @@ function LiveCapturesPage() {
                 {itemCount} Snapshot record{itemCount === 1 ? "" : "s"}
               </span>
             </div>
-            {ingestStatus ? (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide",
-                  ingestStatus.stale
-                    ? "border-rose-200 bg-rose-50 text-rose-700"
-                    : "border-emerald-200 bg-emerald-50 text-emerald-700",
-                )}
-                title={
-                  ingestStatus.last_seen
-                    ? `Last ingest: ${new Date(ingestStatus.last_seen).toLocaleString()}`
-                    : "No ingest recorded yet"
-                }
-              >
-                <span
-                  className={cn(
-                    "h-1.5 w-1.5 rounded-full",
-                    ingestStatus.stale ? "bg-rose-500" : "bg-emerald-500",
-                  )}
-                />
-                Last ingest: {formatIngestAge(ingestStatus.seconds_ago)}
-              </span>
-            ) : null}
             <Button
               type="button"
               variant="outline"

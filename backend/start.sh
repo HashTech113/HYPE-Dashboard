@@ -37,8 +37,8 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-echo "[api] starting on :8000..."
-uvicorn app.main:app --reload --port 8000 &
+echo "[api] starting on 0.0.0.0:8000..."
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 &
 pids+=($!)
 
 # Give the API a moment to come up before capture starts posting.

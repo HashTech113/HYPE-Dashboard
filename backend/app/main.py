@@ -44,6 +44,9 @@ ALLOWED_ORIGIN_REGEX = (
     r"|https://.*\.up\.railway\.app"
     r"|https://.*\.workers\.dev"
     r"|https://.*\.camera2ai\.com"
+    r"|http://172\.18\.\d+\.\d+(:\d+)?"
+    r"|http://192\.168\.\d+\.\d+(:\d+)?"
+    r"|http://10\.\d+\.\d+\.\d+(:\d+)?"
 )
 
 

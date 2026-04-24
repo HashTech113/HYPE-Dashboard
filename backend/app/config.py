@@ -15,7 +15,7 @@ _db_env = os.getenv("DATABASE_PATH", "").strip()
 DB_PATH = Path(_db_env) if _db_env else BASE_DIR / "database.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-CAMERA_HOST = os.getenv("CAMERA_HOST", "172.18.11.158")
+CAMERA_HOST = os.getenv("CAMERA_HOST", "172.18.11.162")
 CAMERA_USER = os.getenv("CAMERA_USER", "admin")
 CAMERA_PASS = os.getenv("CAMERA_PASS", "Grow@123")
 CAMERA_BASE_URL = f"http://{CAMERA_HOST}"
