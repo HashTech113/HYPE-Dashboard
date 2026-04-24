@@ -89,6 +89,15 @@ def snapshot_log_count() -> int:
         return conn.execute("SELECT COUNT(*) AS c FROM snapshot_logs").fetchone()["c"]
 
 
+def snapshot_last_timestamp() -> Optional[str]:
+    """Latest snapshot_logs.timestamp (ISO string) or None if table is empty."""
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT timestamp FROM snapshot_logs ORDER BY timestamp DESC, id DESC LIMIT 1"
+        ).fetchone()
+    return row["timestamp"] if row else None
+
+
 def _row_to_snapshot(row: dict) -> Snapshot:
     raw_ts = row["timestamp"]
     try:

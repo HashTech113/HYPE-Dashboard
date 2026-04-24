@@ -355,3 +355,16 @@ export async function getSnapshotLogs(params: SnapshotQueryParams = {}): Promise
   }
   return response.json() as Promise<SnapshotLogResponse>;
 }
+
+export type IngestLastSeen = {
+  last_seen: string | null;
+  seconds_ago: number | null;
+  stale: boolean;
+  threshold_seconds: number;
+};
+
+export async function getIngestLastSeen(): Promise<IngestLastSeen> {
+  const response = await fetch(buildUrl("/api/ingest/last-seen", {}), { cache: "no-store" });
+  if (!response.ok) throw new Error(`Failed to load ingest status: ${response.status}`);
+  return response.json() as Promise<IngestLastSeen>;
+}

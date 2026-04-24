@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from ..schemas.ingest import IngestRequest, IngestResponse
 from ..services import logs as logs_service
@@ -14,6 +16,10 @@ from ..services import logs as logs_service
 log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["ingest"])
+
+# Anything older than this is flagged "stale" — tuned to a few multiples of
+# the expected capture cadence so brief pauses don't trip the alarm.
+INGEST_STALE_THRESHOLD_SECONDS = 120
 
 
 def _normalize_timestamp(value: str) -> str:
@@ -48,3 +54,40 @@ def ingest(payload: IngestRequest) -> IngestResponse:
         image_data=payload.image_base64,
     )
     return IngestResponse(status="ok", stored=stored)
+
+
+class IngestLastSeenResponse(BaseModel):
+    last_seen: Optional[str]
+    seconds_ago: Optional[int]
+    stale: bool
+    threshold_seconds: int
+
+
+@router.get("/api/ingest/last-seen", response_model=IngestLastSeenResponse)
+def ingest_last_seen() -> IngestLastSeenResponse:
+    last = logs_service.snapshot_last_timestamp()
+    if not last:
+        return IngestLastSeenResponse(
+            last_seen=None,
+            seconds_ago=None,
+            stale=True,
+            threshold_seconds=INGEST_STALE_THRESHOLD_SECONDS,
+        )
+    try:
+        dt = datetime.fromisoformat(last.replace("Z", "+00:00"))
+    except ValueError:
+        return IngestLastSeenResponse(
+            last_seen=last,
+            seconds_ago=None,
+            stale=True,
+            threshold_seconds=INGEST_STALE_THRESHOLD_SECONDS,
+        )
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    seconds_ago = max(0, int((datetime.now(timezone.utc) - dt).total_seconds()))
+    return IngestLastSeenResponse(
+        last_seen=dt.astimezone(timezone.utc).isoformat(),
+        seconds_ago=seconds_ago,
+        stale=seconds_ago > INGEST_STALE_THRESHOLD_SECONDS,
+        threshold_seconds=INGEST_STALE_THRESHOLD_SECONDS,
+    )
