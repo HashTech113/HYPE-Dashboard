@@ -50,6 +50,10 @@ def get_connection() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA synchronous = NORMAL")
+    # Wait up to 5s for a write lock instead of failing immediately. Capture,
+    # backfill, replay, and uvicorn all open their own connections; without
+    # this PRAGMA a busy WAL writer would surface as "database is locked".
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 

@@ -1,22 +1,24 @@
-"""Camera → ingest pipeline.
+"""Camera → local SQLite (durable sink) → optional remote replication.
 
-Runs on the machine that has LAN access to the camera. Pulls FaceInfo records
-from the camera API, extracts the captured face image, and POSTs each one to
-the configured ``INGEST_API_URL`` (comma-separated list for fan-out).
+Runs on the machine with LAN access to the camera. Pulls FaceInfo records
+from the camera API and writes each one **directly** into the local DB
+via ``record_capture()``. The local DB is the durable outbox — even when
+uvicorn or any remote ingest target is down, captures are never lost,
+and ``replay_to_railway.py`` propagates them to Railway later.
 
-Environment variables
----------------------
-INGEST_API_URL     Required. Comma-separated list of ingest URLs — the
-                   capture loop refuses to start if this is unset. Examples:
-                     INGEST_API_URL=http://localhost:8000/api/ingest
-                     INGEST_API_URL=https://your-prod/api/ingest
-                     INGEST_API_URL=http://localhost:8000/api/ingest,https://your-prod/api/ingest
+Optional remote replication
+---------------------------
+``INGEST_API_URL`` (comma-separated) lets capture also POST each event to
+remote ingest endpoints in parallel for low-latency replication. Localhost
+URLs are stripped automatically because the direct DB write covers the
+local backend already. If the env is unset, capture runs local-only and
+relies entirely on ``replay_to_railway.py`` for remote sync.
 
 CAMERA_HOST/USER/PASS — passed through to app.services.camera.
 
-The loop never crashes on a single failure: camera errors reconnect, ingest
-errors retry per-target on the next tick. A snap_id is considered processed
-once *any* target accepts it.
+The loop never crashes on a single failure: camera errors trigger a
+re-login, DB busy errors retry via PRAGMA busy_timeout, and remote POST
+failures are tolerated because the local DB already has the row.
 """
 
 from __future__ import annotations
@@ -27,12 +29,15 @@ import signal
 import sys
 import time
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 import requests
 
 from app.config import CAPTURE_INTERVAL_SECONDS
+from app.db import connect
+from app.services import logs as logs_service
 from app.services import snapshots
 from app.services.camera import CameraClient
 
@@ -44,24 +49,39 @@ INGEST_TIMEOUT_SECONDS = 30.0
 INGEST_RETRY_BACKOFF = 2.0
 INGEST_RETRY_MAX = 3
 SEEN_SNAP_IDS_MAX = 2000
+# How far back to seed seen_ids from the local DB at startup. Anything
+# older has aged out of the camera's live alarm buffer anyway.
+SEEN_REWARM_HOURS = 1
+_LOCALHOST_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
 
-def _resolve_targets() -> list[str]:
+def _is_localhost_url(url: str) -> bool:
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return False
+    return host in _LOCALHOST_HOSTS
+
+
+def _resolve_remote_targets() -> list[str]:
     raw = os.getenv("INGEST_API_URL", "").strip()
     if not raw:
-        log.error(
-            "INGEST_API_URL is required — set it to the ingest endpoint you want "
-            "captures posted to (comma-separated for multiple targets)."
-        )
-        sys.exit(2)
+        return []
     targets = [u.strip() for u in raw.split(",") if u.strip()]
-    if not targets:
-        log.error("INGEST_API_URL contained no non-empty URLs.")
-        sys.exit(2)
-    return targets
+    remote: list[str] = []
+    for url in targets:
+        if _is_localhost_url(url):
+            log.info(
+                "INGEST_API_URL: skipping local target %s — capture writes "
+                "directly to the local DB (no HTTP round-trip needed)",
+                url,
+            )
+            continue
+        remote.append(url)
+    return remote
 
 
-INGEST_API_URLS = _resolve_targets()
+REMOTE_TARGETS = _resolve_remote_targets()
 
 
 def _extract_image_b64(item: dict) -> Optional[str]:
@@ -103,25 +123,62 @@ def _post_one(session: requests.Session, url: str, payload: dict) -> bool:
             if resp.status_code == 200:
                 return True
             log.warning(
-                "%s returned %d (attempt %d/%d) body=%s",
+                "remote replicate %s returned %d (attempt %d/%d) body=%s",
                 url, resp.status_code, attempt, INGEST_RETRY_MAX, resp.text[:200],
             )
         except requests.RequestException as e:
-            log.warning("%s post failed (attempt %d/%d): %s", url, attempt, INGEST_RETRY_MAX, e)
+            log.warning(
+                "remote replicate %s failed (attempt %d/%d): %s",
+                url, attempt, INGEST_RETRY_MAX, e,
+            )
         if attempt < INGEST_RETRY_MAX:
             time.sleep(INGEST_RETRY_BACKOFF * attempt)
     return False
 
 
-def post_ingest(session: requests.Session, payload: dict) -> tuple[int, int]:
-    """POST payload to every configured target. Returns (ok_count, fail_count)."""
+def _replicate_remote(session: requests.Session, payload: dict) -> tuple[int, int]:
+    """Fire-and-tolerate POST to every remote target. Returns (ok, fail).
+    Failures are non-fatal: replay_to_railway.py covers anything missed."""
+    if not REMOTE_TARGETS:
+        return 0, 0
     ok = fail = 0
-    for url in INGEST_API_URLS:
+    for url in REMOTE_TARGETS:
         if _post_one(session, url, payload):
             ok += 1
         else:
             fail += 1
     return ok, fail
+
+
+def _seed_seen_ids() -> tuple[deque[str], set[str]]:
+    """Re-warm the in-process dedup cache from the local DB so a capture
+    restart doesn't re-fetch and re-write the entire camera buffer.
+    The DB UNIQUE constraint is the real safety net; this is just an
+    optimization to keep startup quiet."""
+    seen_ids: deque[str] = deque(maxlen=SEEN_SNAP_IDS_MAX)
+    seen_set: set[str] = set()
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=SEEN_REWARM_HOURS)).isoformat()
+    try:
+        with connect() as conn:
+            rows = conn.execute(
+                "SELECT image_path FROM snapshot_logs WHERE timestamp >= ? "
+                "ORDER BY id DESC LIMIT ?",
+                (cutoff, SEEN_SNAP_IDS_MAX),
+            ).fetchall()
+    except Exception:
+        log.exception("seed_seen_ids: DB read failed; starting with empty cache")
+        return seen_ids, seen_set
+    for r in rows:
+        path = r["image_path"]
+        if path.startswith("ingest_") and path.endswith(".jpg"):
+            sid = path[len("ingest_"):-len(".jpg")]
+            # Skip the content-hash form (no SnapId was available) — only
+            # the bare-id form maps cleanly back to camera SnapIds.
+            if "_" not in sid and sid not in seen_set:
+                seen_ids.append(sid)
+                seen_set.add(sid)
+    log.info("seeded seen_ids cache with %d recent snap_ids", len(seen_set))
+    return seen_ids, seen_set
 
 
 def run() -> int:
@@ -134,12 +191,17 @@ def run() -> int:
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
-    log.info("targets=%s", INGEST_API_URLS)
+    if REMOTE_TARGETS:
+        log.info("local DB write enabled; remote replication targets=%s", REMOTE_TARGETS)
+    else:
+        log.info(
+            "local DB write enabled; no remote replication (INGEST_API_URL unset). "
+            "replay_to_railway.py will sync to Railway out-of-band."
+        )
 
     camera = CameraClient()
     session = requests.Session()
-    seen_ids: deque[str] = deque(maxlen=SEEN_SNAP_IDS_MAX)
-    seen_set: set[str] = set()
+    seen_ids, seen_set = _seed_seen_ids()
 
     while not stop["flag"]:
         try:
@@ -162,14 +224,12 @@ def run() -> int:
             continue
 
         n_faces = len(faces)
-        posted = 0
-        skipped = 0
-        partial = 0
-        failed = 0
+        queued = duplicate = skipped = 0
+        replicated_ok = replicated_fail = 0
         for item in faces:
             snap_id = _extract_snap_id(item)
             if snap_id and snap_id in seen_set:
-                skipped += 1
+                duplicate += 1
                 continue
 
             image_b64 = _extract_image_b64(item)
@@ -177,21 +237,41 @@ def run() -> int:
                 skipped += 1
                 continue
 
-            payload = {
-                "name": _extract_name(item),
-                "timestamp": _extract_timestamp(item).isoformat(),
+            name = _extract_name(item)
+            ts_iso = _extract_timestamp(item).isoformat()
+            image_path = snapshots.synthesize_image_path(snap_id, image_b64, ts_iso)
+
+            try:
+                stored = logs_service.record_capture(
+                    name=name,
+                    timestamp_iso=ts_iso,
+                    image_path=image_path,
+                    image_data=image_b64,
+                )
+            except Exception:
+                log.exception(
+                    "local DB write failed for snap_id=%s — keeping seen_ids "
+                    "untouched so the next poll retries",
+                    snap_id,
+                )
+                continue
+
+            if stored:
+                queued += 1
+                log.debug("event queued (DB) snap_id=%s name=%s", snap_id, name)
+            else:
+                duplicate += 1
+
+            ok, fail = _replicate_remote(session, {
+                "name": name,
+                "timestamp": ts_iso,
                 "image_base64": image_b64,
                 "snap_id": snap_id,
-            }
-            ok, fail = post_ingest(session, payload)
-            if ok > 0 and fail == 0:
-                posted += 1
-            elif ok > 0:
-                partial += 1
-            else:
-                failed += 1
+            })
+            replicated_ok += ok
+            replicated_fail += fail
 
-            if snap_id and ok > 0:
+            if snap_id:
                 if len(seen_ids) == seen_ids.maxlen:
                     seen_set.discard(seen_ids[0])
                 seen_ids.append(snap_id)
@@ -199,8 +279,9 @@ def run() -> int:
 
         if n_faces:
             log.info(
-                "Poll returned %d face(s) — posted=%d partial=%d skipped=%d failed=%d",
-                n_faces, posted, partial, skipped, failed,
+                "Poll faces=%d queued=%d duplicate=%d skipped=%d "
+                "remote_ok=%d remote_fail=%d",
+                n_faces, queued, duplicate, skipped, replicated_ok, replicated_fail,
             )
 
         time.sleep(CAPTURE_INTERVAL_SECONDS)

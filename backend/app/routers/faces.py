@@ -48,11 +48,15 @@ def face_history(
     offset: int = Query(0, ge=0),
     latest: Optional[int] = Query(None, ge=1, le=MAX_PAGE_LIMIT),
 ) -> FaceHistoryResponse:
+    # image_data IS NOT NULL hides rows pruned by the retention job
+    # (services/cleanup.py): for older dates only the kept entry/exit
+    # captures surface; today/yesterday are unaffected. Without this clause
+    # pruned rows leak into the dashboard as bare timestamps with no image.
+    where_sql = " WHERE image_data IS NOT NULL"
+    where_args: list = []
     if latest is not None:
         effective_limit = latest
         effective_offset = 0
-        where_sql = ""
-        where_args: list = []
     else:
         start_dt = _parse_boundary(start, "start", end=False)
         end_dt = _parse_boundary(end, "end", end=True)
@@ -63,7 +67,7 @@ def face_history(
             )
         effective_limit = limit
         effective_offset = offset
-        where_sql = " WHERE timestamp >= ? AND timestamp <= ?"
+        where_sql += " AND timestamp >= ? AND timestamp <= ?"
         where_args = [start_dt.isoformat(), end_dt.isoformat()]
 
     with connect() as conn:

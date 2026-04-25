@@ -5,6 +5,8 @@
 - ``/api/admin/backfill-from-camera`` — scan the camera's SnapedFaces history
   for a time window and re-ingest anything missing from snapshot_logs. Used
   to recover from capture.py / network outages.
+- ``/api/admin/prune-snapshots`` — manually trigger the snapshot retention
+  cleanup (also runs on startup and at local midnight).
 """
 
 from __future__ import annotations
@@ -84,6 +86,18 @@ def _parse_iso_utc(value: str, field: str) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+@router.post("/api/admin/prune-snapshots")
+def prune_snapshots() -> dict:
+    from ..services.cleanup import prune_old_snapshots
+
+    try:
+        cleared = prune_old_snapshots()
+    except Exception as exc:
+        log.exception("manual snapshot prune failed")
+        raise HTTPException(status_code=500, detail=f"prune failed: {exc}")
+    return {"status": "ok", "cleared": cleared}
 
 
 @router.post("/api/admin/backfill-from-camera")

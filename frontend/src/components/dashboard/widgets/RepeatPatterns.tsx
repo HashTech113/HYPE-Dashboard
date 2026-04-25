@@ -24,7 +24,7 @@ export function RepeatPatterns() {
   const rows = useMemo(() => buildRepeatPatterns(attendance), [attendance]);
 
   return (
-    <Card className="flex h-full flex-col border-slate-200/80 shadow-[0_2px_12px_rgba(0,0,0,0.05)] transition-all duration-300 hover:shadow-lg">
+    <Card className="flex h-full flex-col">
       <CardHeader className="flex flex-row items-center gap-2 pb-2">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
           <Repeat className="h-5 w-5" />

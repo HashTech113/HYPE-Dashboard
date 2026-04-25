@@ -217,9 +217,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="relative h-screen overflow-hidden bg-[#eef3f9]">
+    <div className="relative h-screen overflow-hidden bg-[#f3f4f6]">
       <div className="mx-auto flex h-full max-w-[1680px] flex-col px-2 py-2 sm:px-3 sm:py-3 md:px-4 md:py-4">
-        <header className="relative flex h-[62px] shrink-0 items-center border-b border-slate-200 bg-[#eef3f9] px-2 sm:px-3 md:px-4">
+        <header className="relative flex h-[62px] shrink-0 items-center border-b border-slate-200/60 bg-[#f3f4f6] px-2 sm:px-3 md:px-4">
           <button
             type="button"
             onClick={() => setSidebarExpanded((prev) => !prev)}

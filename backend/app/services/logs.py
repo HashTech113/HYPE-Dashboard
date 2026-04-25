@@ -72,10 +72,14 @@ _ALLOWED_TABLES = {"snapshot_logs", "attendance_logs"}
 def _fetch(table: str, *, limit: int, offset: int, name: Optional[str]) -> list[dict]:
     if table not in _ALLOWED_TABLES:
         raise ValueError(f"unknown table: {table}")
-    sql = f"SELECT id, name, timestamp, image_path, image_data FROM {table}"
+    # image_data IS NOT NULL hides rows whose image was pruned by the
+    # retention job (see services/cleanup.py). For older dates this leaves
+    # only the kept entry/exit captures per employee; today/yesterday are
+    # untouched by retention and so show every event.
+    sql = f"SELECT id, name, timestamp, image_path, image_data FROM {table} WHERE image_data IS NOT NULL"
     args: list = []
     if name:
-        sql += " WHERE lower(name) LIKE ?"
+        sql += " AND lower(name) LIKE ?"
         args.append(f"{name.strip().lower()}%")
     sql += " ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?"
     args.extend([limit, offset])

@@ -8,6 +8,7 @@ helpers that ``capture.py`` uses to build ingest payloads.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from dataclasses import dataclass
@@ -22,6 +23,33 @@ NAME_SAFE_RE = re.compile(r"[^A-Za-z0-9]+")
 
 # Image field preference: captured-face, body, enrolled-face, background.
 IMAGE_FIELDS = ("Image2", "Image3", "Image1", "Image4")
+
+
+def synthesize_image_path(snap_id: Optional[str], image_b64: str, timestamp_iso: str) -> str:
+    """Stable per-capture identifier used as the UNIQUE dedup key in
+    snapshot_logs/attendance_logs. Prefer the camera's SnapId; fall back
+    to a content-addressed hash so re-ingesting the same bytes dedups."""
+    if snap_id:
+        return f"ingest_{snap_id}.jpg"
+    digest = hashlib.sha1(image_b64.encode("ascii", errors="ignore")).hexdigest()[:16]
+    return f"ingest_{timestamp_iso.replace(':', '').replace('-', '')}_{digest}.jpg"
+
+
+def normalize_timestamp_iso(value: Any) -> str:
+    """Coerce a timestamp value (epoch seconds, ISO string, or datetime)
+    into a UTC ISO-8601 string. Raises ValueError on failure."""
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    elif isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(f"timestamp must be ISO8601, got {value!r}") from exc
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        raise ValueError(f"unsupported timestamp type: {type(value).__name__}")
+    return dt.astimezone(timezone.utc).isoformat()
 
 
 @dataclass

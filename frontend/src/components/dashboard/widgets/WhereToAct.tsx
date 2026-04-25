@@ -22,7 +22,7 @@ export function WhereToAct() {
   const items = useMemo(() => buildActionItems(attendance), [attendance]);
 
   return (
-    <Card className="flex h-full flex-col border-slate-200/80 shadow-[0_2px_12px_rgba(0,0,0,0.05)] transition-all duration-300 hover:shadow-lg">
+    <Card className="flex h-full flex-col">
       <CardHeader className="flex flex-row items-center gap-2 pb-2">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Target className="h-5 w-5" />
@@ -45,7 +45,7 @@ export function WhereToAct() {
             {items.map((item) => (
               <div
                 key={item.company}
-                className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 transition duration-300 hover:-translate-y-1 hover:shadow-md"
+                className="neu-surface neu-surface-hover flex flex-col gap-2 rounded-2xl border-0 p-4"
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">

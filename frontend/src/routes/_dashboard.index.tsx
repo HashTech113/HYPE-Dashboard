@@ -36,7 +36,7 @@ function DashboardPage() {
               type="button"
               variant="outline"
               size="sm"
-              className="h-9 gap-1.5 px-3"
+              className="neu-pill h-9 gap-1.5 border-0 px-4 text-foreground"
               onClick={() => void refresh()}
               disabled={loading}
               title="Refresh dashboard data"

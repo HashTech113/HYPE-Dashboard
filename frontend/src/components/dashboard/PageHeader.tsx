@@ -7,7 +7,7 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, description, actions, icon }: PageHeaderProps) {
   return (
-    <div className="sticky top-0 z-20 flex flex-col gap-1 bg-card pb-2 sm:flex-row sm:items-center sm:justify-between">
+    <div className="sticky top-0 z-20 flex flex-col gap-1 bg-transparent pb-2 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-foreground">
           {icon}

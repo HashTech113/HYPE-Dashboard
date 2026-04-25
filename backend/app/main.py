@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -12,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import DB_PATH
 from .db import init_schema
 from .routers import admin, attendance, employees, faces, health, ingest, logs
+from .services.cleanup import prune_old_snapshots, seconds_until_next_local_midnight
 from .services.employees import seed_if_empty as seed_employees_if_empty
 from .services.logs import snapshot_log_count
 
@@ -53,6 +55,21 @@ ALLOWED_ORIGIN_REGEX = (
 log = logging.getLogger(__name__)
 
 
+async def _retention_loop() -> None:
+    """Sleep until the next local midnight, run the snapshot retention
+    cleanup, and repeat. Cancellation (on shutdown) is the only exit."""
+    while True:
+        delay = seconds_until_next_local_midnight()
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            return
+        try:
+            await asyncio.to_thread(prune_old_snapshots)
+        except Exception:
+            log.exception("scheduled snapshot retention cleanup failed")
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     log.info("using database at %s", DB_PATH)
@@ -68,7 +85,21 @@ async def lifespan(_app: FastAPI):
         )
     else:
         log.info("snapshot_logs has %d rows", count)
-    yield
+
+    try:
+        prune_old_snapshots()
+    except Exception:
+        log.exception("startup snapshot retention cleanup failed")
+    retention_task = asyncio.create_task(_retention_loop(), name="snapshot-retention")
+
+    try:
+        yield
+    finally:
+        retention_task.cancel()
+        try:
+            await retention_task
+        except asyncio.CancelledError:
+            pass
 
 
 def create_app() -> FastAPI:
