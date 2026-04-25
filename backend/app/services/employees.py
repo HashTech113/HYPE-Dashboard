@@ -107,16 +107,55 @@ def update(employee_id: str, patch: dict) -> Optional[Employee]:
     fields = [(k, v) for k, v in patch.items() if k in _UPDATABLE_COLUMNS and v is not None]
     if not fields:
         return get_by_id(employee_id)
+
+    # If the name is changing, propagate the new name to every table that
+    # stores it so attendance/reports for this person stay continuous.
+    # Wrapped in BEGIN/COMMIT so the employees row + the historical rows
+    # commit together; on any failure, nothing changes.
+    new_name = patch.get("name")
+    old_record = get_by_id(employee_id) if new_name else None
+    rename_from: Optional[str] = (
+        old_record.name if old_record and new_name and old_record.name != new_name else None
+    )
+
     set_clause = ", ".join(f"{k} = ?" for k, _ in fields)
     values = [v for _, v in fields]
     with connect() as conn:
-        cur = conn.execute(
-            f"UPDATE employees SET {set_clause} WHERE id = ?",
-            [*values, employee_id],
-        )
-        if cur.rowcount == 0:
-            return None
+        try:
+            conn.execute("BEGIN")
+            cur = conn.execute(
+                f"UPDATE employees SET {set_clause} WHERE id = ?",
+                [*values, employee_id],
+            )
+            if cur.rowcount == 0:
+                conn.execute("ROLLBACK")
+                return None
+            if rename_from:
+                _rename_employee_name(conn, rename_from, new_name)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
     return get_by_id(employee_id)
+
+
+def _rename_employee_name(conn, old_name: str, new_name: str) -> dict[str, int]:
+    """Rewrite the employee name across every table that stores it. Caller
+    is responsible for the surrounding transaction. Returns the rowcount
+    per table for logging.
+    """
+    counts: dict[str, int] = {}
+    for table in ("snapshot_logs", "attendance_logs", "attendance_corrections"):
+        n = conn.execute(
+            f"UPDATE {table} SET name = ? WHERE name = ?",
+            (new_name, old_name),
+        ).rowcount
+        counts[table] = n
+        log.info(
+            "employee rename: %s rewrote %d rows from %r to %r",
+            table, n, old_name, new_name,
+        )
+    return counts
 
 
 def delete(employee_id: str) -> bool:

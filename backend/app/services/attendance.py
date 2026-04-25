@@ -113,6 +113,33 @@ def _normalize_name(name: str) -> str:
     return " ".join(name.strip().split())
 
 
+def _name_key(name: str) -> str:
+    """Case/whitespace-insensitive grouping key. Must match the key used by
+    the snapshot retention job (services/cleanup.py:_normalize_name_key) so
+    cleanup keeps the SAME first/last rows that the report selects.
+    """
+    return _normalize_name(name).lower()
+
+
+def _earliest_with_image(snaps_sorted: list[Snapshot]) -> Optional[Snapshot]:
+    """First capture (by time) whose image_data is still present. Used to
+    fall back to a kept-image row when the absolute earliest capture had
+    its image cleared (e.g. captures inserted out of order between cleanup
+    runs).
+    """
+    for s in snaps_sorted:
+        if s.image_data:
+            return s
+    return None
+
+
+def _latest_with_image(snaps_sorted: list[Snapshot]) -> Optional[Snapshot]:
+    for s in reversed(snaps_sorted):
+        if s.image_data:
+            return s
+    return None
+
+
 def _detect_breaks(
     snaps_sorted: list[Snapshot], tz_offset_min: int
 ) -> tuple[list[dict], int]:
@@ -183,23 +210,36 @@ def build_daily_records(
     """One record per name detected on `target_date` (local). Optionally
     fills in 'Absent' rows for `expected_names` not found.
     """
+    # Group case-insensitively (matches the cleanup job's key) but keep the
+    # first display-cased name we see so the report shows the original
+    # spelling.
     by_name: dict[str, list[Snapshot]] = {}
+    display_name: dict[str, str] = {}
     for snap in snapshots:
         entry_local = _to_local(snap.entry, shift.tz_offset_min)
         if entry_local.date() != target_date:
             continue
-        key = _normalize_name(snap.name)
-        if not key:
+        canonical = _normalize_name(snap.name)
+        if not canonical:
             continue
+        key = canonical.lower()
         by_name.setdefault(key, []).append(snap)
+        display_name.setdefault(key, canonical)
 
     today = _today_local(shift.tz_offset_min)
     is_today = target_date == today
     records: list[dict] = []
-    for name, snaps in by_name.items():
+    for key, snaps in by_name.items():
+        name = display_name[key]
         snaps_sorted = sorted(snaps, key=lambda s: s.entry)
         first = snaps_sorted[0]
         last = snaps_sorted[-1]
+        # For images, fall back to the earliest/latest row that still has
+        # image_data. Time-based first/last define entry/exit *time*; image
+        # rows define entry/exit *thumbnail*. They are usually the same row,
+        # but cleanup or out-of-order ingest can split them.
+        entry_image_snap = first if first.image_data else _earliest_with_image(snaps_sorted)
+        exit_image_snap = last if last.image_data else _latest_with_image(snaps_sorted)
         entry_local = _to_local(first.entry, shift.tz_offset_min)
 
         only_one = len(snaps_sorted) == 1
@@ -222,7 +262,7 @@ def build_daily_records(
         break_details, total_break_seconds = _detect_breaks(snaps_sorted, shift.tz_offset_min)
 
         # Apply manual correction overrides, if any.
-        correction = (corrections or {}).get((name.strip().lower(), target_date.isoformat()))
+        correction = (corrections or {}).get((key, target_date.isoformat()))
         correction_applied = False
         if correction:
             corrected_entry = _parse_iso(correction.get("entry_iso"), shift.tz_offset_min)
@@ -278,10 +318,17 @@ def build_daily_records(
             "early_exit_minutes": early_min,
             "early_exit_seconds": early_exit_seconds,
             "capture_count": len(snaps_sorted),
-            "entry_image_url": _image_url_for(first),
-            "exit_image_url": _image_url_for(last) if not only_one else None,
-            "entry_image_archived": first.image_data is None,
-            "exit_image_archived": (not only_one) and last.image_data is None,
+            "entry_image_url": _image_url_for(entry_image_snap) if entry_image_snap else None,
+            "exit_image_url": (
+                _image_url_for(exit_image_snap) if (not only_one and exit_image_snap) else None
+            ),
+            # Archived = the row exists in the DB but image_data has been
+            # cleared by retention. We say "archived" only when there is
+            # NO surviving image_data anywhere in the day's captures.
+            "entry_image_archived": entry_image_snap is None and len(snaps_sorted) > 0,
+            "exit_image_archived": (
+                (not only_one) and exit_image_snap is None and len(snaps_sorted) > 0
+            ),
             "missing_checkout": missing_checkout,
             "is_active": is_active,
             "correction_applied": correction_applied,

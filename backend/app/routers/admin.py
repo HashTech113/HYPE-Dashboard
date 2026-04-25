@@ -39,10 +39,15 @@ class RenameNameResponse(BaseModel):
     snapshot_logs_updated: int
     attendance_logs_updated: int
     employees_updated: int
+    attendance_corrections_updated: int
 
 
 @router.post("/api/admin/rename-name", response_model=RenameNameResponse)
 def rename_name(payload: RenameNameRequest) -> RenameNameResponse:
+    """Rename an employee everywhere it appears. Atomic: every table commits
+    together or none does. Match is exact (no partial / similar-name
+    collisions); attendance and snapshot rows are NEVER deleted, only the
+    `name` column is updated."""
     old = payload.old_name.strip()
     new = payload.new_name.strip()
     if not old or not new:
@@ -54,25 +59,42 @@ def rename_name(payload: RenameNameRequest) -> RenameNameResponse:
             snapshot_logs_updated=0,
             attendance_logs_updated=0,
             employees_updated=0,
+            attendance_corrections_updated=0,
         )
 
     with connect() as conn:
-        snap = conn.execute(
-            "UPDATE snapshot_logs SET name = ? WHERE name = ?", (new, old)
-        ).rowcount
-        att = conn.execute(
-            "UPDATE attendance_logs SET name = ? WHERE name = ?", (new, old)
-        ).rowcount
-        emp = conn.execute(
-            "UPDATE employees SET name = ? WHERE name = ?", (new, old)
-        ).rowcount
+        try:
+            conn.execute("BEGIN")
+            snap = conn.execute(
+                "UPDATE snapshot_logs SET name = ? WHERE name = ?", (new, old)
+            ).rowcount
+            att = conn.execute(
+                "UPDATE attendance_logs SET name = ? WHERE name = ?", (new, old)
+            ).rowcount
+            emp = conn.execute(
+                "UPDATE employees SET name = ? WHERE name = ?", (new, old)
+            ).rowcount
+            corr = conn.execute(
+                "UPDATE attendance_corrections SET name = ? WHERE name = ?", (new, old)
+            ).rowcount
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            log.exception("rename-name failed for %r -> %r; rolled back", old, new)
+            raise HTTPException(status_code=500, detail="rename failed; no changes committed")
 
+    log.info(
+        "rename-name %r -> %r: snapshot_logs=%d attendance_logs=%d employees=%d "
+        "attendance_corrections=%d",
+        old, new, snap, att, emp, corr,
+    )
     return RenameNameResponse(
         old_name=old,
         new_name=new,
         snapshot_logs_updated=snap,
         attendance_logs_updated=att,
         employees_updated=emp,
+        attendance_corrections_updated=corr,
     )
 
 

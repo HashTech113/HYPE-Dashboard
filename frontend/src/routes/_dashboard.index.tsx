@@ -31,6 +31,16 @@ function DashboardPage() {
         className="animate-fade-in-up"
         actions={
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span
+              className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 px-4 text-xs font-semibold text-emerald-700"
+              title="Live — auto-refreshing"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              </span>
+              Live
+            </span>
             {stampLabel && <span>{stampLabel}</span>}
             <Button
               type="button"
