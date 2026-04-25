@@ -35,3 +35,12 @@ SHIFT_END = os.getenv("SHIFT_END", "18:30")
 LATE_GRACE_MIN = int(os.getenv("LATE_GRACE_MIN", "5"))
 EARLY_EXIT_GRACE_MIN = int(os.getenv("EARLY_EXIT_GRACE_MIN", "5"))
 LOCAL_TZ_OFFSET_MIN = int(os.getenv("LOCAL_TZ_OFFSET_MIN", "330"))
+
+# Minimum gap between consecutive *intermediate* captures (in minutes) that
+# we treat as a break. We deliberately ignore the gap immediately after the
+# first capture and immediately before the last capture, because those are
+# bounded by entry/exit themselves and are not breaks. With sparse face
+# captures the threshold should be conservative; manual correction (via
+# /api/admin/correct-attendance) is the fallback when auto-detection
+# misclassifies.
+BREAK_GAP_THRESHOLD_MIN = int(os.getenv("BREAK_GAP_THRESHOLD_MIN", "30"))

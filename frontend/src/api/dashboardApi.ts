@@ -286,6 +286,15 @@ export type SnapshotLogResponse = {
   items: SnapshotLogItem[];
 };
 
+export type AttendanceBreakInterval = {
+  break_out: string;
+  break_in: string;
+  break_out_iso: string;
+  break_in_iso: string;
+  duration_seconds: number;
+  duration: string;
+};
+
 export type AttendanceSummaryItem = {
   id: string;
   name: string;
@@ -299,8 +308,17 @@ export type AttendanceSummaryItem = {
   early_exit_seconds: number;
   status: "Present" | "Late" | "Early Exit" | "Absent";
   total_hours: string;
+  total_working_hours?: string;
+  total_break_time?: string;
+  total_break_seconds?: number;
+  break_details?: AttendanceBreakInterval[];
   entry_image_url: string | null;
   exit_image_url: string | null;
+  entry_image_archived?: boolean;
+  exit_image_archived?: boolean;
+  missing_checkout?: boolean;
+  is_active?: boolean;
+  correction_applied?: boolean;
 };
 
 export type AttendanceSummaryResponse = {

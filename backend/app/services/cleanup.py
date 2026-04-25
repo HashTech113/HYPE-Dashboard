@@ -61,9 +61,24 @@ def _is_unknown(name_key: str) -> bool:
     return not name_key or name_key == _UNKNOWN_NAME
 
 
+def _normalize_name_key(name: str) -> str:
+    """Group key used to pair captures into entry/exit. Mirrors
+    ``services.attendance._normalize_name`` lowercased, so cleanup keeps
+    the exact same first/last rows that the reports query selects."""
+    return " ".join((name or "").strip().split()).lower()
+
+
 def prune_old_snapshots() -> dict[str, int]:
     """Apply the retention rule. Returns the number of rows whose
-    ``image_data`` was cleared, per table."""
+    ``image_data`` was cleared, per table.
+
+    Safety guarantees enforced here:
+      * the FIRST capture per (employee, local date) keeps its image_data
+      * the FINAL capture per (employee, local date) keeps its image_data
+      * attendance_logs / snapshot_logs ROWS are never deleted — only the
+        ``image_data`` column is nulled out for non-required rows
+      * unknown faces have no entry/exit semantics, so we clear all of theirs
+    """
     today = today_local()
     yesterday = today - timedelta(days=1)
     # Anything strictly older than the start of `yesterday` (local) is in scope.
@@ -80,6 +95,7 @@ def prune_old_snapshots() -> dict[str, int]:
             ).fetchall()
 
             groups: dict[tuple[str, date_cls], list[tuple[datetime, int]]] = defaultdict(list)
+            display_name: dict[tuple[str, date_cls], str] = {}
             for r in rows:
                 ts = _parse_utc(r["timestamp"])
                 if ts is None:
@@ -89,20 +105,39 @@ def prune_old_snapshots() -> dict[str, int]:
                 # still falls on `yesterday` (or later) should not be pruned.
                 if local_date >= yesterday:
                     continue
-                key = (r["name"].strip().lower(), local_date)
+                key = (_normalize_name_key(r["name"]), local_date)
                 groups[key].append((ts, r["id"]))
+                display_name.setdefault(key, r["name"])
 
             ids_to_clear: list[int] = []
-            kept_count = 0
+            kept_ids: list[tuple[str, date_cls, int, int]] = []
             for (name_key, _date), items in groups.items():
                 items.sort(key=lambda x: (x[0], x[1]))
                 if _is_unknown(name_key):
                     # Unknown faces have no entry/exit semantics — drop all.
                     ids_to_clear.extend(_id for _, _id in items)
-                else:
-                    keep_ids = {items[0][1], items[-1][1]}
-                    kept_count += len(keep_ids)
-                    ids_to_clear.extend(_id for _, _id in items if _id not in keep_ids)
+                    log.info(
+                        "retention[%s]: unknown face on %s — clearing %d images "
+                        "(no entry/exit semantics)",
+                        table, _date.isoformat(), len(items),
+                    )
+                    continue
+                first_id = items[0][1]
+                last_id = items[-1][1]
+                keep_ids = {first_id, last_id}
+                kept_ids.append((display_name[(name_key, _date)], _date, first_id, last_id))
+                cleared_for_group = [_id for _, _id in items if _id not in keep_ids]
+                ids_to_clear.extend(cleared_for_group)
+                log.info(
+                    "retention[%s]: %s on %s — keeping entry id=%d + exit id=%d, "
+                    "clearing %d middle images",
+                    table,
+                    display_name[(name_key, _date)],
+                    _date.isoformat(),
+                    first_id,
+                    last_id,
+                    len(cleared_for_group),
+                )
 
             cleared = 0
             for i in range(0, len(ids_to_clear), _UPDATE_CHUNK):
@@ -116,9 +151,15 @@ def prune_old_snapshots() -> dict[str, int]:
             summary[table] = cleared
 
             log.info(
-                "retention[%s]: scanned %d candidate rows older than %s (local), "
-                "kept %d entry/exit images, cleared image_data on %d rows",
-                table, len(rows), yesterday.isoformat(), kept_count, cleared,
+                "retention[%s] summary: scanned %d candidate rows older than %s "
+                "(local), kept %d (entry+exit) image rows across %d employee-days, "
+                "cleared image_data on %d rows; attendance rows were not deleted",
+                table,
+                len(rows),
+                yesterday.isoformat(),
+                len(kept_ids) * 2,
+                len(kept_ids),
+                cleared,
             )
     return summary
 

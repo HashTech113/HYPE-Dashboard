@@ -37,6 +37,18 @@ CREATE TABLE IF NOT EXISTS employees (
     image_url TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS attendance_corrections (
+    name TEXT NOT NULL,
+    date TEXT NOT NULL,
+    entry_iso TEXT,
+    exit_iso TEXT,
+    total_break_seconds INTEGER,
+    missing_checkout_resolved INTEGER NOT NULL DEFAULT 0,
+    note TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (name, date)
+);
+
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_timestamp ON snapshot_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_timestamp ON attendance_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_name ON snapshot_logs (name);

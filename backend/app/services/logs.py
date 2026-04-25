@@ -15,6 +15,7 @@ from typing import Optional
 
 from ..db import connect
 from .attendance import ShiftSettings, build_daily_records, build_range_records
+from .corrections import load_corrections
 from .snapshots import Snapshot
 
 log = logging.getLogger(__name__)
@@ -163,6 +164,7 @@ def build_attendance_daily(
         shift=shift,
         base_url=base_url,
         expected_names=expected_names,
+        corrections=load_corrections(),
     )
 
 
@@ -183,6 +185,7 @@ def build_attendance_range(
         shift=shift,
         base_url=base_url,
         name_filter=name_filter,
+        corrections=load_corrections(),
     )
 
 
@@ -204,6 +207,7 @@ def build_attendance_summaries(
         end_date=end_date,
         shift=shift,
         base_url=base_url,
+        corrections=load_corrections(),
     )
     records.sort(key=lambda r: r["date"], reverse=True)
     return records

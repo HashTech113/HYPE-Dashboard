@@ -61,6 +61,59 @@ function earlyExitCell(item: AttendanceSummaryItem): string {
   return formatDurationSeconds(seconds);
 }
 
+function ImageCell({
+  url,
+  archived,
+  alt,
+  borderClass,
+  bgClass,
+}: {
+  url: string | null;
+  archived: boolean;
+  alt: string;
+  borderClass: string;
+  bgClass: string;
+}) {
+  if (url) {
+    return (
+      <img
+        src={url}
+        alt={alt}
+        className={cn(
+          "h-10 w-10 shrink-0 rounded-md border object-cover",
+          borderClass,
+        )}
+        loading="lazy"
+      />
+    );
+  }
+  if (archived) {
+    return (
+      <div
+        title="Image archived"
+        className={cn(
+          "flex h-10 w-10 items-center justify-center rounded-md border border-dashed text-[9px] font-medium leading-tight",
+          borderClass,
+          bgClass,
+        )}
+      >
+        Image
+        <br />
+        archived
+      </div>
+    );
+  }
+  return (
+    <div
+      className={cn(
+        "h-10 w-10 rounded-md border border-dashed",
+        borderClass,
+        bgClass,
+      )}
+    />
+  );
+}
+
 function findEmployeeForName(employees: Employee[], captureName: string): Employee | null {
   if (!captureName) return null;
   for (const employee of employees) {
@@ -439,16 +492,13 @@ function ReportTable({
                   {formatDateKeyDash(item.date)}
                 </TableCell>
                 <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
-                  {item.entry_image_url ? (
-                    <img
-                      src={item.entry_image_url}
-                      alt={`${item.name} entry`}
-                      className="h-10 w-10 shrink-0 rounded-md border border-sky-200 object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-md border border-dashed border-sky-200 bg-sky-50/40" />
-                  )}
+                  <ImageCell
+                    url={item.entry_image_url}
+                    archived={Boolean(item.entry_image_archived)}
+                    alt={`${item.name} entry`}
+                    borderClass="border-sky-200 text-sky-700"
+                    bgClass="bg-sky-50/40"
+                  />
                 </TableCell>
                 <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-sky-700 last:border-r-0">
                   {formatClock12(item.entry_time)}
@@ -462,19 +512,22 @@ function ReportTable({
                   {lateEntryCell(item)}
                 </TableCell>
                 <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
-                  {item.exit_image_url ? (
-                    <img
-                      src={item.exit_image_url}
-                      alt={`${item.name} exit`}
-                      className="h-10 w-10 shrink-0 rounded-md border border-rose-200 object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="h-10 w-10 rounded-md border border-dashed border-rose-200 bg-rose-50/40" />
-                  )}
+                  <ImageCell
+                    url={item.exit_image_url}
+                    archived={Boolean(item.exit_image_archived)}
+                    alt={`${item.name} exit`}
+                    borderClass="border-rose-200 text-rose-700"
+                    bgClass="bg-rose-50/40"
+                  />
                 </TableCell>
                 <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-rose-700 last:border-r-0">
-                  {formatClock12(item.exit_time)}
+                  {item.missing_checkout ? (
+                    <span title="Missing checkout — admin correction recommended" className="font-medium text-amber-700">
+                      Missing checkout
+                    </span>
+                  ) : (
+                    formatClock12(item.exit_time)
+                  )}
                 </TableCell>
                 <TableCell
                   className={cn(

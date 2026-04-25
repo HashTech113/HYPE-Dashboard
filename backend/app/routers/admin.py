@@ -7,17 +7,21 @@
   to recover from capture.py / network outages.
 - ``/api/admin/prune-snapshots`` — manually trigger the snapshot retention
   cleanup (also runs on startup and at local midnight).
+- ``/api/admin/correct-attendance`` — override the auto-computed entry/exit/
+  break values for one (employee, local date) when the captures are wrong.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import date as date_cls, datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..db import connect
+from ..services import corrections as corrections_service
 
 log = logging.getLogger(__name__)
 
@@ -121,3 +125,92 @@ def backfill_from_camera(payload: BackfillFromCameraRequest) -> dict:
         log.exception("backfill-from-camera failed")
         raise HTTPException(status_code=502, detail=f"camera backfill failed: {exc}")
     return result
+
+
+class CorrectAttendanceRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    date: str = Field(..., description="YYYY-MM-DD (local) for the day being corrected")
+    entry_iso: Optional[str] = Field(None, description="ISO8601 entry time override")
+    exit_iso: Optional[str] = Field(None, description="ISO8601 exit time override")
+    total_break_seconds: Optional[int] = Field(
+        None, ge=0, description="Override total break time in seconds"
+    )
+    missing_checkout_resolved: bool = Field(
+        False, description="Mark a missing-checkout day as resolved"
+    )
+    note: Optional[str] = Field(None, description="Optional admin note")
+
+
+class CorrectAttendanceResponse(BaseModel):
+    name: str
+    date: str
+    entry_iso: Optional[str]
+    exit_iso: Optional[str]
+    total_break_seconds: Optional[int]
+    missing_checkout_resolved: bool
+    note: Optional[str]
+    updated_at: str
+
+
+def _validate_iso(value: Optional[str], field: str) -> Optional[str]:
+    if value is None:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field} must be ISO8601")
+    return dt.isoformat()
+
+
+@router.post("/api/admin/correct-attendance", response_model=CorrectAttendanceResponse)
+def correct_attendance(payload: CorrectAttendanceRequest) -> CorrectAttendanceResponse:
+    try:
+        date_cls.fromisoformat(payload.date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+
+    entry_iso = _validate_iso(payload.entry_iso, "entry_iso")
+    exit_iso = _validate_iso(payload.exit_iso, "exit_iso")
+
+    if (
+        entry_iso is None
+        and exit_iso is None
+        and payload.total_break_seconds is None
+        and not payload.missing_checkout_resolved
+        and not payload.note
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="provide at least one of entry_iso, exit_iso, total_break_seconds, "
+            "missing_checkout_resolved, note",
+        )
+
+    row = corrections_service.upsert_correction(
+        name=payload.name,
+        date=payload.date,
+        entry_iso=entry_iso,
+        exit_iso=exit_iso,
+        total_break_seconds=payload.total_break_seconds,
+        missing_checkout_resolved=payload.missing_checkout_resolved,
+        note=payload.note,
+    )
+    return CorrectAttendanceResponse(
+        name=row["name"],
+        date=row["date"],
+        entry_iso=row.get("entry_iso"),
+        exit_iso=row.get("exit_iso"),
+        total_break_seconds=row.get("total_break_seconds"),
+        missing_checkout_resolved=bool(row.get("missing_checkout_resolved")),
+        note=row.get("note"),
+        updated_at=row["updated_at"],
+    )
+
+
+@router.delete("/api/admin/correct-attendance")
+def delete_attendance_correction(name: str, date: str) -> dict:
+    try:
+        date_cls.fromisoformat(date)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
+    deleted = corrections_service.delete_correction(name=name, date=date)
+    return {"status": "ok", "deleted": deleted}

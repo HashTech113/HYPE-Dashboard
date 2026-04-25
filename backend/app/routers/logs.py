@@ -65,6 +65,7 @@ def _to_snapshot_item(row: dict, directory: list) -> SnapshotItem:
 
 
 def _to_summary_item(row: dict, directory: list) -> AttendanceSummaryItem:
+    total_hours = row.get("total_hours", "—")
     return AttendanceSummaryItem(
         id=f"{row['name']}|{row['date']}",
         name=row["name"],
@@ -77,9 +78,18 @@ def _to_summary_item(row: dict, directory: list) -> AttendanceSummaryItem:
         early_exit_minutes=int(row.get("early_exit_minutes") or 0),
         early_exit_seconds=int(row.get("early_exit_seconds") or 0),
         status=row.get("status", "Absent"),
-        total_hours=row.get("total_hours", "—"),
+        total_hours=total_hours,
+        total_working_hours=row.get("total_working_hours", total_hours),
+        total_break_time=row.get("total_break_time", "—"),
+        total_break_seconds=int(row.get("total_break_seconds") or 0),
+        break_details=row.get("break_details") or [],
         entry_image_url=row.get("entry_image_url"),
         exit_image_url=row.get("exit_image_url"),
+        entry_image_archived=bool(row.get("entry_image_archived")),
+        exit_image_archived=bool(row.get("exit_image_archived")),
+        missing_checkout=bool(row.get("missing_checkout")),
+        is_active=bool(row.get("is_active")),
+        correction_applied=bool(row.get("correction_applied")),
     )
 
 

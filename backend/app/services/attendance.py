@@ -2,7 +2,25 @@
 
 Storage layer (snapshots/) gives us UTC entry/exit per face crop.
 This module turns that into one row per (name, local_date) with status against
-a configured shift.
+a configured shift, including break detection and a missing-checkout flag.
+
+Time math (per the operations spec):
+
+    first ENTRY    = earliest capture of the day              -> entry_time
+    final EXIT     = latest capture of the day                -> exit_time
+    break out      = capture immediately before a long gap
+    break in       = capture immediately after the same gap
+    total break    = sum of break_in - break_out across pairs
+    total working  = (final exit - first entry) - total break
+
+A "long gap" is any gap >= ``BREAK_GAP_THRESHOLD_MIN``. The camera fires a
+capture every few seconds while a face is in frame, so a gap that long is
+the employee being away from the camera (lunch / step-out).
+
+Special cases:
+  - Only one capture, target date is today  -> active, hours not finalised
+  - Only one capture, target date is older  -> missing_checkout flag
+  - Manual correction stored for (name, date) -> overrides the auto values
 """
 
 from __future__ import annotations
@@ -11,6 +29,7 @@ from dataclasses import dataclass
 from datetime import date as date_cls, datetime, time, timedelta, timezone
 from typing import Iterable, Optional
 
+from ..config import BREAK_GAP_THRESHOLD_MIN
 from .snapshots import Snapshot
 
 
@@ -49,26 +68,31 @@ def _format_hours_minutes_seconds(total_seconds: int) -> str:
 
 def _classify(
     entry_local: datetime,
-    exit_local: datetime,
+    exit_local: Optional[datetime],
     shift: ShiftSettings,
 ) -> tuple[str, int, int, int, int]:
-    """Returns (status, late_minutes, early_exit_minutes, late_seconds, early_exit_seconds)."""
+    """Returns (status, late_minutes, early_exit_minutes, late_seconds, early_exit_seconds).
+
+    If exit_local is None we still classify entry-side lateness; early-exit
+    fields are zero because there is no exit to compare against.
+    """
     shift_start = entry_local.replace(
         hour=shift.start.hour, minute=shift.start.minute, second=0, microsecond=0
     )
+    late_seconds = max(0, int((entry_local - shift_start).total_seconds()))
+    late_min = late_seconds // 60
+    is_late = late_seconds > shift.late_grace_min * 60
+
+    if exit_local is None:
+        return ("Late" if is_late else "Present", late_min, 0, late_seconds, 0)
+
     shift_end = entry_local.replace(
         hour=shift.end.hour, minute=shift.end.minute, second=0, microsecond=0
     )
-
-    late_seconds = max(0, int((entry_local - shift_start).total_seconds()))
     early_exit_seconds = max(0, int((shift_end - exit_local).total_seconds()))
-    late_min = late_seconds // 60
     early_min = early_exit_seconds // 60
-
-    is_late = late_seconds > shift.late_grace_min * 60
     is_early = early_exit_seconds > shift.early_exit_grace_min * 60
 
-    # Priority: arriving late dominates, then early exit, else present.
     if is_late:
         status = "Late"
     elif is_early:
@@ -79,7 +103,7 @@ def _classify(
     return status, late_min, early_min, late_seconds, early_exit_seconds
 
 
-def _image_url_for(snap: Snapshot, base_url: str) -> Optional[str]:
+def _image_url_for(snap: Snapshot) -> Optional[str]:
     if snap.image_data:
         return f"data:image/jpeg;base64,{snap.image_data}"
     return None
@@ -89,6 +113,64 @@ def _normalize_name(name: str) -> str:
     return " ".join(name.strip().split())
 
 
+def _detect_breaks(
+    snaps_sorted: list[Snapshot], tz_offset_min: int
+) -> tuple[list[dict], int]:
+    """Return (break_details, total_break_seconds).
+
+    A break is a gap between consecutive captures of at least
+    BREAK_GAP_THRESHOLD_MIN minutes. break_out = capture before the gap,
+    break_in = capture after.
+
+    The first gap (after the entry) and the last gap (before the exit) are
+    excluded from break detection because they are bounded by entry/exit
+    themselves — otherwise a day with only an entry and an exit capture
+    would treat the whole shift as one big "break". Auto-detection works
+    best with dense captures; sparse data may need manual correction.
+    """
+    if len(snaps_sorted) < 4:
+        return [], 0
+    threshold = BREAK_GAP_THRESHOLD_MIN * 60
+    breaks: list[dict] = []
+    total = 0
+    # Inspect only intermediate gaps: indices 2..len-2 (gaps between
+    # snaps_sorted[i-1] and snaps_sorted[i] where neither end is the global
+    # first or last capture).
+    for i in range(2, len(snaps_sorted) - 1):
+        prev = snaps_sorted[i - 1]
+        cur = snaps_sorted[i]
+        gap = int((cur.entry - prev.entry).total_seconds())
+        if gap >= threshold:
+            break_out_local = _to_local(prev.entry, tz_offset_min)
+            break_in_local = _to_local(cur.entry, tz_offset_min)
+            breaks.append({
+                "break_out": break_out_local.strftime("%H:%M:%S"),
+                "break_in": break_in_local.strftime("%H:%M:%S"),
+                "break_out_iso": break_out_local.isoformat(),
+                "break_in_iso": break_in_local.isoformat(),
+                "duration_seconds": gap,
+                "duration": _format_hours_minutes_seconds(gap),
+            })
+            total += gap
+    return breaks, total
+
+
+def _parse_iso(value: Optional[str], tz_offset_min: int) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=_local_tz(tz_offset_min))
+    return dt.astimezone(_local_tz(tz_offset_min))
+
+
+def _today_local(tz_offset_min: int) -> date_cls:
+    return datetime.now(timezone.utc).astimezone(_local_tz(tz_offset_min)).date()
+
+
 def build_daily_records(
     snapshots: Iterable[Snapshot],
     *,
@@ -96,6 +178,7 @@ def build_daily_records(
     shift: ShiftSettings,
     base_url: str,
     expected_names: Optional[list[str]] = None,
+    corrections: Optional[dict[tuple[str, str], dict]] = None,
 ) -> list[dict]:
     """One record per name detected on `target_date` (local). Optionally
     fills in 'Absent' rows for `expected_names` not found.
@@ -110,35 +193,98 @@ def build_daily_records(
             continue
         by_name.setdefault(key, []).append(snap)
 
+    today = _today_local(shift.tz_offset_min)
+    is_today = target_date == today
     records: list[dict] = []
     for name, snaps in by_name.items():
         snaps_sorted = sorted(snaps, key=lambda s: s.entry)
         first = snaps_sorted[0]
         last = snaps_sorted[-1]
         entry_local = _to_local(first.entry, shift.tz_offset_min)
-        exit_local = _to_local(last.exit, shift.tz_offset_min)
 
-        total_sec = max(0, int((exit_local - entry_local).total_seconds()))
+        only_one = len(snaps_sorted) == 1
+        if only_one:
+            if is_today:
+                # Active employee — entry recorded, no exit yet.
+                exit_local: Optional[datetime] = None
+                missing_checkout = False
+                is_active = True
+            else:
+                # Older day with only one capture — checkout is missing.
+                exit_local = None
+                missing_checkout = True
+                is_active = False
+        else:
+            exit_local = _to_local(last.exit, shift.tz_offset_min)
+            missing_checkout = False
+            is_active = False
+
+        break_details, total_break_seconds = _detect_breaks(snaps_sorted, shift.tz_offset_min)
+
+        # Apply manual correction overrides, if any.
+        correction = (corrections or {}).get((name.strip().lower(), target_date.isoformat()))
+        correction_applied = False
+        if correction:
+            corrected_entry = _parse_iso(correction.get("entry_iso"), shift.tz_offset_min)
+            corrected_exit = _parse_iso(correction.get("exit_iso"), shift.tz_offset_min)
+            if corrected_entry is not None:
+                entry_local = corrected_entry
+                correction_applied = True
+            if corrected_exit is not None:
+                exit_local = corrected_exit
+                missing_checkout = False
+                correction_applied = True
+            cb = correction.get("total_break_seconds")
+            if cb is not None:
+                total_break_seconds = int(cb)
+                break_details = []  # break_details only describe auto-detected gaps
+                correction_applied = True
+            if int(correction.get("missing_checkout_resolved") or 0) == 1:
+                missing_checkout = False
+                correction_applied = True
+
+        if exit_local is None:
+            total_sec = 0
+            total_hours_str = "—"
+            total_break_seconds = 0  # no exit -> break math is meaningless
+            break_details = []
+        else:
+            span = max(0, int((exit_local - entry_local).total_seconds()))
+            total_sec = max(0, span - total_break_seconds)
+            total_hours_str = _format_hours_minutes_seconds(total_sec)
+
         total_min = total_sec // 60
-        status, late_min, early_min, late_seconds, early_exit_seconds = _classify(entry_local, exit_local, shift)
+        status, late_min, early_min, late_seconds, early_exit_seconds = _classify(
+            entry_local, exit_local, shift
+        )
 
         records.append({
             "name": name,
             "date": target_date.isoformat(),
             "entry": entry_local.strftime("%H:%M:%S"),
-            "exit": exit_local.strftime("%H:%M:%S"),
+            "exit": exit_local.strftime("%H:%M:%S") if exit_local else None,
             "entry_iso": entry_local.isoformat(),
-            "exit_iso": exit_local.isoformat(),
-            "total_hours": _format_hours_minutes_seconds(total_sec),
+            "exit_iso": exit_local.isoformat() if exit_local else None,
+            "total_hours": total_hours_str,
+            "total_working_hours": total_hours_str,
             "total_minutes": total_min,
+            "total_working_seconds": total_sec,
+            "total_break_seconds": total_break_seconds,
+            "total_break_time": _format_hours_minutes_seconds(total_break_seconds),
+            "break_details": break_details,
             "status": status,
             "late_minutes": late_min,
             "late_seconds": late_seconds,
             "early_exit_minutes": early_min,
             "early_exit_seconds": early_exit_seconds,
             "capture_count": len(snaps_sorted),
-            "entry_image_url": _image_url_for(first, base_url),
-            "exit_image_url": _image_url_for(last, base_url),
+            "entry_image_url": _image_url_for(first),
+            "exit_image_url": _image_url_for(last) if not only_one else None,
+            "entry_image_archived": first.image_data is None,
+            "exit_image_archived": (not only_one) and last.image_data is None,
+            "missing_checkout": missing_checkout,
+            "is_active": is_active,
+            "correction_applied": correction_applied,
         })
 
     if expected_names:
@@ -155,7 +301,12 @@ def build_daily_records(
                 "entry_iso": None,
                 "exit_iso": None,
                 "total_hours": "—",
+                "total_working_hours": "—",
                 "total_minutes": 0,
+                "total_working_seconds": 0,
+                "total_break_seconds": 0,
+                "total_break_time": "—",
+                "break_details": [],
                 "status": "Absent",
                 "late_minutes": 0,
                 "late_seconds": 0,
@@ -164,6 +315,11 @@ def build_daily_records(
                 "capture_count": 0,
                 "entry_image_url": None,
                 "exit_image_url": None,
+                "entry_image_archived": False,
+                "exit_image_archived": False,
+                "missing_checkout": False,
+                "is_active": False,
+                "correction_applied": False,
             })
 
     records.sort(key=lambda r: (r["status"] == "Absent", r["name"].lower()))
@@ -178,6 +334,7 @@ def build_range_records(
     shift: ShiftSettings,
     base_url: str,
     name_filter: Optional[str] = None,
+    corrections: Optional[dict[tuple[str, str], dict]] = None,
 ) -> list[dict]:
     """Daily records across a date range. If `name_filter` is given, only
     that person's days are returned (case-insensitive, ignores extra spaces).
@@ -196,6 +353,7 @@ def build_range_records(
                 target_date=cursor,
                 shift=shift,
                 base_url=base_url,
+                corrections=corrections,
             )
         )
         cursor += timedelta(days=1)
