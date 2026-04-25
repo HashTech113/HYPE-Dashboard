@@ -12,8 +12,11 @@ import {
   Menu,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { getIngestLastSeen } from "@/api/dashboardApi";
 import { cn } from "@/lib/utils";
 import hypeLogo from "@/images/HYPE_logo.png";
+
+const INGEST_POLL_MS = 10_000;
 
 type NavChild = {
   label: string;
@@ -78,10 +81,11 @@ type SidebarBodyProps = {
   expanded: boolean;
   pathname: string;
   searchRole: string | undefined;
+  ingestFresh: boolean;
   onNavigate?: () => void;
 };
 
-function SidebarBody({ expanded, pathname, searchRole, onNavigate }: SidebarBodyProps) {
+function SidebarBody({ expanded, pathname, searchRole, ingestFresh, onNavigate }: SidebarBodyProps) {
   return (
     <>
       <nav
@@ -93,7 +97,9 @@ function SidebarBody({ expanded, pathname, searchRole, onNavigate }: SidebarBody
         {navItems.map((item) => {
           const parentActive = isParentActive(item, pathname);
           const selfActive = pathname === item.to;
-          const showNotificationDot = item.to === "/requests";
+          // Only flag Live Captures when the backend has seen a recent
+          // capture (driven by /api/ingest/last-seen → !stale).
+          const showNotificationDot = item.to === "/requests" && ingestFresh;
           const showChildren = expanded && item.children && item.children.length > 0;
 
           return (
@@ -197,6 +203,7 @@ const SIDEBAR_ASIDE_CLASSES =
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const [sidebarExpanded, setSidebarExpanded] = useState(initialSidebarState);
+  const [ingestFresh, setIngestFresh] = useState(false);
 
   const searchRole =
     typeof (location.search as { role?: string }).role === "string"
@@ -209,6 +216,28 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       setSidebarExpanded(false);
     }
   }, [location.pathname, location.search]);
+
+  // Drive the Live Captures notification dot from the real ingest
+  // heartbeat. The backend flags `stale` when there's been no capture in
+  // the last threshold_seconds (default 120s).
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const status = await getIngestLastSeen();
+        if (cancelled) return;
+        setIngestFresh(!!status.last_seen && !status.stale);
+      } catch {
+        if (!cancelled) setIngestFresh(false);
+      }
+    };
+    void tick();
+    const id = setInterval(tick, INGEST_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
 
   const closeMobileSidebar = () => {
     if (isMobileViewport()) {
@@ -273,6 +302,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 expanded={sidebarExpanded}
                 pathname={location.pathname}
                 searchRole={searchRole}
+                ingestFresh={ingestFresh}
               />
             </aside>
           </div>
@@ -300,6 +330,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 expanded
                 pathname={location.pathname}
                 searchRole={searchRole}
+                ingestFresh={ingestFresh}
                 onNavigate={closeMobileSidebar}
               />
             </aside>

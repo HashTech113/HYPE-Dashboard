@@ -174,7 +174,7 @@ function EmployeesPage() {
             <Filter className="h-4 w-4 text-primary" />
 
             <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-xs font-medium text-sky-700">Employees</span>
+              <span className="whitespace-nowrap text-xs font-semibold text-sky-900">Employees</span>
               <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
                 <SelectTrigger className="h-9 w-[160px] border-sky-200 focus:ring-sky-300">
                   <SelectValue placeholder="All Employees" />
@@ -191,7 +191,7 @@ function EmployeesPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-xs font-medium text-indigo-700">Companies</span>
+              <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">Companies</span>
               <Select value={selectedCompany} onValueChange={setSelectedCompany}>
                 <SelectTrigger className="h-9 w-[150px] border-indigo-200 focus:ring-indigo-300">
                   <SelectValue placeholder="All Companies" />
@@ -208,7 +208,7 @@ function EmployeesPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-xs font-medium text-emerald-700">Departments</span>
+              <span className="whitespace-nowrap text-xs font-semibold text-emerald-900">Departments</span>
               <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
                 <SelectTrigger className="h-9 w-[160px] border-emerald-200 focus:ring-emerald-300">
                   <SelectValue placeholder="All Departments" />
@@ -225,7 +225,7 @@ function EmployeesPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-xs font-medium text-amber-700">Role</span>
+              <span className="whitespace-nowrap text-xs font-semibold text-amber-900">Role</span>
               <Select
                 value={selectedRole}
                 onValueChange={(value) => {
