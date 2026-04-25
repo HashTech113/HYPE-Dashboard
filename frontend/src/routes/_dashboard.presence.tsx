@@ -40,39 +40,39 @@ const calendarStatusStyles: Record<Exclude<CalendarCellStatus, null>, {
   Present: {
     code: "P",
     label: "Present",
-    cellClassName: "bg-emerald-500",
-    numberClass: "text-white",
-    labelClass: "text-white/95",
-    dotClass: "bg-white shadow-sm",
+    cellClassName: "border border-emerald-400",
+    numberClass: "text-emerald-600",
+    labelClass: "text-emerald-600",
+    dotClass: "bg-emerald-500 shadow-sm",
     bubbleClassName: "border-emerald-300 bg-emerald-100 text-emerald-700",
   },
   Absent: {
     code: "A",
     label: "Absent",
-    cellClassName: "bg-rose-500",
-    numberClass: "text-white",
-    labelClass: "text-white/95",
-    dotClass: "bg-white shadow-sm",
-    bubbleClassName: "border-rose-300 bg-rose-100 text-rose-700",
+    cellClassName: "border border-red-400",
+    numberClass: "text-red-600",
+    labelClass: "text-red-600",
+    dotClass: "bg-red-600 shadow-sm",
+    bubbleClassName: "border-red-300 bg-red-100 text-red-700",
   },
   // "Holiday" now represents weekday leaves (public/company holidays falling
   // on Mon–Sat). Sundays are split out below so they get their own color.
   Holiday: {
     code: "H",
     label: "Leave",
-    cellClassName: "bg-blue-500",
-    numberClass: "text-white",
-    labelClass: "text-white/95",
-    dotClass: "bg-white shadow-sm",
+    cellClassName: "border border-blue-400",
+    numberClass: "text-blue-600",
+    labelClass: "text-blue-600",
+    dotClass: "bg-blue-500 shadow-sm",
     bubbleClassName: "border-blue-300 bg-blue-100 text-blue-700",
   },
   Sunday: {
     code: "S",
     label: "Sunday",
-    cellClassName: "bg-orange-500",
-    numberClass: "text-white",
-    labelClass: "text-white/95",
-    dotClass: "bg-white shadow-sm",
+    cellClassName: "border border-orange-400",
+    numberClass: "text-orange-600",
+    labelClass: "text-orange-600",
+    dotClass: "bg-orange-500 shadow-sm",
     bubbleClassName: "border-orange-300 bg-orange-100 text-orange-700",
   },
 };
@@ -902,7 +902,7 @@ function PresencePage() {
                             }
                           }}
                           className={cn(
-                            "relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl px-2 py-1 text-left",
+                            "relative flex h-full min-w-0 flex-col overflow-hidden rounded-lg px-2 py-1 text-left",
                             cell.inCurrentMonth
                               ? "neu-surface neu-surface-hover"
                               : "neu-inset opacity-60",
@@ -915,7 +915,7 @@ function PresencePage() {
                           <div className="flex items-center justify-between gap-1">
                             <span
                               className={cn(
-                                "text-base font-extrabold leading-none tracking-tight sm:text-lg",
+                                "text-base font-medium leading-none tracking-tight sm:text-lg",
                                 cell.inCurrentMonth
                                   ? statusStyle?.numberClass ?? "text-slate-800"
                                   : "text-slate-400",
@@ -935,7 +935,7 @@ function PresencePage() {
                           {statusStyle && cell.inCurrentMonth ? (
                             <span
                               className={cn(
-                                "mt-auto truncate text-[10px] font-semibold leading-tight",
+                                "mt-auto truncate text-[10px] font-normal leading-tight",
                                 statusStyle.labelClass,
                               )}
                             >
