@@ -20,12 +20,16 @@ export const Route = createFileRoute("/_dashboard/presence")({
   component: PresencePage,
 });
 
-type CalendarCellStatus = "Present" | "Absent" | "Holiday" | null;
+type CalendarCellStatus = "Present" | "Absent" | "Holiday" | "Sunday" | null;
 
 const calendarDayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// Status palette is paired with the neumorphic base in the tile JSX —
+// `cellClassName` paints the saturated background, text classes flip to
+// white for contrast, and the raised dual-shadow shape comes from the
+// `.neu-surface` utility class.
 const calendarStatusStyles: Record<Exclude<CalendarCellStatus, null>, {
-  code: "P" | "A" | "H";
+  code: "P" | "A" | "H" | "S";
   label: string;
   cellClassName: string;
   numberClass: string;
@@ -36,29 +40,40 @@ const calendarStatusStyles: Record<Exclude<CalendarCellStatus, null>, {
   Present: {
     code: "P",
     label: "Present",
-    cellClassName: "border-emerald-200 bg-emerald-100/80",
-    numberClass: "text-emerald-800",
-    labelClass: "text-emerald-700",
-    dotClass: "bg-emerald-500",
+    cellClassName: "bg-emerald-500",
+    numberClass: "text-white",
+    labelClass: "text-white/95",
+    dotClass: "bg-white shadow-sm",
     bubbleClassName: "border-emerald-300 bg-emerald-100 text-emerald-700",
   },
   Absent: {
     code: "A",
     label: "Absent",
-    cellClassName: "border-rose-200 bg-rose-100/75",
-    numberClass: "text-rose-800",
-    labelClass: "text-rose-700",
-    dotClass: "bg-rose-500",
+    cellClassName: "bg-rose-500",
+    numberClass: "text-white",
+    labelClass: "text-white/95",
+    dotClass: "bg-white shadow-sm",
     bubbleClassName: "border-rose-300 bg-rose-100 text-rose-700",
   },
+  // "Holiday" now represents weekday leaves (public/company holidays falling
+  // on Mon–Sat). Sundays are split out below so they get their own color.
   Holiday: {
     code: "H",
-    label: "Holiday",
-    cellClassName: "border-violet-200 bg-violet-100/75",
-    numberClass: "text-violet-800",
-    labelClass: "text-violet-700",
-    dotClass: "bg-violet-500",
-    bubbleClassName: "border-violet-300 bg-violet-100 text-violet-700",
+    label: "Leave",
+    cellClassName: "bg-blue-500",
+    numberClass: "text-white",
+    labelClass: "text-white/95",
+    dotClass: "bg-white shadow-sm",
+    bubbleClassName: "border-blue-300 bg-blue-100 text-blue-700",
+  },
+  Sunday: {
+    code: "S",
+    label: "Sunday",
+    cellClassName: "bg-orange-500",
+    numberClass: "text-white",
+    labelClass: "text-white/95",
+    dotClass: "bg-white shadow-sm",
+    bubbleClassName: "border-orange-300 bg-orange-100 text-orange-700",
   },
 };
 
@@ -139,15 +154,25 @@ function earlyExitLabel(record: PresenceRecord | null): string {
   return formatDurationSeconds(seconds);
 }
 
-const statusPillClassName: Record<"Present" | "Late" | "Early Exit" | "Absent" | "Holiday", string> = {
+const statusPillClassName: Record<"Present" | "Late" | "Early Exit" | "Absent" | "Holiday" | "Sunday", string> = {
   Present: "border-emerald-200 bg-emerald-50 text-emerald-700",
   Late: "border-orange-200 bg-orange-50 text-orange-700",
   "Early Exit": "border-orange-200 bg-orange-50 text-orange-700",
   Absent: "border-rose-200 bg-rose-50 text-rose-700",
-  Holiday: "border-violet-200 bg-violet-50 text-violet-700",
+  Holiday: "border-blue-200 bg-blue-50 text-blue-700",
+  Sunday: "border-orange-200 bg-orange-50 text-orange-700",
 };
 
-type DetailTone = "neutral" | "emerald" | "sky" | "amber" | "rose" | "violet" | "indigo";
+type DetailTone =
+  | "neutral"
+  | "emerald"
+  | "sky"
+  | "amber"
+  | "rose"
+  | "violet"
+  | "indigo"
+  | "orange"
+  | "blue";
 
 const detailToneStyles: Record<DetailTone, { container: string; label: string; value: string }> = {
   neutral: {
@@ -184,6 +209,16 @@ const detailToneStyles: Record<DetailTone, { container: string; label: string; v
     container: "border-indigo-200 bg-indigo-50/70",
     label: "text-indigo-700",
     value: "text-indigo-900",
+  },
+  orange: {
+    container: "border-orange-200 bg-orange-50/70",
+    label: "text-orange-700",
+    value: "text-orange-900",
+  },
+  blue: {
+    container: "border-blue-200 bg-blue-50/70",
+    label: "text-blue-700",
+    value: "text-blue-900",
   },
 };
 
@@ -478,15 +513,21 @@ function PresencePage() {
     for (let dayNumber = 1; dayNumber <= daysInMonth; dayNumber += 1) {
       const date = new Date(year, month, dayNumber);
       const dateKey = formatDateKey(date);
+      const isSunday = date.getDay() === 0;
       let status: CalendarCellStatus = dailyStatusMap.get(dateKey) ?? null;
       const holidayName = holidayNameByDate.get(dateKey) ?? null;
 
-      if (!status && holidayName) {
+      // Sundays always show in the Sunday color, regardless of whether the
+      // holiday calendar happens to also list them as a "Weekly Off".
+      if (isSunday && !status) {
+        status = "Sunday";
+      } else if (!status && holidayName) {
+        // Weekday leaves (public / company holidays on Mon–Sat).
         status = "Holiday";
       }
 
       // Absent = an employee is selected, the day is on or before today,
-      // no attendance record exists, and it isn't a holiday.
+      // no attendance record exists, and it isn't a Sunday or holiday.
       if (!status && employeeSelected && dateKey <= todayKey) {
         status = "Absent";
       }
@@ -570,11 +611,19 @@ function PresencePage() {
 
   const hasSelectedEmployee = selectedEmployee !== "none";
   const selectedDayRecord = selectedDate ? recordByDateMap.get(selectedDate) ?? null : null;
-  const selectedDayHoliday = selectedDate ? holidayNameByDate.get(selectedDate) ?? null : null;
+  const selectedDayIsSunday = selectedDate
+    ? (() => {
+        const [y, m, d] = selectedDate.split("-").map(Number);
+        return new Date(y, (m ?? 1) - 1, d).getDay() === 0;
+      })()
+    : false;
+  const rawSelectedDayHoliday = selectedDate ? holidayNameByDate.get(selectedDate) ?? null : null;
+  // Weekday leave names only — Sundays get their own treatment below.
+  const selectedDayHoliday = selectedDayIsSunday ? null : rawSelectedDayHoliday;
   const selectedDayStatus: PresenceRecord["status"] | null = (() => {
     if (selectedDayRecord?.status) return selectedDayRecord.status;
-    // Past/today with no record and no holiday → the employee is Absent that day.
-    if (!selectedDate || !hasSelectedEmployee || selectedDayHoliday) return null;
+    // Past/today with no record, not a Sunday, not a holiday → Absent.
+    if (!selectedDate || !hasSelectedEmployee || selectedDayHoliday || selectedDayIsSunday) return null;
     const todayKey = formatDateKey(new Date());
     return selectedDate <= todayKey ? "Absent" : null;
   })();
@@ -717,29 +766,35 @@ function PresencePage() {
                   <div className="grid min-h-0 grid-rows-[repeat(6,auto)] gap-1.5 xl:grid-rows-[repeat(6,minmax(0,1fr))]">
                     <DetailField
                       tone={
-                        selectedDayHoliday
-                          ? "violet"
-                          : selectedDayStatus === "Absent"
-                            ? "rose"
-                            : selectedDayStatus === "Late" || selectedDayStatus === "Early Exit"
-                              ? "amber"
-                              : selectedDayStatus === "Present"
-                                ? "emerald"
-                                : "neutral"
+                        selectedDayIsSunday
+                          ? "orange"
+                          : selectedDayHoliday
+                            ? "blue"
+                            : selectedDayStatus === "Absent"
+                              ? "rose"
+                              : selectedDayStatus === "Late" || selectedDayStatus === "Early Exit"
+                                ? "amber"
+                                : selectedDayStatus === "Present"
+                                  ? "emerald"
+                                  : "neutral"
                       }
                       label="Status"
                       value={
                         hasSelectedEmployee
-                          ? selectedDayHoliday ?? selectedDayStatus ?? "No attendance record"
+                          ? selectedDayIsSunday
+                            ? "Sunday"
+                            : selectedDayHoliday ?? selectedDayStatus ?? "No attendance record"
                           : ""
                       }
                       pill={
                         hasSelectedEmployee
-                          ? (selectedDayHoliday
-                              ? { label: selectedDayHoliday, className: statusPillClassName.Holiday }
-                              : selectedDayStatus
-                                ? { label: selectedDayStatus, className: statusPillClassName[selectedDayStatus] }
-                                : null)
+                          ? (selectedDayIsSunday
+                              ? { label: "Sunday", className: statusPillClassName.Sunday }
+                              : selectedDayHoliday
+                                ? { label: selectedDayHoliday, className: statusPillClassName.Holiday }
+                                : selectedDayStatus
+                                  ? { label: selectedDayStatus, className: statusPillClassName[selectedDayStatus] }
+                                  : null)
                           : null
                       }
                     />
@@ -829,7 +884,7 @@ function PresencePage() {
                 </div>
 
                 <div className="min-h-0 flex-1 min-w-0">
-                  <div className="grid h-full min-h-0 grid-cols-[repeat(7,minmax(0,1fr))] grid-rows-6 gap-1.5">
+                  <div className="grid h-full min-h-0 grid-cols-[repeat(7,minmax(0,1fr))] grid-rows-6 gap-2 sm:gap-2.5">
                     {calendarCells.map((cell) => {
                       const statusStyle = cell.status ? calendarStatusStyles[cell.status] : null;
                       const isSelected = cell.dateKey === selectedDate;
@@ -847,18 +902,20 @@ function PresencePage() {
                             }
                           }}
                           className={cn(
-                            "relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border px-1.5 py-1 text-left transition-shadow",
+                            "relative flex h-full min-w-0 flex-col overflow-hidden rounded-2xl px-2 py-1 text-left",
                             cell.inCurrentMonth
-                              ? "shadow-sm hover:shadow-md"
-                              : "opacity-40",
-                            statusStyle?.cellClassName ?? "border-slate-200 bg-white",
-                            isSelected ? "ring-2 ring-primary/60" : "",
+                              ? "neu-surface neu-surface-hover"
+                              : "neu-inset opacity-60",
+                            statusStyle?.cellClassName ?? "",
+                            isSelected
+                              ? "ring-2 ring-primary/60 ring-offset-2 ring-offset-[var(--color-background)]"
+                              : "",
                           )}
                         >
                           <div className="flex items-center justify-between gap-1">
                             <span
                               className={cn(
-                                "text-base font-bold leading-none",
+                                "text-base font-extrabold leading-none tracking-tight sm:text-lg",
                                 cell.inCurrentMonth
                                   ? statusStyle?.numberClass ?? "text-slate-800"
                                   : "text-slate-400",
@@ -869,7 +926,7 @@ function PresencePage() {
                             {statusStyle && cell.inCurrentMonth ? (
                               <span
                                 className={cn(
-                                  "h-1.5 w-1.5 shrink-0 rounded-full",
+                                  "h-1.5 w-1.5 shrink-0 rounded-full shadow-sm",
                                   statusStyle.dotClass,
                                 )}
                               />
@@ -878,13 +935,15 @@ function PresencePage() {
                           {statusStyle && cell.inCurrentMonth ? (
                             <span
                               className={cn(
-                                "mt-1 truncate text-[10px] font-medium",
+                                "mt-auto truncate text-[10px] font-semibold leading-tight",
                                 statusStyle.labelClass,
                               )}
                             >
                               {cell.status === "Holiday" && cell.holidayName
                                 ? cell.holidayName
-                                : statusStyle.code}
+                                : cell.status === "Sunday"
+                                  ? "Sun"
+                                  : statusStyle.label}
                             </span>
                           ) : null}
                         </button>
