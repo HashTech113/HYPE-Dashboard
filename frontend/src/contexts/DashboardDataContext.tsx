@@ -39,7 +39,6 @@ const DashboardDataContext = createContext<DashboardDataContextValue | null>(nul
 
 const POLL_INTERVAL_MS = 30_000;
 const ATTENDANCE_LOOKBACK_DAYS = 30;
-const FETCH_LIMIT = 500;
 
 function formatYmd(d: Date): string {
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -112,7 +111,6 @@ export function DashboardDataProvider({ children }: { children: ReactNode }) {
       const resp = await getAttendanceLogs({
         start: formatYmd(start),
         end: formatYmd(today),
-        limit: FETCH_LIMIT,
       });
       if (!activeRef.current) return;
       setRaw(resp.items);

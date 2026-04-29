@@ -20,6 +20,16 @@ if [ -f ".venv/bin/activate" ]; then
   source .venv/bin/activate
 fi
 
+# Local-only env (camera credentials, MAC pin, discovery subnets, etc.).
+# Gitignored. `set -a` exports every var defined inside the file so the
+# Python workers spawned below inherit them.
+if [ -f ".env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source ./.env
+  set +a
+fi
+
 : "${INGEST_API_URL:=https://hype-dashboard-production-8938.up.railway.app/api/ingest}"
 export INGEST_API_URL
 

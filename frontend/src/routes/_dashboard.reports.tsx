@@ -36,7 +36,6 @@ export const Route = createFileRoute("/_dashboard/reports")({
 });
 
 const POLL_INTERVAL_MS = 5_000;
-const FETCH_LIMIT = 500;
 
 // Mirrors Attendance History / Live Captures so Reports renders identical values.
 function formatDurationSeconds(totalSeconds: number): string {
@@ -192,7 +191,7 @@ function ReportsPage() {
     async ({ manual = false }: { manual?: boolean } = {}) => {
       if (manual) setRefreshing(true);
       try {
-        const data = await getAttendanceLogs({ limit: FETCH_LIMIT });
+        const data = await getAttendanceLogs();
         if (!activeRef.current) return;
         setAttendanceItems(data.items);
         setError(null);

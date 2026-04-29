@@ -8,11 +8,9 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from ..config import (
-    DEFAULT_PAGE_LIMIT,
     EARLY_EXIT_GRACE_MIN,
     LATE_GRACE_MIN,
     LOCAL_TZ_OFFSET_MIN,
-    MAX_PAGE_LIMIT,
     SHIFT_END,
     SHIFT_START,
 )
@@ -98,7 +96,7 @@ def list_attendance(
     start: Optional[str] = Query(None, description="Start date YYYY-MM-DD (local)."),
     end: Optional[str] = Query(None, description="End date YYYY-MM-DD (local)."),
     name: Optional[str] = Query(None, description="Prefix filter, case-insensitive."),
-    limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+    limit: Optional[int] = Query(None, ge=1, description="Omit for all rows."),
     offset: int = Query(0, ge=0),
 ) -> AttendanceSummaryResponse:
     shift = _default_shift()
@@ -116,14 +114,14 @@ def list_attendance(
         base_url="",
         name_filter=name,
     )
-    window = rows[offset : offset + limit]
+    window = rows[offset:] if limit is None else rows[offset : offset + limit]
     directory = employees_service.all_employees()
     return AttendanceSummaryResponse(items=[_to_summary_item(r, directory) for r in window])
 
 
 @router.get("/api/snapshots", response_model=SnapshotListResponse)
 def list_snapshots(
-    limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
+    limit: Optional[int] = Query(None, ge=1, description="Omit for all rows."),
     offset: int = Query(0, ge=0),
     name: Optional[str] = Query(None, description="Prefix filter, case-insensitive."),
 ) -> SnapshotListResponse:

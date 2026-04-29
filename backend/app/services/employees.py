@@ -108,15 +108,21 @@ def update(employee_id: str, patch: dict) -> Optional[Employee]:
     if not fields:
         return get_by_id(employee_id)
 
-    # If the name is changing, propagate the new name to every table that
-    # stores it so attendance/reports for this person stay continuous.
-    # Wrapped in BEGIN/COMMIT so the employees row + the historical rows
-    # commit together; on any failure, nothing changes.
+    # Always run the rename pass on save so historical log spellings stay
+    # aligned with the current canonical employee name — including variant
+    # spellings the camera/recognizer may have inserted since the last save
+    # (e.g. "Akhil c v" alongside "Akhil C V"). Wrapped in BEGIN/COMMIT so
+    # the employees row + log rewrites commit together; on any failure,
+    # nothing changes.
+    old_record = get_by_id(employee_id)
+    if old_record is None:
+        return None
     new_name = patch.get("name")
-    old_record = get_by_id(employee_id) if new_name else None
-    rename_from: Optional[str] = (
-        old_record.name if old_record and new_name and old_record.name != new_name else None
-    )
+    canonical_name = new_name or old_record.name
+    # Snapshot the roster BEFORE the rename so fuzzy-match can tell apart
+    # variants that belong to THIS employee from similar-looking names owned
+    # by someone else.
+    employees_before: list[Employee] = all_employees()
 
     set_clause = ", ".join(f"{k} = ?" for k, _ in fields)
     values = [v for _, v in fields]
@@ -130,8 +136,13 @@ def update(employee_id: str, patch: dict) -> Optional[Employee]:
             if cur.rowcount == 0:
                 conn.execute("ROLLBACK")
                 return None
-            if rename_from:
-                _rename_employee_name(conn, rename_from, new_name)
+            _rename_employee_name(
+                conn,
+                old_record.name,
+                canonical_name,
+                employee_id=employee_id,
+                employees_before=employees_before,
+            )
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
@@ -139,21 +150,48 @@ def update(employee_id: str, patch: dict) -> Optional[Employee]:
     return get_by_id(employee_id)
 
 
-def _rename_employee_name(conn, old_name: str, new_name: str) -> dict[str, int]:
-    """Rewrite the employee name across every table that stores it. Caller
-    is responsible for the surrounding transaction. Returns the rowcount
-    per table for logging.
+def _rename_employee_name(
+    conn,
+    old_name: str,
+    new_name: str,
+    *,
+    employee_id: str,
+    employees_before: list["Employee"],
+) -> dict[str, int]:
+    """Rewrite the employee name across every table that stores it. Picks up
+    historical variants (different casing, partial-recognition spellings like
+    "Akhil" for "Akhil C V") by fuzzy-matching against the pre-rename roster
+    via ``match()`` — only variants whose match resolves to THIS employee are
+    rewritten, so similar names belonging to other people are left alone.
+    Caller owns the surrounding transaction.
     """
     counts: dict[str, int] = {}
     for table in ("snapshot_logs", "attendance_logs", "attendance_corrections"):
-        n = conn.execute(
-            f"UPDATE {table} SET name = ? WHERE name = ?",
-            (new_name, old_name),
-        ).rowcount
-        counts[table] = n
+        existing_names = [
+            r["name"]
+            for r in conn.execute(f"SELECT DISTINCT name FROM {table}").fetchall()
+        ]
+        variants: list[str] = []
+        for existing in existing_names:
+            if not existing or existing == new_name:
+                continue
+            if existing == old_name:
+                variants.append(existing)
+                continue
+            matched = match(existing, employees=employees_before)
+            if matched and matched.id == employee_id:
+                variants.append(existing)
+
+        total = 0
+        for variant in variants:
+            total += conn.execute(
+                f"UPDATE {table} SET name = ? WHERE name = ?",
+                (new_name, variant),
+            ).rowcount
+        counts[table] = total
         log.info(
-            "employee rename: %s rewrote %d rows from %r to %r",
-            table, n, old_name, new_name,
+            "employee rename: %s rewrote %d rows from %r to %r (variants=%s)",
+            table, total, old_name, new_name, variants,
         )
     return counts
 

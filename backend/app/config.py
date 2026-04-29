@@ -15,10 +15,20 @@ _db_env = os.getenv("DATABASE_PATH", "").strip()
 DB_PATH = Path(_db_env) if _db_env else BASE_DIR / "database.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-CAMERA_HOST = os.getenv("CAMERA_HOST", "172.18.11.162")
+CAMERA_HOST = os.getenv("CAMERA_HOST", "172.18.10.12")
 CAMERA_USER = os.getenv("CAMERA_USER", "admin")
 CAMERA_PASS = os.getenv("CAMERA_PASS", "Grow@123")
 CAMERA_BASE_URL = f"http://{CAMERA_HOST}"
+# Optional — pin the camera by MAC address (aa:bb:cc:dd:ee:ff). When set,
+# the camera client falls back to ARP-based rediscovery if CAMERA_HOST
+# stops responding (DHCP rotated the IP).
+CAMERA_MAC = os.getenv("CAMERA_MAC", "").strip().lower()
+# Comma-separated /24 prefixes to sweep during rediscovery, e.g.
+# "172.18.10,172.18.11". Defaults to the subnet of CAMERA_HOST.
+_default_prefix = ".".join(CAMERA_HOST.split(".")[:3])
+CAMERA_DISCOVERY_SUBNETS: tuple[str, ...] = tuple(
+    p.strip() for p in os.getenv("CAMERA_DISCOVERY_SUBNETS", _default_prefix).split(",") if p.strip()
+)
 
 CAPTURE_INTERVAL_SECONDS = float(os.getenv("CAPTURE_INTERVAL_SECONDS", "5"))
 SEARCH_COUNT = int(os.getenv("SEARCH_COUNT", "20"))

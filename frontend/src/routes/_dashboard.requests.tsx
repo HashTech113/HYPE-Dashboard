@@ -35,7 +35,6 @@ export const Route = createFileRoute("/_dashboard/requests")({
 });
 
 const POLL_INTERVAL_MS = 5_000;
-const FETCH_LIMIT = 500;
 
 function snapshotLocalDateKey(isoTimestamp: string): string {
   const d = new Date(isoTimestamp);
@@ -118,7 +117,7 @@ function LiveCapturesPage() {
     async ({ manual = false }: { manual?: boolean } = {}) => {
       if (manual) setRefreshing(true);
       try {
-        const data = await getSnapshotLogs({ limit: FETCH_LIMIT });
+        const data = await getSnapshotLogs();
         if (!activeRef.current) return;
         setSnapshotItems(data.items);
         setError(null);
@@ -308,7 +307,7 @@ function LiveCapturesPage() {
               </div>
             )}
 
-            <div className="min-h-0 flex-1 overflow-hidden">
+            <div className="show-scrollbar min-h-0 flex-1 overflow-hidden">
               <SnapshotTable
                 items={filteredSnapshots}
                 employees={employees}

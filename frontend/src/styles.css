@@ -185,6 +185,40 @@
   display: none;
 }
 
+/* Opt-in override: when an ancestor has .show-scrollbar, descendants stop
+   hiding their scrollbar and render a thin styled one instead. Lets shared
+   scroll containers (e.g. ui/table.tsx) be hidden by default but visible
+   on pages that ask for it. */
+.show-scrollbar .scrollbar-hidden,
+.show-scrollbar.scrollbar-hidden {
+  -ms-overflow-style: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.6) transparent;
+}
+
+.show-scrollbar .scrollbar-hidden::-webkit-scrollbar,
+.show-scrollbar.scrollbar-hidden::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+  display: block;
+}
+
+.show-scrollbar .scrollbar-hidden::-webkit-scrollbar-track,
+.show-scrollbar.scrollbar-hidden::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.show-scrollbar .scrollbar-hidden::-webkit-scrollbar-thumb,
+.show-scrollbar.scrollbar-hidden::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.6);
+  border-radius: 9999px;
+}
+
+.show-scrollbar .scrollbar-hidden::-webkit-scrollbar-thumb:hover,
+.show-scrollbar.scrollbar-hidden::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.8);
+}
+
 /* Dashboard widgets: line-draw animation for Presence Trend chart */
 @keyframes drawLine {
   to {

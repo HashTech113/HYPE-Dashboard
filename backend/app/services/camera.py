@@ -17,39 +17,61 @@ from requests.auth import HTTPDigestAuth
 
 from ..config import (
     CAMERA_BASE_URL,
+    CAMERA_DISCOVERY_SUBNETS,
+    CAMERA_MAC,
     CAMERA_PASS,
     CAMERA_USER,
     REQUEST_TIMEOUT_SECONDS,
 )
+from .camera_discovery import discover_camera
 
 log = logging.getLogger(__name__)
 
 
 class CameraClient:
-    """Keeps a logged-in session; transparently re-logs in when the camera 401s."""
+    """Keeps a logged-in session; transparently re-logs in when the camera 401s.
+
+    The base URL lives on the instance so we can swap in a freshly-
+    discovered IP if the camera's DHCP lease rotates and the configured
+    host stops responding (see ``_rediscover``).
+    """
 
     def __init__(self) -> None:
         self._session: Optional[requests.Session] = None
+        self._base_url: str = CAMERA_BASE_URL
+
+    @property
+    def base_url(self) -> str:
+        return self._base_url
 
     def _login(self) -> requests.Session:
-        log.info("Logging into camera at %s", CAMERA_BASE_URL)
+        log.info("Logging into camera at %s", self._base_url)
         session = requests.Session()
         try:
             resp = session.post(
-                f"{CAMERA_BASE_URL}/API/Web/Login",
+                f"{self._base_url}/API/Web/Login",
                 json={"data": {}},
                 auth=HTTPDigestAuth(CAMERA_USER, CAMERA_PASS),
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
-        except requests.ReadTimeout as exc:
+        except requests.ReadTimeout:
             log.warning(
                 "Camera login timed out after %.1fs at %s",
                 REQUEST_TIMEOUT_SECONDS,
-                CAMERA_BASE_URL,
+                self._base_url,
             )
+            self._rediscover()
+            raise
+        except (requests.ConnectTimeout, requests.ConnectionError):
+            # Connect-level failure is the classic "DHCP rotated the IP"
+            # signal: we can't even reach the host. Try to find it again
+            # before the next retry; the caller's existing retry/backoff
+            # loop will pick up the new base URL on the next iteration.
+            log.warning("Camera login could not connect to %s", self._base_url)
+            self._rediscover()
             raise
         except requests.RequestException:
-            log.warning("Camera login request failed at %s", CAMERA_BASE_URL)
+            log.warning("Camera login request failed at %s", self._base_url)
             raise
         if resp.status_code != 200:
             raise RuntimeError(f"Login failed: {resp.status_code} {resp.text[:200]}")
@@ -59,6 +81,27 @@ class CameraClient:
         session.headers.update({"X-csrftoken": token, "Content-Type": "application/json"})
         log.info("Camera login succeeded; X-csrftoken received")
         return session
+
+    def _rediscover(self) -> None:
+        """Look up the camera's current IP via ARP. No-op if discovery
+        finds the same address we already have, or if it finds nothing
+        (we'll keep retrying the configured host)."""
+        new_ip = discover_camera(
+            user=CAMERA_USER,
+            password=CAMERA_PASS,
+            expected_mac=CAMERA_MAC or None,
+            subnet_prefixes=CAMERA_DISCOVERY_SUBNETS,
+        )
+        if not new_ip:
+            return
+        candidate = f"http://{new_ip}"
+        if candidate == self._base_url:
+            return
+        log.info(
+            "Camera rediscovered: %s -> %s (MAC pin=%s)",
+            self._base_url, candidate, CAMERA_MAC or "(OUI filter)",
+        )
+        self._base_url = candidate
 
     def _ensure_session(self) -> requests.Session:
         if self._session is None:
@@ -79,7 +122,7 @@ class CameraClient:
         session = self._ensure_session()
         try:
             resp = session.post(
-                f"{CAMERA_BASE_URL}/API/AI/processAlarm/Get",
+                f"{self._base_url}/API/AI/processAlarm/Get",
                 json={},
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
@@ -125,7 +168,7 @@ class CameraClient:
             },
         }
         resp = session.post(
-            f"{CAMERA_BASE_URL}/API/AI/SnapedFaces/Search",
+            f"{self._base_url}/API/AI/SnapedFaces/Search",
             json=payload,
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
@@ -165,7 +208,7 @@ class CameraClient:
             }
         }
         resp = session.post(
-            f"{CAMERA_BASE_URL}/API/AI/SnapedFaces/GetByIndex",
+            f"{self._base_url}/API/AI/SnapedFaces/GetByIndex",
             json=payload,
             timeout=REQUEST_TIMEOUT_SECONDS,
         )

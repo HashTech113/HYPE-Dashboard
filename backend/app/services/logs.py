@@ -39,6 +39,14 @@ def record_capture(
     image_path makes re-runs idempotent. Returns True if anything was
     inserted, False if the row was a duplicate.
     """
+    # Resolve to the canonical employee name so every spelling the camera
+    # might emit ("Akhil c v" vs "Akhil C V") lands in the DB under the
+    # current roster name. Unknowns are passed through untouched.
+    if _is_recognized(name):
+        from . import employees as employees_service
+        matched = employees_service.match(name)
+        if matched and matched.name != name:
+            name = matched.name
     try:
         with connect() as conn:
             cur = conn.execute(
@@ -59,18 +67,18 @@ def record_capture(
         return False
 
 
-def fetch_snapshot_logs(*, limit: int, offset: int, name: Optional[str]) -> list[dict]:
+def fetch_snapshot_logs(*, limit: Optional[int], offset: int, name: Optional[str]) -> list[dict]:
     return _fetch("snapshot_logs", limit=limit, offset=offset, name=name)
 
 
-def fetch_attendance_logs(*, limit: int, offset: int, name: Optional[str]) -> list[dict]:
+def fetch_attendance_logs(*, limit: Optional[int], offset: int, name: Optional[str]) -> list[dict]:
     return _fetch("attendance_logs", limit=limit, offset=offset, name=name)
 
 
 _ALLOWED_TABLES = {"snapshot_logs", "attendance_logs"}
 
 
-def _fetch(table: str, *, limit: int, offset: int, name: Optional[str]) -> list[dict]:
+def _fetch(table: str, *, limit: Optional[int], offset: int, name: Optional[str]) -> list[dict]:
     if table not in _ALLOWED_TABLES:
         raise ValueError(f"unknown table: {table}")
     # image_data IS NOT NULL hides rows whose image was pruned by the
@@ -82,8 +90,10 @@ def _fetch(table: str, *, limit: int, offset: int, name: Optional[str]) -> list[
     if name:
         sql += " AND lower(name) LIKE ?"
         args.append(f"{name.strip().lower()}%")
+    # SQLite treats LIMIT -1 as "no limit"; lets the same query shape serve
+    # both bounded and unbounded calls.
     sql += " ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?"
-    args.extend([limit, offset])
+    args.extend([-1 if limit is None else limit, offset])
     with connect() as conn:
         rows = conn.execute(sql, args).fetchall()
     return [dict(row) for row in rows]

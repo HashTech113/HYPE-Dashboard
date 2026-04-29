@@ -8,6 +8,21 @@ FastAPI service that:
 
 **SQLite is the single source of truth.** Captures are stored inline as base64 in `snapshot_logs.image_data` / `attendance_logs.image_data`. There is no filesystem snapshot store any more — the backend does not read or write JPEGs on disk.
 
+## Overall workflow
+
+1. `start.sh` starts the FastAPI app (`uvicorn`) and background workers (`capture.py`, `backfill_from_camera.py`, and optional replay sync loops).
+2. `capture.py` polls the camera endpoint `POST /API/AI/processAlarm/Get` every few seconds.
+3. For each detected face event, `capture.py` sends a payload to `POST /api/ingest`.
+4. `/api/ingest` normalizes timestamp + image identity and writes to SQLite:
+   - every event goes to `snapshot_logs`
+   - recognized names (not `Unknown`) are also written to `attendance_logs`
+5. Dashboard/read APIs fetch from SQLite:
+   - `/api/snapshots` for raw capture stream
+   - `/api/attendance*` for attendance summaries
+   - `/api/health`, `/api/faces/history`, `/api/employees` for monitoring/history/roster
+6. Retention cleanup keeps rows but may clear old `image_data` blobs to reduce DB size.
+7. Optional replay sync (`replay_to_railway.py`) forwards local rows to remote ingest targets for backup/centralization.
+
 ## Layout
 
 ```
@@ -114,7 +129,7 @@ Paginated log of every capture (recognised + Unknown). Sourced from `snapshot_lo
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CAMERA_HOST` | `172.18.11.158` | Camera IP / hostname |
+| `CAMERA_HOST` | `000.000.000.000` | Camera IP / hostname |
 | `CAMERA_USER` | `admin` | Login username |
 | `CAMERA_PASS` | (set in code) | Login password |
 | `CAPTURE_INTERVAL_SECONDS` | `5` | Seconds between `processAlarm/Get` polls |

@@ -20,6 +20,14 @@ if [ -f ".venv/bin/activate" ]; then
   source .venv/bin/activate
 fi
 
+# Local-only env (camera credentials, MAC pin, etc). Gitignored.
+if [ -f ".env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source ./.env
+  set +a
+fi
+
 : "${INGEST_API_URL:=https://hype-dashboard-production-8938.up.railway.app/api/ingest}"
 export INGEST_API_URL
 

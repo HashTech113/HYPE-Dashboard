@@ -336,7 +336,7 @@ function PresencePage() {
     async ({ manual = false }: { manual?: boolean } = {}) => {
       if (manual) setRefreshing(true);
       try {
-        const data = await getAttendanceLogs({ limit: 500 });
+        const data = await getAttendanceLogs();
         if (!activeRef.current) return;
         setAttendanceSummaries(data.items);
       } catch (error) {

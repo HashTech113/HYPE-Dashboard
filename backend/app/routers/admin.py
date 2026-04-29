@@ -9,6 +9,9 @@
   cleanup (also runs on startup and at local midnight).
 - ``/api/admin/correct-attendance`` — override the auto-computed entry/exit/
   break values for one (employee, local date) when the captures are wrong.
+- ``/api/admin/discover-camera`` — actively scan the LAN and return the
+  camera's current IP. Use this when DHCP has rotated the camera's IP and
+  you want to verify (or pin via CAMERA_MAC).
 """
 
 from __future__ import annotations
@@ -112,6 +115,37 @@ def _parse_iso_utc(value: str, field: str) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
+
+
+@router.post("/api/admin/discover-camera")
+def discover_camera_endpoint() -> dict:
+    """Actively scan the LAN for the camera and report its current IP.
+
+    Useful when DHCP has rotated the camera's IP. Honors ``CAMERA_MAC``
+    (exact pin) and ``CAMERA_DISCOVERY_SUBNETS`` (which /24s to sweep).
+    The capture.py loop will pick up the new address on its next retry,
+    no restart required.
+    """
+    from ..config import (
+        CAMERA_DISCOVERY_SUBNETS,
+        CAMERA_MAC,
+        CAMERA_PASS,
+        CAMERA_USER,
+    )
+    from ..services.camera_discovery import discover_camera
+
+    found_ip = discover_camera(
+        user=CAMERA_USER,
+        password=CAMERA_PASS,
+        expected_mac=CAMERA_MAC or None,
+        subnet_prefixes=CAMERA_DISCOVERY_SUBNETS,
+    )
+    return {
+        "found": bool(found_ip),
+        "ip": found_ip,
+        "mac_pin": CAMERA_MAC or None,
+        "subnets_searched": list(CAMERA_DISCOVERY_SUBNETS),
+    }
 
 
 @router.post("/api/admin/prune-snapshots")
