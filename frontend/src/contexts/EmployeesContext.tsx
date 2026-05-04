@@ -6,12 +6,15 @@ import {
   updateEmployeeRemote,
   type Employee,
 } from "@/api/dashboardApi";
+import { companyMatches, getCurrentCompany, getCurrentRole } from "@/lib/auth";
 
 const STORAGE_KEY = "attendance-dashboard:employees:v1";
 
 type EmployeesContextValue = {
   employees: Employee[];
   loading: boolean;
+  /** Company the current user is scoped to, or null for admins (full access). */
+  scopedCompany: string | null;
   updateEmployee: (id: string, patch: Partial<Employee>) => void;
   addEmployee: (employee: Employee) => void;
   deleteEmployee: (id: string) => void;
@@ -139,9 +142,29 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
     writeToStorage(list);
   }, []);
 
+  // HR users only see their own company's employees. Admins see everyone.
+  // Read once at provider mount — the provider lifecycle is tied to the
+  // dashboard, which itself only mounts after authentication.
+  const scopedCompany = useMemo<string | null>(() => {
+    return getCurrentRole() === "hr" ? getCurrentCompany() : null;
+  }, []);
+
+  const visibleEmployees = useMemo<Employee[]>(() => {
+    if (!scopedCompany) return employees;
+    return employees.filter((employee) => companyMatches(employee.company, scopedCompany));
+  }, [employees, scopedCompany]);
+
   const value = useMemo(
-    () => ({ employees, loading, updateEmployee, addEmployee, deleteEmployee, resetToDefaults }),
-    [employees, loading, updateEmployee, addEmployee, deleteEmployee, resetToDefaults]
+    () => ({
+      employees: visibleEmployees,
+      loading,
+      scopedCompany,
+      updateEmployee,
+      addEmployee,
+      deleteEmployee,
+      resetToDefaults,
+    }),
+    [visibleEmployees, loading, scopedCompany, updateEmployee, addEmployee, deleteEmployee, resetToDefaults]
   );
 
   return <EmployeesContext.Provider value={value}>{children}</EmployeesContext.Provider>;

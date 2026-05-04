@@ -15,9 +15,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getIngestLastSeen } from "@/api/dashboardApi";
 import {
   getAdminProfile,
+  getCurrentCompany,
+  getCurrentRole,
+  HR_CREDENTIALS,
   signOut,
   subscribeToAdminProfile,
   type AdminProfile,
+  type AuthRole,
 } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import hypeLogo from "@/images/HYPE_logo.png";
@@ -29,6 +33,8 @@ type NavChild = {
   to: string;
   icon: ComponentType<{ className?: string }>;
   search?: Record<string, string>;
+  /** Roles allowed to see this child. Undefined = all authenticated users. */
+  roles?: AuthRole[];
 };
 
 type NavItem = {
@@ -36,23 +42,39 @@ type NavItem = {
   to: string;
   icon: ComponentType<{ className?: string }>;
   children?: NavChild[];
+  /** Roles allowed to see this item. Undefined = all authenticated users. */
+  roles?: AuthRole[];
 };
 
 const navItems: NavItem[] = [
   { label: "Dashboard", to: "/", icon: LayoutDashboard },
   { label: "Attendance History", to: "/presence", icon: Clock },
   { label: "Reports", to: "/reports", icon: FileText },
-  { label: "Live Captures", to: "/requests", icon: MessageSquare },
+  { label: "Live Captures", to: "/requests", icon: MessageSquare, roles: ["admin"] },
   {
     label: "Settings",
     to: "/settings",
     icon: Settings,
     children: [
       { label: "Employee Management", to: "/employees", icon: Users },
-      { label: "Admin Management", to: "/admin", icon: UserCog },
+      { label: "Admin Management", to: "/admin", icon: UserCog, roles: ["admin"] },
     ],
   },
 ];
+
+function visibleForRole<T extends { roles?: AuthRole[] }>(item: T, role: AuthRole | null): boolean {
+  if (!item.roles) return true;
+  return role !== null && item.roles.includes(role);
+}
+
+function filterNavForRole(items: NavItem[], role: AuthRole | null): NavItem[] {
+  return items
+    .filter((item) => visibleForRole(item, role))
+    .map((item) => ({
+      ...item,
+      children: item.children?.filter((child) => visibleForRole(child, role)),
+    }));
+}
 
 function isParentActive(item: NavItem, pathname: string): boolean {
   if (pathname === item.to) return true;
@@ -88,7 +110,10 @@ type SidebarBodyProps = {
   pathname: string;
   searchRole: string | undefined;
   ingestFresh: boolean;
-  profile: AdminProfile;
+  navItems: NavItem[];
+  displayName: string;
+  subtitle: string | null;
+  avatarUrl: string;
   onNavigate?: () => void;
   onLogout: () => void;
 };
@@ -100,7 +125,18 @@ function getProfileInitials(name: string): string {
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
 }
 
-function SidebarBody({ expanded, pathname, searchRole, ingestFresh, profile, onNavigate, onLogout }: SidebarBodyProps) {
+function SidebarBody({
+  expanded,
+  pathname,
+  searchRole,
+  ingestFresh,
+  navItems,
+  displayName,
+  subtitle,
+  avatarUrl,
+  onNavigate,
+  onLogout,
+}: SidebarBodyProps) {
   return (
     <>
       <nav
@@ -191,23 +227,26 @@ function SidebarBody({ expanded, pathname, searchRole, ingestFresh, profile, onN
         >
           <div className={cn("flex items-center", expanded ? "gap-3" : "flex-col")}>
             <Avatar className="h-8 w-8 bg-slate-50 ring-2 ring-white/40">
-              {profile.avatarUrl ? (
-                <AvatarImage src={profile.avatarUrl} alt={profile.displayName} />
-              ) : null}
+              {avatarUrl ? <AvatarImage src={avatarUrl} alt={displayName} /> : null}
               <AvatarFallback className="bg-slate-50 text-xs font-semibold text-[#3f9382]">
-                {getProfileInitials(profile.displayName)}
+                {getProfileInitials(displayName)}
               </AvatarFallback>
             </Avatar>
-            <span
+            <div
               className={cn(
-                "truncate text-sm font-medium transition-all duration-200",
+                "flex min-w-0 flex-col leading-tight transition-all duration-200",
                 expanded
-                  ? "max-w-[130px] opacity-100"
+                  ? "max-w-[140px] opacity-100"
                   : "pointer-events-none max-w-0 opacity-0",
               )}
             >
-              {profile.displayName}
-            </span>
+              <span className="truncate text-sm font-medium text-white">{displayName}</span>
+              {subtitle ? (
+                <span className="truncate text-[10px] uppercase tracking-wider text-white/70">
+                  {subtitle}
+                </span>
+              ) : null}
+            </div>
           </div>
           <button
             type="button"
@@ -234,15 +273,41 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [ingestFresh, setIngestFresh] = useState(false);
   const [profile, setProfile] = useState<AdminProfile>(() => getAdminProfile());
 
-  // Keep the sidebar / header avatar synced with profile edits made elsewhere.
+  // Read role / company once at mount — the layout only renders post-auth and
+  // unmounts on sign-out, so a fresh read on the next sign-in is guaranteed.
+  const role = getCurrentRole();
+  const company = getCurrentCompany();
+
+  // Keep the sidebar / header avatar synced with admin profile edits.
   useEffect(() => {
+    if (role !== "admin") return;
     return subscribeToAdminProfile(() => setProfile(getAdminProfile()));
-  }, []);
+  }, [role]);
 
   const handleLogout = () => {
     signOut();
     void navigate({ to: "/login" });
   };
+
+  // Resolve the display name + subtitle shown next to the sidebar avatar.
+  const sidebarDisplay = (() => {
+    if (role === "admin") {
+      return { name: profile.displayName, subtitle: null as string | null, avatarUrl: profile.avatarUrl };
+    }
+    if (role === "hr") {
+      const cred = company
+        ? HR_CREDENTIALS.find((c) => c.company.toLowerCase() === company.toLowerCase())
+        : undefined;
+      return {
+        name: cred?.displayName ?? "HR",
+        subtitle: cred?.company ?? company,
+        avatarUrl: "",
+      };
+    }
+    return { name: "User", subtitle: null as string | null, avatarUrl: "" };
+  })();
+
+  const visibleNavItems = filterNavForRole(navItems, role);
 
   const searchRole =
     typeof (location.search as { role?: string }).role === "string"
@@ -311,24 +376,40 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </p>
 
           <div className="ml-auto flex items-center gap-1.5 text-slate-700">
-            <Link
-              to="/admin"
-              className="flex flex-col items-center px-1 py-1 text-slate-700 transition-colors hover:text-slate-900 sm:px-2 sm:py-1.5"
-              aria-label="Admin profile"
-              title={profile.displayName}
-            >
-              <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-[#4aa590] text-xs font-semibold text-white shadow-sm sm:h-10 sm:w-10">
-                {profile.avatarUrl ? (
-                  <img
-                    src={profile.avatarUrl}
-                    alt={profile.displayName}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <span className="sm:text-sm">{getProfileInitials(profile.displayName)}</span>
-                )}
+            {role === "admin" ? (
+              <Link
+                to="/admin"
+                className="flex flex-col items-center px-1 py-1 text-slate-700 transition-colors hover:text-slate-900 sm:px-2 sm:py-1.5"
+                aria-label="Admin profile"
+                title={sidebarDisplay.name}
+              >
+                <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-[#4aa590] text-xs font-semibold text-white shadow-sm sm:h-10 sm:w-10">
+                  {sidebarDisplay.avatarUrl ? (
+                    <img
+                      src={sidebarDisplay.avatarUrl}
+                      alt={sidebarDisplay.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="sm:text-sm">{getProfileInitials(sidebarDisplay.name)}</span>
+                  )}
+                </div>
+              </Link>
+            ) : (
+              <div
+                className="flex items-center gap-2 px-1 py-1 text-slate-700 sm:px-2 sm:py-1.5"
+                title={sidebarDisplay.name}
+              >
+                <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-[#4aa590] text-xs font-semibold text-white shadow-sm sm:h-10 sm:w-10">
+                  <span className="sm:text-sm">{getProfileInitials(sidebarDisplay.name)}</span>
+                </div>
+                {sidebarDisplay.subtitle ? (
+                  <span className="hidden text-xs font-semibold uppercase tracking-wider text-slate-500 sm:inline">
+                    {sidebarDisplay.subtitle}
+                  </span>
+                ) : null}
               </div>
-            </Link>
+            )}
           </div>
         </header>
 
@@ -351,7 +432,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 pathname={location.pathname}
                 searchRole={searchRole}
                 ingestFresh={ingestFresh}
-                profile={profile}
+                navItems={visibleNavItems}
+                displayName={sidebarDisplay.name}
+                subtitle={sidebarDisplay.subtitle}
+                avatarUrl={sidebarDisplay.avatarUrl}
                 onLogout={handleLogout}
               />
             </aside>
@@ -381,7 +465,10 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 pathname={location.pathname}
                 searchRole={searchRole}
                 ingestFresh={ingestFresh}
-                profile={profile}
+                navItems={visibleNavItems}
+                displayName={sidebarDisplay.name}
+                subtitle={sidebarDisplay.subtitle}
+                avatarUrl={sidebarDisplay.avatarUrl}
                 onNavigate={closeMobileSidebar}
                 onLogout={handleLogout}
               />

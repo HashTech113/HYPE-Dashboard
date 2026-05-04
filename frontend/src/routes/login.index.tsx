@@ -66,7 +66,7 @@ function RoleSelectionPage() {
         className="pointer-events-none absolute -bottom-40 -right-32 h-[460px] w-[460px] rounded-full bg-gradient-to-tr from-[#2f8f7b] via-[#4aa590] to-[#69baa7] opacity-30 blur-3xl"
       />
 
-      <div className="relative z-10 w-full max-w-md overflow-hidden rounded-[28px] bg-white/85 shadow-[0_30px_60px_rgba(12,70,56,0.18)] backdrop-blur-xl">
+      <div className="animate-auth-from-left relative z-10 w-full max-w-md overflow-hidden rounded-[28px] bg-white/85 shadow-[0_30px_60px_rgba(12,70,56,0.18)] backdrop-blur-xl">
         {/* Header band — gradient accent matching the sidebar. */}
         <div className="relative bg-gradient-to-b from-[#69baa7] via-[#4aa590] to-[#2f8f7b] px-8 pb-8 pt-10 text-center text-white">
           <div

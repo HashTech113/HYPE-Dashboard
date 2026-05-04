@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { Bell, Settings, AlertTriangle, Info, AlertOctagon } from "lucide-react";
 import { SectionShell } from "@/components/dashboard/SectionShell";
@@ -8,8 +8,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { formatDateTime } from "@/lib/dateFormat";
+import { getCurrentRole } from "@/lib/auth";
 
 export const Route = createFileRoute("/_dashboard/alerts")({
+  beforeLoad: () => {
+    if (getCurrentRole() !== "admin") {
+      throw redirect({ to: "/" });
+    }
+  },
   component: AlertsPage,
 });
 

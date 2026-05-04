@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { getCurrentRole } from "@/lib/auth";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, Filter, RefreshCw, Users } from "lucide-react";
 import {
@@ -31,6 +32,11 @@ import {
 } from "@/components/ui/table";
 
 export const Route = createFileRoute("/_dashboard/requests")({
+  beforeLoad: () => {
+    if (getCurrentRole() !== "admin") {
+      throw redirect({ to: "/" });
+    }
+  },
   component: LiveCapturesPage,
 });
 

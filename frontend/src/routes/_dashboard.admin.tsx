@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import {
   useEffect,
   useMemo,
@@ -31,12 +31,18 @@ import { cn } from "@/lib/utils";
 import {
   changePassword,
   getAdminProfile,
+  getCurrentRole,
   subscribeToAdminProfile,
   updateAdminProfile,
   type AdminProfile,
 } from "@/lib/auth";
 
 export const Route = createFileRoute("/_dashboard/admin")({
+  beforeLoad: () => {
+    if (getCurrentRole() !== "admin") {
+      throw redirect({ to: "/" });
+    }
+  },
   component: AdminManagementPage,
 });
 

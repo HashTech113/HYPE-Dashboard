@@ -6,6 +6,7 @@ import { mockPresenceHistory, type PresenceRecord } from "@/data/mockPresence";
 import { mockHolidayCalendar } from "@/data/mockHolidayCalendar";
 import { useEmployees } from "@/contexts/EmployeesContext";
 import { getAttendanceLogs, type AttendanceSummaryItem } from "@/api/dashboardApi";
+import { companyMatches } from "@/lib/auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -322,8 +323,11 @@ function DetailField({
 const ATTENDANCE_REFRESH_MS = 5_000;
 
 function PresencePage() {
-  const { employees } = useEmployees();
-  const [selectedCompany, setSelectedCompany] = useState<string>("all");
+  const { employees, scopedCompany } = useEmployees();
+  const isCompanyScoped = scopedCompany !== null;
+  const [selectedCompany, setSelectedCompany] = useState<string>(
+    isCompanyScoped ? (scopedCompany as string) : "all",
+  );
   const [selectedEmployee, setSelectedEmployee] = useState<string>("none");
   const [imagePreview, setImagePreview] = useState<{ url: string; label: string } | null>(null);
   const [calendarMonth, setCalendarMonth] = useState<Date>(new Date("2026-01-01"));
@@ -338,14 +342,19 @@ function PresencePage() {
       try {
         const data = await getAttendanceLogs();
         if (!activeRef.current) return;
-        setAttendanceSummaries(data.items);
+        // HR users only see attendance for their own company. Filter at the
+        // source so downstream calendar/list views can't leak other companies.
+        const items = scopedCompany
+          ? data.items.filter((item) => companyMatches(item.company, scopedCompany))
+          : data.items;
+        setAttendanceSummaries(items);
       } catch (error) {
         console.error("Failed to load attendance summaries", error);
       } finally {
         if (manual && activeRef.current) setRefreshing(false);
       }
     },
-    [],
+    [scopedCompany],
   );
 
   useEffect(() => {
@@ -676,21 +685,30 @@ function PresencePage() {
 
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">
-                  Companies
+                  Company
                 </span>
-                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="h-10 w-[130px] border-indigo-200 focus:ring-indigo-300 sm:w-[140px] md:w-[150px]">
-                    <SelectValue placeholder="Select company" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Companies</SelectItem>
-                    {companyOptions.map((company) => (
-                      <SelectItem key={company} value={company}>
-                        {company}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {isCompanyScoped ? (
+                  <span
+                    className="flex h-10 items-center rounded-md border border-indigo-200 bg-indigo-50/60 px-3 text-xs font-semibold text-indigo-700"
+                    title="Locked to your company"
+                  >
+                    {scopedCompany}
+                  </span>
+                ) : (
+                  <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                    <SelectTrigger className="h-10 w-[130px] border-indigo-200 focus:ring-indigo-300 sm:w-[140px] md:w-[150px]">
+                      <SelectValue placeholder="Select company" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Companies</SelectItem>
+                      {companyOptions.map((company) => (
+                        <SelectItem key={company} value={company}>
+                          {company}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
 
               <div className="flex items-center gap-2">

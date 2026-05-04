@@ -7,6 +7,7 @@ import {
   type Employee,
 } from "@/api/dashboardApi";
 import { useEmployees } from "@/contexts/EmployeesContext";
+import { companyMatches } from "@/lib/auth";
 import { matchesEmployeeName } from "@/lib/nameMatch";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { DatePicker } from "@/components/dashboard/DatePicker";
@@ -152,10 +153,13 @@ function initials(name: string): string {
 }
 
 function ReportsPage() {
-  const { employees } = useEmployees();
+  const { employees, scopedCompany } = useEmployees();
+  const isCompanyScoped = scopedCompany !== null;
 
   const [selectedEmployee, setSelectedEmployee] = useState<string>("all");
-  const [selectedCompany, setSelectedCompany] = useState<string>("all");
+  const [selectedCompany, setSelectedCompany] = useState<string>(
+    isCompanyScoped ? (scopedCompany as string) : "all",
+  );
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
@@ -170,6 +174,17 @@ function ReportsPage() {
     () => Array.from(new Set(employees.map((e) => e.company))).sort(),
     [employees],
   );
+
+  // For HR users, drop any attendance row that doesn't belong to their company.
+  // This page fetches its own attendance data, so the context-level scoping
+  // doesn't apply — we have to gate it here too.
+  const scopedAttendanceItems = useMemo<AttendanceSummaryItem[]>(() => {
+    if (!scopedCompany) return attendanceItems;
+    return attendanceItems.filter((item) => {
+      const itemCompany = item.company ?? findEmployeeForName(employees, item.name)?.company ?? null;
+      return companyMatches(itemCompany, scopedCompany);
+    });
+  }, [attendanceItems, employees, scopedCompany]);
 
   const employeesForSelectedCompany = useMemo(
     () =>
@@ -226,7 +241,7 @@ function ReportsPage() {
   );
 
   const filteredItems = useMemo(() => {
-    return attendanceItems.filter((item) => {
+    return scopedAttendanceItems.filter((item) => {
       const matchedEmployee = findEmployeeForName(employees, item.name);
 
       if (selectedEmployee !== "all") {
@@ -234,7 +249,7 @@ function ReportsPage() {
         if (matchedEmployee?.employeeId !== selectedEmployee) return false;
       } else if (selectedCompany !== "all") {
         const rowCompany = item.company ?? matchedEmployee?.company ?? null;
-        if (rowCompany !== selectedCompany) return false;
+        if (!companyMatches(rowCompany, selectedCompany)) return false;
       }
 
       if (startDate && item.date < startDate) return false;
@@ -243,7 +258,7 @@ function ReportsPage() {
       return true;
     });
   }, [
-    attendanceItems,
+    scopedAttendanceItems,
     employees,
     selectedEmployee,
     selectedEmployeeObj,
@@ -353,21 +368,30 @@ function ReportsPage() {
 
                 <div className="flex items-center gap-2">
                   <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">
-                    Companies
+                    Company
                   </span>
-                  <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                    <SelectTrigger className="h-9 w-[125px] border-indigo-200 focus:ring-indigo-300 sm:w-[135px] md:w-[145px]">
-                      <SelectValue placeholder="All Companies" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Companies</SelectItem>
-                      {companyOptions.map((company) => (
-                        <SelectItem key={company} value={company}>
-                          {company}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {isCompanyScoped ? (
+                    <span
+                      className="flex h-9 items-center rounded-md border border-indigo-200 bg-indigo-50/60 px-3 text-xs font-semibold text-indigo-700"
+                      title="Locked to your company"
+                    >
+                      {scopedCompany}
+                    </span>
+                  ) : (
+                    <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                      <SelectTrigger className="h-9 w-[125px] border-indigo-200 focus:ring-indigo-300 sm:w-[135px] md:w-[145px]">
+                        <SelectValue placeholder="All Companies" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Companies</SelectItem>
+                        {companyOptions.map((company) => (
+                          <SelectItem key={company} value={company}>
+                            {company}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -386,7 +410,10 @@ function ReportsPage() {
                   />
                 </div>
 
-                {(startDate || endDate || selectedEmployee !== "all" || selectedCompany !== "all") ? (
+                {(startDate ||
+                  endDate ||
+                  selectedEmployee !== "all" ||
+                  (!isCompanyScoped && selectedCompany !== "all")) ? (
                   <Button
                     type="button"
                     size="sm"
@@ -394,7 +421,8 @@ function ReportsPage() {
                     className="h-9 px-3 text-xs"
                     onClick={() => {
                       setSelectedEmployee("all");
-                      setSelectedCompany("all");
+                      // HR users stay locked to their company.
+                      if (!isCompanyScoped) setSelectedCompany("all");
                       setStartDate("");
                       setEndDate("");
                     }}

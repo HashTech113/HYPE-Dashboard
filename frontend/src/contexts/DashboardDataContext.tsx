@@ -25,6 +25,7 @@ import {
   normalizeAttendance,
   type NormalizedAttendance,
 } from "@/lib/dashboardData";
+import { companyMatches, getCurrentCompany, getCurrentRole } from "@/lib/auth";
 
 type DashboardDataContextValue = {
   attendance: NormalizedAttendance[];
@@ -146,15 +147,26 @@ export function DashboardDataProvider({ children }: { children: ReactNode }) {
     };
   }, [fetchOnce]);
 
-  const attendance = useMemo(() => normalizeAttendance(raw), [raw]);
+  // HR users only see attendance for their own company. Admin sees all.
+  // Read once at provider mount — the provider only renders post-auth.
+  const scopedCompany = useMemo<string | null>(() => {
+    return getCurrentRole() === "hr" ? getCurrentCompany() : null;
+  }, []);
+
+  const scopedRaw = useMemo<AttendanceSummaryItem[]>(() => {
+    if (!scopedCompany) return raw;
+    return raw.filter((item) => companyMatches(item.company, scopedCompany));
+  }, [raw, scopedCompany]);
+
+  const attendance = useMemo(() => normalizeAttendance(scopedRaw), [scopedRaw]);
 
   const refresh = useCallback(async () => {
     await fetchOnce();
   }, [fetchOnce]);
 
   const value = useMemo<DashboardDataContextValue>(
-    () => ({ attendance, raw, loading, error, lastUpdated, refresh }),
-    [attendance, raw, loading, error, lastUpdated, refresh],
+    () => ({ attendance, raw: scopedRaw, loading, error, lastUpdated, refresh }),
+    [attendance, scopedRaw, loading, error, lastUpdated, refresh],
   );
 
   return (
