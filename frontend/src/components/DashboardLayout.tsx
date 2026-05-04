@@ -1,18 +1,24 @@
-﻿import { Link, useLocation } from "@tanstack/react-router";
+﻿import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState, type ComponentType } from "react";
 import {
   LayoutDashboard,
   Clock,
   MessageSquare,
   Settings,
-  User,
   Users,
   UserCog,
   FileText,
   Menu,
+  LogOut,
 } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getIngestLastSeen } from "@/api/dashboardApi";
+import {
+  getAdminProfile,
+  signOut,
+  subscribeToAdminProfile,
+  type AdminProfile,
+} from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import hypeLogo from "@/images/HYPE_logo.png";
 
@@ -43,7 +49,7 @@ const navItems: NavItem[] = [
     icon: Settings,
     children: [
       { label: "Employee Management", to: "/employees", icon: Users },
-      { label: "Admin Management", to: "/employees", icon: UserCog, search: { role: "Admin" } },
+      { label: "Admin Management", to: "/admin", icon: UserCog },
     ],
   },
 ];
@@ -82,10 +88,19 @@ type SidebarBodyProps = {
   pathname: string;
   searchRole: string | undefined;
   ingestFresh: boolean;
+  profile: AdminProfile;
   onNavigate?: () => void;
+  onLogout: () => void;
 };
 
-function SidebarBody({ expanded, pathname, searchRole, ingestFresh, onNavigate }: SidebarBodyProps) {
+function getProfileInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "A";
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+}
+
+function SidebarBody({ expanded, pathname, searchRole, ingestFresh, profile, onNavigate, onLogout }: SidebarBodyProps) {
   return (
     <>
       <nav
@@ -168,30 +183,42 @@ function SidebarBody({ expanded, pathname, searchRole, ingestFresh, onNavigate }
       </nav>
 
       <div className={cn("relative z-10 mt-4 w-full pb-1", expanded ? "px-1" : "px-2")}>
-        <button
-          type="button"
+        <div
           className={cn(
-            "flex w-full items-center px-2 py-1.5 text-white/95 transition-colors hover:text-white",
-            expanded ? "justify-start gap-3" : "flex-col",
+            "flex w-full items-center px-2 py-1.5 text-white/95",
+            expanded ? "justify-between gap-2" : "flex-col gap-2",
           )}
-          aria-label="Admin menu"
         >
-          <Avatar className="h-8 w-8 bg-slate-50">
-            <AvatarFallback className="bg-slate-50 text-slate-900">
-              <User className="h-4 w-4" />
-            </AvatarFallback>
-          </Avatar>
-          <span
-            className={cn(
-              "truncate text-sm font-medium transition-all duration-200",
-              expanded
-                ? "max-w-[130px] opacity-100"
-                : "pointer-events-none max-w-0 opacity-0",
-            )}
+          <div className={cn("flex items-center", expanded ? "gap-3" : "flex-col")}>
+            <Avatar className="h-8 w-8 bg-slate-50 ring-2 ring-white/40">
+              {profile.avatarUrl ? (
+                <AvatarImage src={profile.avatarUrl} alt={profile.displayName} />
+              ) : null}
+              <AvatarFallback className="bg-slate-50 text-xs font-semibold text-[#3f9382]">
+                {getProfileInitials(profile.displayName)}
+              </AvatarFallback>
+            </Avatar>
+            <span
+              className={cn(
+                "truncate text-sm font-medium transition-all duration-200",
+                expanded
+                  ? "max-w-[130px] opacity-100"
+                  : "pointer-events-none max-w-0 opacity-0",
+              )}
+            >
+              {profile.displayName}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onLogout}
+            title="Sign out"
+            aria-label="Sign out"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white/85 transition-colors hover:bg-white/18 hover:text-white"
           >
-            Admin
-          </span>
-        </button>
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </>
   );
@@ -202,8 +229,20 @@ const SIDEBAR_ASIDE_CLASSES =
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [sidebarExpanded, setSidebarExpanded] = useState(initialSidebarState);
   const [ingestFresh, setIngestFresh] = useState(false);
+  const [profile, setProfile] = useState<AdminProfile>(() => getAdminProfile());
+
+  // Keep the sidebar / header avatar synced with profile edits made elsewhere.
+  useEffect(() => {
+    return subscribeToAdminProfile(() => setProfile(getAdminProfile()));
+  }, []);
+
+  const handleLogout = () => {
+    signOut();
+    void navigate({ to: "/login" });
+  };
 
   const searchRole =
     typeof (location.search as { role?: string }).role === "string"
@@ -272,15 +311,24 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </p>
 
           <div className="ml-auto flex items-center gap-1.5 text-slate-700">
-            <button
-              type="button"
+            <Link
+              to="/admin"
               className="flex flex-col items-center px-1 py-1 text-slate-700 transition-colors hover:text-slate-900 sm:px-2 sm:py-1.5"
-              aria-label="Admin menu"
+              aria-label="Admin profile"
+              title={profile.displayName}
             >
-              <div className="grid h-9 w-9 place-items-center rounded-full bg-[#4aa590] sm:h-10 sm:w-10">
-                <User className="h-4 w-4 text-white sm:h-5 sm:w-5" strokeWidth={2.2} />
+              <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-full bg-[#4aa590] text-xs font-semibold text-white shadow-sm sm:h-10 sm:w-10">
+                {profile.avatarUrl ? (
+                  <img
+                    src={profile.avatarUrl}
+                    alt={profile.displayName}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="sm:text-sm">{getProfileInitials(profile.displayName)}</span>
+                )}
               </div>
-            </button>
+            </Link>
           </div>
         </header>
 
@@ -303,6 +351,8 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 pathname={location.pathname}
                 searchRole={searchRole}
                 ingestFresh={ingestFresh}
+                profile={profile}
+                onLogout={handleLogout}
               />
             </aside>
           </div>
@@ -331,7 +381,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
                 pathname={location.pathname}
                 searchRole={searchRole}
                 ingestFresh={ingestFresh}
+                profile={profile}
                 onNavigate={closeMobileSidebar}
+                onLogout={handleLogout}
               />
             </aside>
           </div>

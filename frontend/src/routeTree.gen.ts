@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/_dashboard'
 import { Route as DashboardIndexRouteImport } from './routes/_dashboard.index'
 import { Route as DashboardSettingsRouteImport } from './routes/_dashboard.settings'
@@ -17,7 +18,13 @@ import { Route as DashboardReportsRouteImport } from './routes/_dashboard.report
 import { Route as DashboardPresenceRouteImport } from './routes/_dashboard.presence'
 import { Route as DashboardEmployeesRouteImport } from './routes/_dashboard.employees'
 import { Route as DashboardAlertsRouteImport } from './routes/_dashboard.alerts'
+import { Route as DashboardAdminRouteImport } from './routes/_dashboard.admin'
 
+const LoginRoute = LoginRouteImport.update({
+  id: '/login',
+  path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardRoute = DashboardRouteImport.update({
   id: '/_dashboard',
   getParentRoute: () => rootRouteImport,
@@ -57,9 +64,16 @@ const DashboardAlertsRoute = DashboardAlertsRouteImport.update({
   path: '/alerts',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardAdminRoute = DashboardAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => DashboardRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof DashboardIndexRoute
+  '/login': typeof LoginRoute
+  '/admin': typeof DashboardAdminRoute
   '/alerts': typeof DashboardAlertsRoute
   '/employees': typeof DashboardEmployeesRoute
   '/presence': typeof DashboardPresenceRoute
@@ -68,6 +82,8 @@ export interface FileRoutesByFullPath {
   '/settings': typeof DashboardSettingsRoute
 }
 export interface FileRoutesByTo {
+  '/login': typeof LoginRoute
+  '/admin': typeof DashboardAdminRoute
   '/alerts': typeof DashboardAlertsRoute
   '/employees': typeof DashboardEmployeesRoute
   '/presence': typeof DashboardPresenceRoute
@@ -79,6 +95,8 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_dashboard': typeof DashboardRouteWithChildren
+  '/login': typeof LoginRoute
+  '/_dashboard/admin': typeof DashboardAdminRoute
   '/_dashboard/alerts': typeof DashboardAlertsRoute
   '/_dashboard/employees': typeof DashboardEmployeesRoute
   '/_dashboard/presence': typeof DashboardPresenceRoute
@@ -91,6 +109,8 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/login'
+    | '/admin'
     | '/alerts'
     | '/employees'
     | '/presence'
@@ -99,6 +119,8 @@ export interface FileRouteTypes {
     | '/settings'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/login'
+    | '/admin'
     | '/alerts'
     | '/employees'
     | '/presence'
@@ -109,6 +131,8 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_dashboard'
+    | '/login'
+    | '/_dashboard/admin'
     | '/_dashboard/alerts'
     | '/_dashboard/employees'
     | '/_dashboard/presence'
@@ -120,10 +144,18 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRouteWithChildren
+  LoginRoute: typeof LoginRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_dashboard': {
       id: '/_dashboard'
       path: ''
@@ -180,10 +212,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAlertsRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/_dashboard/admin': {
+      id: '/_dashboard/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof DashboardAdminRouteImport
+      parentRoute: typeof DashboardRoute
+    }
   }
 }
 
 interface DashboardRouteChildren {
+  DashboardAdminRoute: typeof DashboardAdminRoute
   DashboardAlertsRoute: typeof DashboardAlertsRoute
   DashboardEmployeesRoute: typeof DashboardEmployeesRoute
   DashboardPresenceRoute: typeof DashboardPresenceRoute
@@ -194,6 +234,7 @@ interface DashboardRouteChildren {
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
+  DashboardAdminRoute: DashboardAdminRoute,
   DashboardAlertsRoute: DashboardAlertsRoute,
   DashboardEmployeesRoute: DashboardEmployeesRoute,
   DashboardPresenceRoute: DashboardPresenceRoute,
@@ -209,6 +250,7 @@ const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRouteWithChildren,
+  LoginRoute: LoginRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
