@@ -11,7 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardRouteImport } from './routes/_dashboard'
+import { Route as LoginIndexRouteImport } from './routes/login.index'
 import { Route as DashboardIndexRouteImport } from './routes/_dashboard.index'
+import { Route as LoginHrRouteImport } from './routes/login.hr'
+import { Route as LoginAdminRouteImport } from './routes/login.admin'
 import { Route as DashboardSettingsRouteImport } from './routes/_dashboard.settings'
 import { Route as DashboardRequestsRouteImport } from './routes/_dashboard.requests'
 import { Route as DashboardReportsRouteImport } from './routes/_dashboard.reports'
@@ -29,10 +32,25 @@ const DashboardRoute = DashboardRouteImport.update({
   id: '/_dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LoginIndexRoute = LoginIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => LoginRoute,
+} as any)
 const DashboardIndexRoute = DashboardIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => DashboardRoute,
+} as any)
+const LoginHrRoute = LoginHrRouteImport.update({
+  id: '/hr',
+  path: '/hr',
+  getParentRoute: () => LoginRoute,
+} as any)
+const LoginAdminRoute = LoginAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => LoginRoute,
 } as any)
 const DashboardSettingsRoute = DashboardSettingsRouteImport.update({
   id: '/settings',
@@ -72,7 +90,7 @@ const DashboardAdminRoute = DashboardAdminRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof DashboardIndexRoute
-  '/login': typeof LoginRoute
+  '/login': typeof LoginRouteWithChildren
   '/admin': typeof DashboardAdminRoute
   '/alerts': typeof DashboardAlertsRoute
   '/employees': typeof DashboardEmployeesRoute
@@ -80,9 +98,11 @@ export interface FileRoutesByFullPath {
   '/reports': typeof DashboardReportsRoute
   '/requests': typeof DashboardRequestsRoute
   '/settings': typeof DashboardSettingsRoute
+  '/login/admin': typeof LoginAdminRoute
+  '/login/hr': typeof LoginHrRoute
+  '/login/': typeof LoginIndexRoute
 }
 export interface FileRoutesByTo {
-  '/login': typeof LoginRoute
   '/admin': typeof DashboardAdminRoute
   '/alerts': typeof DashboardAlertsRoute
   '/employees': typeof DashboardEmployeesRoute
@@ -90,12 +110,15 @@ export interface FileRoutesByTo {
   '/reports': typeof DashboardReportsRoute
   '/requests': typeof DashboardRequestsRoute
   '/settings': typeof DashboardSettingsRoute
+  '/login/admin': typeof LoginAdminRoute
+  '/login/hr': typeof LoginHrRoute
   '/': typeof DashboardIndexRoute
+  '/login': typeof LoginIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_dashboard': typeof DashboardRouteWithChildren
-  '/login': typeof LoginRoute
+  '/login': typeof LoginRouteWithChildren
   '/_dashboard/admin': typeof DashboardAdminRoute
   '/_dashboard/alerts': typeof DashboardAlertsRoute
   '/_dashboard/employees': typeof DashboardEmployeesRoute
@@ -103,7 +126,10 @@ export interface FileRoutesById {
   '/_dashboard/reports': typeof DashboardReportsRoute
   '/_dashboard/requests': typeof DashboardRequestsRoute
   '/_dashboard/settings': typeof DashboardSettingsRoute
+  '/login/admin': typeof LoginAdminRoute
+  '/login/hr': typeof LoginHrRoute
   '/_dashboard/': typeof DashboardIndexRoute
+  '/login/': typeof LoginIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -117,9 +143,11 @@ export interface FileRouteTypes {
     | '/reports'
     | '/requests'
     | '/settings'
+    | '/login/admin'
+    | '/login/hr'
+    | '/login/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    | '/login'
     | '/admin'
     | '/alerts'
     | '/employees'
@@ -127,7 +155,10 @@ export interface FileRouteTypes {
     | '/reports'
     | '/requests'
     | '/settings'
+    | '/login/admin'
+    | '/login/hr'
     | '/'
+    | '/login'
   id:
     | '__root__'
     | '/_dashboard'
@@ -139,12 +170,15 @@ export interface FileRouteTypes {
     | '/_dashboard/reports'
     | '/_dashboard/requests'
     | '/_dashboard/settings'
+    | '/login/admin'
+    | '/login/hr'
     | '/_dashboard/'
+    | '/login/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRouteWithChildren
-  LoginRoute: typeof LoginRoute
+  LoginRoute: typeof LoginRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -163,12 +197,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/login/': {
+      id: '/login/'
+      path: '/'
+      fullPath: '/login/'
+      preLoaderRoute: typeof LoginIndexRouteImport
+      parentRoute: typeof LoginRoute
+    }
     '/_dashboard/': {
       id: '/_dashboard/'
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof DashboardIndexRouteImport
       parentRoute: typeof DashboardRoute
+    }
+    '/login/hr': {
+      id: '/login/hr'
+      path: '/hr'
+      fullPath: '/login/hr'
+      preLoaderRoute: typeof LoginHrRouteImport
+      parentRoute: typeof LoginRoute
+    }
+    '/login/admin': {
+      id: '/login/admin'
+      path: '/admin'
+      fullPath: '/login/admin'
+      preLoaderRoute: typeof LoginAdminRouteImport
+      parentRoute: typeof LoginRoute
     }
     '/_dashboard/settings': {
       id: '/_dashboard/settings'
@@ -248,9 +303,23 @@ const DashboardRouteWithChildren = DashboardRoute._addFileChildren(
   DashboardRouteChildren,
 )
 
+interface LoginRouteChildren {
+  LoginAdminRoute: typeof LoginAdminRoute
+  LoginHrRoute: typeof LoginHrRoute
+  LoginIndexRoute: typeof LoginIndexRoute
+}
+
+const LoginRouteChildren: LoginRouteChildren = {
+  LoginAdminRoute: LoginAdminRoute,
+  LoginHrRoute: LoginHrRoute,
+  LoginIndexRoute: LoginIndexRoute,
+}
+
+const LoginRouteWithChildren = LoginRoute._addFileChildren(LoginRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRouteWithChildren,
-  LoginRoute: LoginRoute,
+  LoginRoute: LoginRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
