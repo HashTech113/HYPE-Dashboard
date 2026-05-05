@@ -402,3 +402,127 @@ export async function getIngestLastSeen(): Promise<IngestLastSeen> {
   if (!response.ok) throw new Error(`Failed to load ingest status: ${response.status}`);
   return response.json() as Promise<IngestLastSeen>;
 }
+
+// ---- Cameras --------------------------------------------------------------
+
+export type CameraConnectionStatus = "unknown" | "connected" | "failed";
+
+export type Camera = {
+  id: string;
+  name: string;
+  location: string;
+  ip: string;
+  port: number;
+  username: string;
+  rtsp_path: string;
+  rtsp_url_preview: string;
+  connection_status: CameraConnectionStatus;
+  last_checked_at: string | null;
+  last_check_message: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CameraListResponse = { items: Camera[] };
+
+export type CameraCheckResponse = {
+  ok: boolean;
+  message: string;
+  latency_ms: number;
+};
+
+export type CameraCreatePayload = {
+  name: string;
+  location: string;
+  ip: string;
+  port: number;
+  username: string;
+  password: string;
+  rtsp_path: string;
+};
+
+export type CameraUpdatePayload = Partial<CameraCreatePayload>;
+
+export type CameraCheckPayload = {
+  ip: string;
+  port: number;
+  username: string;
+  password: string;
+  rtsp_path: string;
+};
+
+async function jsonOrThrow<T>(resp: Response, label: string): Promise<T> {
+  if (!resp.ok) {
+    let detail = "";
+    try {
+      const body = await resp.json();
+      detail = typeof body?.detail === "string" ? `: ${body.detail}` : "";
+    } catch {
+      // ignore parse failures, fall back to status code only
+    }
+    throw new Error(`${label} (${resp.status})${detail}`);
+  }
+  return resp.json() as Promise<T>;
+}
+
+export async function listCameras(): Promise<Camera[]> {
+  const resp = await authFetch(buildUrl("/api/cameras", {}), { cache: "no-store" });
+  const data = await jsonOrThrow<CameraListResponse>(resp, "Failed to load cameras");
+  return data.items;
+}
+
+export async function createCamera(payload: CameraCreatePayload): Promise<Camera> {
+  const resp = await authFetch(buildUrl("/api/cameras", {}), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return jsonOrThrow<Camera>(resp, "Failed to add camera");
+}
+
+export async function updateCamera(id: string, patch: CameraUpdatePayload): Promise<Camera> {
+  const resp = await authFetch(buildUrl(`/api/cameras/${encodeURIComponent(id)}`, {}), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  return jsonOrThrow<Camera>(resp, "Failed to update camera");
+}
+
+export async function deleteCamera(id: string): Promise<void> {
+  const resp = await authFetch(buildUrl(`/api/cameras/${encodeURIComponent(id)}`, {}), {
+    method: "DELETE",
+  });
+  if (!resp.ok && resp.status !== 404) {
+    throw new Error(`Failed to delete camera (${resp.status})`);
+  }
+}
+
+export async function testCameraConnection(payload: CameraCheckPayload): Promise<CameraCheckResponse> {
+  const resp = await authFetch(buildUrl("/api/cameras/check", {}), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return jsonOrThrow<CameraCheckResponse>(resp, "Connection check failed");
+}
+
+export async function recheckCamera(id: string): Promise<CameraCheckResponse> {
+  const resp = await authFetch(buildUrl(`/api/cameras/${encodeURIComponent(id)}/check`, {}), {
+    method: "POST",
+  });
+  return jsonOrThrow<CameraCheckResponse>(resp, "Connection check failed");
+}
+
+export async function getCameraStreamToken(id: string): Promise<{ token: string; expires_in: number }> {
+  const resp = await authFetch(buildUrl(`/api/cameras/${encodeURIComponent(id)}/stream-token`, {}), {
+    method: "POST",
+  });
+  return jsonOrThrow<{ token: string; expires_in: number }>(resp, "Failed to authorize stream");
+}
+
+/** Build the MJPEG URL for an <img> tag. The backend reads the token via
+ * query string because <img> can't set Authorization. */
+export function buildCameraStreamUrl(id: string, token: string): string {
+  return `${FACE_API_BASE}/api/cameras/${encodeURIComponent(id)}/stream?token=${encodeURIComponent(token)}`;
+}

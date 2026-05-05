@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import DB_PATH
 from .db import init_schema
-from .routers import admin, attendance, auth, employees, faces, health, ingest, logs
+from .routers import admin, attendance, auth, cameras, employees, faces, health, ingest, logs
 from .services.auth import seed_users_if_empty
 from .services.cleanup import prune_old_snapshots, seconds_until_next_local_midnight
 from .services.employees import seed_if_empty as seed_employees_if_empty
@@ -123,6 +123,7 @@ def create_app() -> FastAPI:
     app.include_router(logs.router)
     app.include_router(ingest.router)
     app.include_router(employees.router)
+    app.include_router(cameras.router)
     app.include_router(admin.router)
 
     return app

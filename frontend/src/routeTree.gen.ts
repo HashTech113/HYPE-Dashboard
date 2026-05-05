@@ -20,8 +20,10 @@ import { Route as DashboardRequestsRouteImport } from './routes/_dashboard.reque
 import { Route as DashboardReportsRouteImport } from './routes/_dashboard.reports'
 import { Route as DashboardPresenceRouteImport } from './routes/_dashboard.presence'
 import { Route as DashboardEmployeesRouteImport } from './routes/_dashboard.employees'
+import { Route as DashboardCamerasRouteImport } from './routes/_dashboard.cameras'
 import { Route as DashboardAlertsRouteImport } from './routes/_dashboard.alerts'
 import { Route as DashboardAdminRouteImport } from './routes/_dashboard.admin'
+import { Route as DashboardCamerasLiveRouteImport } from './routes/_dashboard.cameras.live'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -77,6 +79,11 @@ const DashboardEmployeesRoute = DashboardEmployeesRouteImport.update({
   path: '/employees',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardCamerasRoute = DashboardCamerasRouteImport.update({
+  id: '/cameras',
+  path: '/cameras',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardAlertsRoute = DashboardAlertsRouteImport.update({
   id: '/alerts',
   path: '/alerts',
@@ -87,12 +94,18 @@ const DashboardAdminRoute = DashboardAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardCamerasLiveRoute = DashboardCamerasLiveRouteImport.update({
+  id: '/live',
+  path: '/live',
+  getParentRoute: () => DashboardCamerasRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof DashboardIndexRoute
   '/login': typeof LoginRouteWithChildren
   '/admin': typeof DashboardAdminRoute
   '/alerts': typeof DashboardAlertsRoute
+  '/cameras': typeof DashboardCamerasRouteWithChildren
   '/employees': typeof DashboardEmployeesRoute
   '/presence': typeof DashboardPresenceRoute
   '/reports': typeof DashboardReportsRoute
@@ -101,10 +114,12 @@ export interface FileRoutesByFullPath {
   '/login/admin': typeof LoginAdminRoute
   '/login/hr': typeof LoginHrRoute
   '/login/': typeof LoginIndexRoute
+  '/cameras/live': typeof DashboardCamerasLiveRoute
 }
 export interface FileRoutesByTo {
   '/admin': typeof DashboardAdminRoute
   '/alerts': typeof DashboardAlertsRoute
+  '/cameras': typeof DashboardCamerasRouteWithChildren
   '/employees': typeof DashboardEmployeesRoute
   '/presence': typeof DashboardPresenceRoute
   '/reports': typeof DashboardReportsRoute
@@ -114,6 +129,7 @@ export interface FileRoutesByTo {
   '/login/hr': typeof LoginHrRoute
   '/': typeof DashboardIndexRoute
   '/login': typeof LoginIndexRoute
+  '/cameras/live': typeof DashboardCamerasLiveRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -121,6 +137,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRouteWithChildren
   '/_dashboard/admin': typeof DashboardAdminRoute
   '/_dashboard/alerts': typeof DashboardAlertsRoute
+  '/_dashboard/cameras': typeof DashboardCamerasRouteWithChildren
   '/_dashboard/employees': typeof DashboardEmployeesRoute
   '/_dashboard/presence': typeof DashboardPresenceRoute
   '/_dashboard/reports': typeof DashboardReportsRoute
@@ -130,6 +147,7 @@ export interface FileRoutesById {
   '/login/hr': typeof LoginHrRoute
   '/_dashboard/': typeof DashboardIndexRoute
   '/login/': typeof LoginIndexRoute
+  '/_dashboard/cameras/live': typeof DashboardCamerasLiveRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -138,6 +156,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/admin'
     | '/alerts'
+    | '/cameras'
     | '/employees'
     | '/presence'
     | '/reports'
@@ -146,10 +165,12 @@ export interface FileRouteTypes {
     | '/login/admin'
     | '/login/hr'
     | '/login/'
+    | '/cameras/live'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/admin'
     | '/alerts'
+    | '/cameras'
     | '/employees'
     | '/presence'
     | '/reports'
@@ -159,12 +180,14 @@ export interface FileRouteTypes {
     | '/login/hr'
     | '/'
     | '/login'
+    | '/cameras/live'
   id:
     | '__root__'
     | '/_dashboard'
     | '/login'
     | '/_dashboard/admin'
     | '/_dashboard/alerts'
+    | '/_dashboard/cameras'
     | '/_dashboard/employees'
     | '/_dashboard/presence'
     | '/_dashboard/reports'
@@ -174,6 +197,7 @@ export interface FileRouteTypes {
     | '/login/hr'
     | '/_dashboard/'
     | '/login/'
+    | '/_dashboard/cameras/live'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -260,6 +284,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardEmployeesRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/_dashboard/cameras': {
+      id: '/_dashboard/cameras'
+      path: '/cameras'
+      fullPath: '/cameras'
+      preLoaderRoute: typeof DashboardCamerasRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/_dashboard/alerts': {
       id: '/_dashboard/alerts'
       path: '/alerts'
@@ -274,12 +305,31 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAdminRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/_dashboard/cameras/live': {
+      id: '/_dashboard/cameras/live'
+      path: '/live'
+      fullPath: '/cameras/live'
+      preLoaderRoute: typeof DashboardCamerasLiveRouteImport
+      parentRoute: typeof DashboardCamerasRoute
+    }
   }
 }
+
+interface DashboardCamerasRouteChildren {
+  DashboardCamerasLiveRoute: typeof DashboardCamerasLiveRoute
+}
+
+const DashboardCamerasRouteChildren: DashboardCamerasRouteChildren = {
+  DashboardCamerasLiveRoute: DashboardCamerasLiveRoute,
+}
+
+const DashboardCamerasRouteWithChildren =
+  DashboardCamerasRoute._addFileChildren(DashboardCamerasRouteChildren)
 
 interface DashboardRouteChildren {
   DashboardAdminRoute: typeof DashboardAdminRoute
   DashboardAlertsRoute: typeof DashboardAlertsRoute
+  DashboardCamerasRoute: typeof DashboardCamerasRouteWithChildren
   DashboardEmployeesRoute: typeof DashboardEmployeesRoute
   DashboardPresenceRoute: typeof DashboardPresenceRoute
   DashboardReportsRoute: typeof DashboardReportsRoute
@@ -291,6 +341,7 @@ interface DashboardRouteChildren {
 const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAdminRoute: DashboardAdminRoute,
   DashboardAlertsRoute: DashboardAlertsRoute,
+  DashboardCamerasRoute: DashboardCamerasRouteWithChildren,
   DashboardEmployeesRoute: DashboardEmployeesRoute,
   DashboardPresenceRoute: DashboardPresenceRoute,
   DashboardReportsRoute: DashboardReportsRoute,

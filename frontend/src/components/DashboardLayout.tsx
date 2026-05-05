@@ -10,6 +10,8 @@ import {
   FileText,
   Menu,
   LogOut,
+  Camera as CameraIcon,
+  Video,
 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getIngestLastSeen } from "@/api/dashboardApi";
@@ -50,15 +52,11 @@ const navItems: NavItem[] = [
   { label: "Attendance History", to: "/presence", icon: Clock },
   { label: "Reports", to: "/reports", icon: FileText },
   { label: "Live Captures", to: "/requests", icon: MessageSquare, roles: ["admin"] },
-  {
-    label: "Settings",
-    to: "/settings",
-    icon: Settings,
-    children: [
-      { label: "Employee Management", to: "/employees", icon: Users },
-      { label: "Admin Management", to: "/admin", icon: UserCog, roles: ["admin"] },
-    ],
-  },
+  { label: "Employee Management", to: "/employees", icon: Users },
+  { label: "Add Camera", to: "/cameras", icon: CameraIcon, roles: ["admin"] },
+  { label: "Live Cameras", to: "/cameras/live", icon: Video, roles: ["admin"] },
+  { label: "Admin Management", to: "/admin", icon: UserCog, roles: ["admin"] },
+  { label: "Settings", to: "/settings", icon: Settings },
 ];
 
 function visibleForRole<T extends { roles?: AuthRole[] }>(item: T, role: AuthRole | null): boolean {

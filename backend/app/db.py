@@ -61,6 +61,23 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS cameras (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    location TEXT NOT NULL DEFAULT '',
+    ip TEXT NOT NULL,
+    port INTEGER NOT NULL DEFAULT 554,
+    username TEXT NOT NULL DEFAULT '',
+    password_encrypted TEXT NOT NULL DEFAULT '',
+    rtsp_path TEXT NOT NULL DEFAULT '/Streaming/Channels/101',
+    connection_status TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (connection_status IN ('unknown', 'connected', 'failed')),
+    last_checked_at TEXT,
+    last_check_message TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_timestamp ON snapshot_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_timestamp ON attendance_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_name ON snapshot_logs (name);
