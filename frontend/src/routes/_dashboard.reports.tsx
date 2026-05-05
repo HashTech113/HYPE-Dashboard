@@ -366,18 +366,14 @@ function ReportsPage() {
                   </Select>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">
-                    Company
-                  </span>
-                  {isCompanyScoped ? (
-                    <span
-                      className="flex h-9 items-center rounded-md border border-indigo-200 bg-indigo-50/60 px-3 text-xs font-semibold text-indigo-700"
-                      title="Locked to your company"
-                    >
-                      {scopedCompany}
+                {/* Company picker is admin-only — HR users are scoped to one
+                    company already, so showing it (or its locked badge) is
+                    redundant. The data filter still uses scopedCompany. */}
+                {!isCompanyScoped ? (
+                  <div className="flex items-center gap-2">
+                    <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">
+                      Company
                     </span>
-                  ) : (
                     <Select value={selectedCompany} onValueChange={setSelectedCompany}>
                       <SelectTrigger className="h-9 w-[125px] border-indigo-200 focus:ring-indigo-300 sm:w-[135px] md:w-[145px]">
                         <SelectValue placeholder="All Companies" />
@@ -391,8 +387,8 @@ function ReportsPage() {
                         ))}
                       </SelectContent>
                     </Select>
-                  )}
-                </div>
+                  </div>
+                ) : null}
 
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="whitespace-nowrap text-xs font-semibold text-emerald-900">

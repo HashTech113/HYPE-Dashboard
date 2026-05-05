@@ -40,7 +40,10 @@ export const Route = createFileRoute("/_dashboard/employees")({
 });
 
 function EmployeesPage() {
-  const { employees, updateEmployee, addEmployee, deleteEmployee } = useEmployees();
+  const { employees, updateEmployee, addEmployee, deleteEmployee, scopedCompany } = useEmployees();
+  // HR users see only their own company's roster, so the Company filter and
+  // Company column are redundant — hide both.
+  const isCompanyScoped = scopedCompany !== null;
   const navigate = Route.useNavigate();
   const { role: roleFromSearch } = Route.useSearch();
 
@@ -190,22 +193,24 @@ function EmployeesPage() {
               </Select>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">Companies</span>
-              <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                <SelectTrigger className="h-9 w-[150px] border-indigo-200 focus:ring-indigo-300">
-                  <SelectValue placeholder="All Companies" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Companies</SelectItem>
-                  {companyOptions.map((company) => (
-                    <SelectItem key={company} value={company}>
-                      {company}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {!isCompanyScoped ? (
+              <div className="flex items-center gap-2">
+                <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">Companies</span>
+                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                  <SelectTrigger className="h-9 w-[150px] border-indigo-200 focus:ring-indigo-300">
+                    <SelectValue placeholder="All Companies" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Companies</SelectItem>
+                    {companyOptions.map((company) => (
+                      <SelectItem key={company} value={company}>
+                        {company}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
 
             <div className="flex items-center gap-2">
               <span className="whitespace-nowrap text-xs font-semibold text-emerald-900">Departments</span>
@@ -259,7 +264,9 @@ function EmployeesPage() {
                   <TableHead className="w-14 whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-slate-700 last:border-r-0">S/N</TableHead>
                   <TableHead className="w-[220px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Employee Name</TableHead>
                   <TableHead className="w-[120px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-slate-700 last:border-r-0">ID</TableHead>
-                  <TableHead className="hidden md:table-cell w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Company</TableHead>
+                  {!isCompanyScoped ? (
+                    <TableHead className="hidden md:table-cell w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Company</TableHead>
+                  ) : null}
                   <TableHead className="hidden md:table-cell w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-emerald-700 last:border-r-0">Department</TableHead>
                   <TableHead className="hidden lg:table-cell w-[150px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Shift</TableHead>
                   <TableHead className="w-[120px] whitespace-nowrap border-r border-slate-200 text-right font-bold uppercase tracking-wide text-slate-700 last:border-r-0">Actions</TableHead>
@@ -287,7 +294,9 @@ function EmployeesPage() {
                       </div>
                     </TableCell>
                     <TableCell className="border-r border-slate-200 py-2 align-middle text-slate-500 last:border-r-0">{employee.employeeId}</TableCell>
-                    <TableCell className="hidden md:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-indigo-700 last:border-r-0">{employee.company}</TableCell>
+                    {!isCompanyScoped ? (
+                      <TableCell className="hidden md:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-indigo-700 last:border-r-0">{employee.company}</TableCell>
+                    ) : null}
                     <TableCell className="hidden md:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-emerald-700 last:border-r-0">{employee.department || "—"}</TableCell>
                     <TableCell className="hidden lg:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle text-amber-700 last:border-r-0">{formatShiftTo12Hour(employee.shift)}</TableCell>
                     <TableCell className="border-r border-slate-200 py-2 align-middle text-right last:border-r-0">
@@ -309,7 +318,7 @@ function EmployeesPage() {
                 ))}
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
+                    <TableCell colSpan={isCompanyScoped ? 6 : 7} className="py-10 text-center text-muted-foreground">
                       No employees match the current filters.
                     </TableCell>
                   </TableRow>

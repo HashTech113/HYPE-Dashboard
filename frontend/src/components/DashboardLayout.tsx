@@ -17,7 +17,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getIngestLastSeen } from "@/api/dashboardApi";
 import {
   getAdminProfile,
-  getCurrentCompany,
   getCurrentRole,
   signOut,
   subscribeToAdminProfile,
@@ -270,10 +269,9 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [ingestFresh, setIngestFresh] = useState(false);
   const [profile, setProfile] = useState<AdminProfile>(() => getAdminProfile());
 
-  // Read role / company once at mount — the layout only renders post-auth and
-  // unmounts on sign-out, so a fresh read on the next sign-in is guaranteed.
+  // Read role once at mount — the layout only renders post-auth and unmounts
+  // on sign-out, so a fresh read on the next sign-in is guaranteed.
   const role = getCurrentRole();
-  const company = getCurrentCompany();
 
   // Keep the sidebar / header avatar synced with admin profile edits.
   useEffect(() => {
@@ -296,7 +294,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     if (role === "hr") {
       return {
         name: profile.displayName || "HR",
-        subtitle: company,
+        subtitle: null as string | null,
         avatarUrl: profile.avatarUrl,
       };
     }

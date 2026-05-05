@@ -606,18 +606,6 @@ function PresencePage() {
     setSelectedDate(formatDateKey(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), 1)));
   }, [calendarMonth, historyRecords, selectedDate, selectedEmployeeData]);
 
-  const monthRecordCount = useMemo(
-    () =>
-      historyRecords.filter((record) => {
-        const recordDate = new Date(record.date);
-        return (
-          recordDate.getFullYear() === calendarMonth.getFullYear()
-          && recordDate.getMonth() === calendarMonth.getMonth()
-        );
-      }).length,
-    [historyRecords, calendarMonth]
-  );
-
   const hasSelectedEmployee = selectedEmployee !== "none";
   const selectedDayRecord = selectedDate ? recordByDateMap.get(selectedDate) ?? null : null;
   const selectedDayIsSunday = selectedDate
@@ -639,18 +627,32 @@ function PresencePage() {
   const selectedDayLabel = selectedDate ? formatDisplayDate(selectedDate) : "No date selected";
 
   const monthlySummary = useMemo(() => {
-    const summary = { present: 0, late: 0, absent: 0, holiday: 0 };
+    const summary = { present: 0, absent: 0, wfh: 0, paidLeave: 0, sundays: 0, companyLeaves: 0 };
     calendarCells.forEach((cell) => {
-      if (!cell.inCurrentMonth || !cell.status) {
+      if (!cell.inCurrentMonth) {
         return;
       }
 
+      const [y, m, d] = cell.dateKey.split("-").map(Number);
+      if (new Date(y, (m ?? 1) - 1, d).getDay() === 0) summary.sundays += 1;
+      if (!cell.status) return;
       if (cell.status === "Present") summary.present += 1;
       if (cell.status === "Absent") summary.absent += 1;
-      if (cell.status === "Holiday") summary.holiday += 1;
+      if (cell.status === "Holiday") summary.companyLeaves += 1;
     });
     return summary;
   }, [calendarCells]);
+  const weekdaysInMonth = useMemo(
+    () =>
+      calendarCells.filter((cell) => {
+        if (!cell.inCurrentMonth) return false;
+        const [y, m, d] = cell.dateKey.split("-").map(Number);
+        return new Date(y, (m ?? 1) - 1, d).getDay() !== 0;
+      }).length,
+    [calendarCells]
+  );
+  const lopCount = 0;
+  const totalWorkingDays = Math.max(weekdaysInMonth - monthlySummary.companyLeaves, 0);
 
   return (
     <div className="flex min-h-0 flex-col md:h-full md:overflow-hidden">
@@ -683,18 +685,14 @@ function PresencePage() {
                 </Select>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">
-                  Company
-                </span>
-                {isCompanyScoped ? (
-                  <span
-                    className="flex h-10 items-center rounded-md border border-indigo-200 bg-indigo-50/60 px-3 text-xs font-semibold text-indigo-700"
-                    title="Locked to your company"
-                  >
-                    {scopedCompany}
+              {/* Company picker is admin-only — HR users are scoped to one
+                  company already, so showing it (or its locked badge) is
+                  redundant. The data filter still uses scopedCompany. */}
+              {!isCompanyScoped ? (
+                <div className="flex items-center gap-2">
+                  <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">
+                    Company
                   </span>
-                ) : (
                   <Select value={selectedCompany} onValueChange={setSelectedCompany}>
                     <SelectTrigger className="h-10 w-[130px] border-indigo-200 focus:ring-indigo-300 sm:w-[140px] md:w-[150px]">
                       <SelectValue placeholder="Select company" />
@@ -708,11 +706,11 @@ function PresencePage() {
                       ))}
                     </SelectContent>
                   </Select>
-                )}
-              </div>
+                </div>
+              ) : null}
 
-              <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-xs font-semibold text-emerald-900">
+              <div className="ml-80 flex items-center gap-2 sm:ml-96">
+                <span className="whitespace-nowrap text-sm font-semibold text-emerald-900">
                   Choose Date
                 </span>
                 <DatePicker
@@ -724,7 +722,7 @@ function PresencePage() {
                       setCalendarMonth(new Date(year, month - 1, 1));
                     }
                   }}
-                  className="w-[280px]"
+                  className="w-[230px]"
                 />
               </div>
             </div>
@@ -970,7 +968,9 @@ function PresencePage() {
                   </div>
                 </div>
 
-                <div className="mt-1 shrink-0 text-right text-[10px] text-slate-500">{monthRecordCount} attendance records</div>
+                <div className="mt-3 shrink-0 text-right text-[10px] text-slate-900">
+                  Total Working Days: {totalWorkingDays} | Present: {monthlySummary.present} | Absent: {monthlySummary.absent} | WFH: {monthlySummary.wfh} | Paid Leave: {monthlySummary.paidLeave} | Sundays : {monthlySummary.sundays} | Company Leaves : {monthlySummary.companyLeaves} | LOP: {lopCount}
+                </div>
               </section>
             </div>
           )}
