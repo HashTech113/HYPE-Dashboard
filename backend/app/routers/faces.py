@@ -5,13 +5,14 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..config import DEFAULT_HISTORY_START, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 from ..db import connect
+from ..dependencies import require_admin_or_hr
 from ..schemas.faces import FaceHistoryItem, FaceHistoryResponse
 
-router = APIRouter(tags=["faces"])
+router = APIRouter(tags=["faces"], dependencies=[Depends(require_admin_or_hr)])
 
 
 def _parse_boundary(value: str, field: str, *, end: bool) -> datetime:

@@ -23,12 +23,16 @@ Two tables get synced on every pass:
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 
 import requests
 
 from app.db import connect
+
+INGEST_API_KEY = os.getenv("INGEST_API_KEY", "").strip()
+_INGEST_HEADERS = {"X-API-Key": INGEST_API_KEY} if INGEST_API_KEY else {}
 
 
 def extract_snap_id(image_path: str) -> str | None:
@@ -45,7 +49,7 @@ def post_with_retry(session: requests.Session, url: str, payload: dict, timeout:
     """Returns (ok, stored). On transient 5xx / network error retries up to RETRY_MAX."""
     for attempt in range(1, RETRY_MAX + 1):
         try:
-            resp = session.post(url, json=payload, timeout=timeout)
+            resp = session.post(url, json=payload, headers=_INGEST_HEADERS, timeout=timeout)
         except requests.RequestException:
             if attempt < RETRY_MAX:
                 time.sleep(RETRY_BACKOFF * attempt)
@@ -115,15 +119,56 @@ def _employee_matches_remote(emp, remote: dict) -> bool:
     )
 
 
+def _login_for_employees(remote_base: str, timeout: float) -> str | None:
+    """Acquire an admin JWT via REPLAY_USERNAME / REPLAY_PASSWORD env vars.
+    Returns None if creds aren't configured or login fails — caller must
+    skip the employee sync in that case."""
+    username = os.getenv("REPLAY_USERNAME", "").strip()
+    password = os.getenv("REPLAY_PASSWORD", "")
+    if not username or not password:
+        return None
+    try:
+        resp = requests.post(
+            f"{remote_base}/api/auth/login",
+            json={"username": username, "password": password},
+            timeout=timeout,
+        )
+    except requests.RequestException as exc:
+        print(f"employees: login request failed: {exc}", flush=True)
+        return None
+    if resp.status_code != 200:
+        print(
+            f"employees: login HTTP {resp.status_code} (check REPLAY_USERNAME / "
+            f"REPLAY_PASSWORD): {resp.text[:200]}",
+            flush=True,
+        )
+        return None
+    return resp.json().get("access_token")
+
+
 def sync_employees_once(remote_base: str, timeout: float) -> tuple[int, int, int]:
-    """One-way local → remote upsert. Returns (upserted, skipped, failed)."""
+    """One-way local → remote upsert. Returns (upserted, skipped, failed).
+
+    Requires admin auth on the remote (employees endpoints are protected).
+    Provide credentials via REPLAY_USERNAME / REPLAY_PASSWORD env vars."""
     from app.services import employees as employees_service
 
+    token = _login_for_employees(remote_base, timeout)
+    if not token:
+        print(
+            "employees: skipping sync — set REPLAY_USERNAME and REPLAY_PASSWORD "
+            "env vars to an admin account on the remote, or pass "
+            "--no-sync-employees to silence this.",
+            flush=True,
+        )
+        return 0, 0, 0
+
+    auth_headers = {"Authorization": f"Bearer {token}"}
     local = employees_service.all_employees()
     session = requests.Session()
 
     try:
-        resp = session.get(f"{remote_base}/api/employees", timeout=timeout)
+        resp = session.get(f"{remote_base}/api/employees", headers=auth_headers, timeout=timeout)
         resp.raise_for_status()
         remote_map = {e["id"]: e for e in resp.json().get("items", [])}
     except requests.RequestException as exc:
@@ -146,6 +191,7 @@ def sync_employees_once(remote_base: str, timeout: float) -> tuple[int, int, int
                 resp = session.post(
                     f"{remote_base}/api/employees",
                     json={**payload, "id": emp.id},
+                    headers=auth_headers,
                     timeout=timeout,
                 )
                 if resp.status_code in (200, 201):
@@ -160,6 +206,7 @@ def sync_employees_once(remote_base: str, timeout: float) -> tuple[int, int, int
                 resp = session.put(
                     f"{remote_base}/api/employees/{emp.id}",
                     json=payload,
+                    headers=auth_headers,
                     timeout=timeout,
                 )
                 if resp.status_code == 200:

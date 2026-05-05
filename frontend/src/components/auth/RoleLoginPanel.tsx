@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 import {
   isAuthenticated,
   signIn,
-  validateCredentials,
   type AuthRole,
 } from "@/lib/auth";
 import hypeLogo from "@/images/HYPE_logo.png";
@@ -46,19 +45,19 @@ export function RoleLoginPanel({ role, redirect }: RoleLoginPanelProps) {
     setError(null);
     setSubmitting(true);
 
-    // Tiny delay so the button shows feedback even on instant local auth.
-    await new Promise((resolve) => setTimeout(resolve, 250));
-
-    const trimmed = username.trim();
-    const result = validateCredentials(role, trimmed, password);
-    if (result) {
-      signIn(role, result.username, result.company);
-      router.invalidate();
-      await navigate({ to: redirect ?? "/" });
-    } else {
-      setError("Invalid username or password");
+    try {
+      const result = await signIn(role, username, password);
+      if (result) {
+        router.invalidate();
+        await navigate({ to: redirect ?? "/" });
+      } else {
+        setError("Invalid username or password");
+      }
+    } catch {
+      setError("Could not reach the server. Please try again.");
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   return (

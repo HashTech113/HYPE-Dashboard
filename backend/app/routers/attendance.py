@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date as date_cls, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from ..config import (
     EARLY_EXIT_GRACE_MIN,
@@ -14,6 +14,7 @@ from ..config import (
     SHIFT_END,
     SHIFT_START,
 )
+from ..dependencies import require_admin_or_hr
 from ..schemas.attendance import (
     AttendanceDayResponse,
     AttendanceRangeResponse,
@@ -23,7 +24,11 @@ from ..schemas.attendance import (
 from ..services.attendance import ShiftSettings, parse_hhmm
 from ..services.logs import build_attendance_daily, build_attendance_range
 
-router = APIRouter(tags=["attendance"], prefix="/api/attendance")
+router = APIRouter(
+    tags=["attendance"],
+    prefix="/api/attendance",
+    dependencies=[Depends(require_admin_or_hr)],
+)
 
 
 def _shift_settings(

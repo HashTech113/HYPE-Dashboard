@@ -201,7 +201,7 @@ function EditProfileDialog({ open, onOpenChange, profile }: EditProfileDialogPro
     reader.readAsDataURL(file);
   };
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
 
@@ -217,13 +217,18 @@ function EditProfileDialog({ open, onOpenChange, profile }: EditProfileDialogPro
     }
 
     setSubmitting(true);
-    updateAdminProfile({
-      displayName: trimmedName,
-      username: trimmedUsername,
-      avatarUrl,
-    });
-    setSubmitting(false);
-    onOpenChange(false);
+    try {
+      await updateAdminProfile({
+        displayName: trimmedName,
+        username: trimmedUsername,
+        avatarUrl,
+      });
+      onOpenChange(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update profile.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -373,13 +378,13 @@ function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialogProps)
     }
   }, [open]);
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setSuccess(false);
     setSubmitting(true);
 
-    const result = changePassword(currentPassword, newPassword, confirmPassword);
+    const result = await changePassword(currentPassword, newPassword, confirmPassword);
     setSubmitting(false);
 
     if (result.ok) {
@@ -393,6 +398,8 @@ function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialogProps)
       setError("The current password is incorrect.");
     } else if (result.reason === "too-short") {
       setError("New password must be at least 6 characters.");
+    } else if (result.reason === "network") {
+      setError("Could not reach the server. Please try again.");
     } else {
       setError("New password and confirmation do not match.");
     }

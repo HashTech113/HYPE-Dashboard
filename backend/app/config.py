@@ -17,7 +17,28 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 CAMERA_HOST = os.getenv("CAMERA_HOST", "172.18.10.12")
 CAMERA_USER = os.getenv("CAMERA_USER", "admin")
-CAMERA_PASS = os.getenv("CAMERA_PASS", "Grow@123")
+# CAMERA_PASS must be supplied via env. Falling back to a hardcoded default
+# would leak the camera credential into source control.
+CAMERA_PASS = os.getenv("CAMERA_PASS", "")
+
+# --- Auth ---
+# JWT signing secret. In production this MUST be set to a long random string
+# (>= 32 chars) via env. The dev fallback is intentionally obvious so a
+# missing env var fails loudly the first time anyone tries to log in.
+JWT_SECRET = os.getenv("JWT_SECRET", "dev-only-change-me-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_TTL_SECONDS = int(os.getenv("JWT_TTL_SECONDS", str(60 * 60 * 12)))  # 12h
+
+# Shared secret presented by capture.py / replay_to_railway.py on /api/ingest.
+# When unset on the server, ingest is closed (returns 401). Set both ends to
+# the same value to enable.
+INGEST_API_KEY = os.getenv("INGEST_API_KEY", "")
+
+# Seed defaults — the first boot creates one admin + one HR per company so the
+# system is usable out of the box. Operators are expected to rotate these
+# immediately via /api/auth/change-password (or by setting these env vars).
+SEED_ADMIN_USERNAME = os.getenv("SEED_ADMIN_USERNAME", "admin")
+SEED_ADMIN_PASSWORD = os.getenv("SEED_ADMIN_PASSWORD", "admin@123")
 CAMERA_BASE_URL = f"http://{CAMERA_HOST}"
 # Optional — pin the camera by MAC address (aa:bb:cc:dd:ee:ff). When set,
 # the camera client falls back to ARP-based rediscovery if CAMERA_HOST

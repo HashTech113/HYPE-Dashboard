@@ -20,15 +20,17 @@ import logging
 from datetime import date as date_cls, datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..db import connect
+from ..dependencies import require_admin
 from ..services import corrections as corrections_service
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(tags=["admin"])
+# Every endpoint in this router requires the admin role.
+router = APIRouter(tags=["admin"], dependencies=[Depends(require_admin)])
 
 
 class RenameNameRequest(BaseModel):

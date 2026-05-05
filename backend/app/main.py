@@ -12,7 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import DB_PATH
 from .db import init_schema
-from .routers import admin, attendance, employees, faces, health, ingest, logs
+from .routers import admin, attendance, auth, employees, faces, health, ingest, logs
+from .services.auth import seed_users_if_empty
 from .services.cleanup import prune_old_snapshots, seconds_until_next_local_midnight
 from .services.employees import seed_if_empty as seed_employees_if_empty
 from .services.logs import snapshot_log_count
@@ -75,6 +76,7 @@ async def lifespan(_app: FastAPI):
     log.info("using database at %s", DB_PATH)
     init_schema()
     seed_employees_if_empty()
+    seed_users_if_empty()
     count = snapshot_log_count()
     if count == 0:
         log.warning(
@@ -110,11 +112,12 @@ def create_app() -> FastAPI:
         allow_origins=[*DEFAULT_EXACT_ORIGINS, *EXTRA_ORIGINS],
         allow_origin_regex=ALLOWED_ORIGIN_REGEX,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-API-Key"],
     )
 
     app.include_router(health.router)
+    app.include_router(auth.router)
     app.include_router(faces.router)
     app.include_router(attendance.router)
     app.include_router(logs.router)

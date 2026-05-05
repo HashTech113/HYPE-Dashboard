@@ -82,6 +82,10 @@ def _resolve_remote_targets() -> list[str]:
 
 
 REMOTE_TARGETS = _resolve_remote_targets()
+# Shared secret presented to the remote /api/ingest endpoint. Must match the
+# server-side INGEST_API_KEY env var. Local DB writes don't need it because
+# they bypass HTTP.
+INGEST_API_KEY = os.getenv("INGEST_API_KEY", "").strip()
 
 
 def _extract_image_b64(item: dict) -> Optional[str]:
@@ -117,9 +121,10 @@ def _extract_snap_id(item: dict) -> Optional[str]:
 
 def _post_one(session: requests.Session, url: str, payload: dict) -> bool:
     """POST to a single target with bounded retry. Never raises."""
+    headers = {"X-API-Key": INGEST_API_KEY} if INGEST_API_KEY else {}
     for attempt in range(1, INGEST_RETRY_MAX + 1):
         try:
-            resp = session.post(url, json=payload, timeout=INGEST_TIMEOUT_SECONDS)
+            resp = session.post(url, json=payload, headers=headers, timeout=INGEST_TIMEOUT_SECONDS)
             if resp.status_code == 200:
                 return True
             log.warning(
@@ -193,6 +198,12 @@ def run() -> int:
 
     if REMOTE_TARGETS:
         log.info("local DB write enabled; remote replication targets=%s", REMOTE_TARGETS)
+        if not INGEST_API_KEY:
+            log.warning(
+                "INGEST_API_KEY is unset — remote /api/ingest calls will be "
+                "rejected with 401. Set INGEST_API_KEY to the same value as "
+                "the server-side env var."
+            )
     else:
         log.info(
             "local DB write enabled; no remote replication (INGEST_API_URL unset). "

@@ -1,3 +1,23 @@
+import { getAuthToken, signOut } from "@/lib/auth";
+
+const FACE_API_BASE =
+  (import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ??
+  "http://localhost:8000";
+
+/** Backend fetch with Authorization: Bearer attached. On 401 we clear the
+ * stale session so the next route guard bounces to /login — otherwise the
+ * UI would silently show empty data. */
+async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const token = getAuthToken();
+  const headers = new Headers(init.headers ?? {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(input, { ...init, headers });
+  if (response.status === 401) {
+    signOut();
+  }
+  return response;
+}
+
 export type Employee = {
   id: string;
   name: string;
@@ -112,7 +132,7 @@ export async function getOverviewData() {
 
 export async function getEmployees(): Promise<Employee[]> {
   try {
-    const resp = await fetch(buildUrl("/api/employees", {}));
+    const resp = await authFetch(buildUrl("/api/employees", {}));
     if (resp.ok) {
       const payload = (await resp.json()) as { items: Employee[] };
       if (Array.isArray(payload.items) && payload.items.length > 0) {
@@ -127,7 +147,7 @@ export async function getEmployees(): Promise<Employee[]> {
 }
 
 export async function createEmployeeRemote(employee: Employee): Promise<Employee> {
-  const resp = await fetch(buildUrl("/api/employees", {}), {
+  const resp = await authFetch(buildUrl("/api/employees", {}), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(employee),
@@ -137,7 +157,7 @@ export async function createEmployeeRemote(employee: Employee): Promise<Employee
 }
 
 export async function updateEmployeeRemote(id: string, patch: Partial<Employee>): Promise<Employee> {
-  const resp = await fetch(buildUrl(`/api/employees/${encodeURIComponent(id)}`, {}), {
+  const resp = await authFetch(buildUrl(`/api/employees/${encodeURIComponent(id)}`, {}), {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -147,7 +167,7 @@ export async function updateEmployeeRemote(id: string, patch: Partial<Employee>)
 }
 
 export async function deleteEmployeeRemote(id: string): Promise<void> {
-  const resp = await fetch(buildUrl(`/api/employees/${encodeURIComponent(id)}`, {}), {
+  const resp = await authFetch(buildUrl(`/api/employees/${encodeURIComponent(id)}`, {}), {
     method: "DELETE",
   });
   if (!resp.ok && resp.status !== 404) throw new Error(`deleteEmployee ${resp.status}`);
@@ -228,10 +248,6 @@ export type AttendanceDayResponse = {
   items: AttendanceDayItem[];
 };
 
-const FACE_API_BASE =
-  (import.meta as unknown as { env?: { VITE_API_BASE_URL?: string } }).env?.VITE_API_BASE_URL ??
-  "http://localhost:8000";
-
 export async function getFaceHistory(params: {
   start?: string;
   end?: string;
@@ -249,7 +265,7 @@ export async function getFaceHistory(params: {
   const qs = search.toString();
   const url = `${FACE_API_BASE}/api/faces/history${qs ? `?${qs}` : ""}`;
 
-  const response = await fetch(url);
+  const response = await authFetch(url);
   if (!response.ok) {
     throw new Error(`Failed to load face history: ${response.status}`);
   }
@@ -267,7 +283,7 @@ export async function getDailyAttendance(params: {
   const qs = search.toString();
   const url = `${FACE_API_BASE}/api/attendance/daily${qs ? `?${qs}` : ""}`;
 
-  const response = await fetch(url);
+  const response = await authFetch(url);
   if (!response.ok) {
     throw new Error(`Failed to load attendance: ${response.status}`);
   }
@@ -354,7 +370,7 @@ export async function getAttendanceLogs(params: AttendanceQueryParams = {}): Pro
     limit: params.limit,
     offset: params.offset,
   });
-  const response = await fetch(url, { cache: "no-store" });
+  const response = await authFetch(url, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Failed to load attendance: ${response.status}`);
   }
@@ -367,7 +383,7 @@ export async function getSnapshotLogs(params: SnapshotQueryParams = {}): Promise
     limit: params.limit,
     offset: params.offset,
   });
-  const response = await fetch(url, { cache: "no-store" });
+  const response = await authFetch(url, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Failed to load snapshots: ${response.status}`);
   }
@@ -382,7 +398,7 @@ export type IngestLastSeen = {
 };
 
 export async function getIngestLastSeen(): Promise<IngestLastSeen> {
-  const response = await fetch(buildUrl("/api/ingest/last-seen", {}), { cache: "no-store" });
+  const response = await authFetch(buildUrl("/api/ingest/last-seen", {}), { cache: "no-store" });
   if (!response.ok) throw new Error(`Failed to load ingest status: ${response.status}`);
   return response.json() as Promise<IngestLastSeen>;
 }

@@ -5,9 +5,10 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from ..dependencies import require_admin, require_admin_or_hr
 from ..services import employees as employees_service
 
 router = APIRouter(tags=["employees"])
@@ -66,12 +67,21 @@ def _serialize(emp) -> EmployeeOut:
     )
 
 
-@router.get("/api/employees", response_model=EmployeeListResponse)
+@router.get(
+    "/api/employees",
+    response_model=EmployeeListResponse,
+    dependencies=[Depends(require_admin_or_hr)],
+)
 def list_employees() -> EmployeeListResponse:
     return EmployeeListResponse(items=[_serialize(e) for e in employees_service.all_employees()])
 
 
-@router.post("/api/employees", response_model=EmployeeOut, status_code=201)
+@router.post(
+    "/api/employees",
+    response_model=EmployeeOut,
+    status_code=201,
+    dependencies=[Depends(require_admin)],
+)
 def create_employee(payload: EmployeeCreate) -> EmployeeOut:
     new_id = payload.id or f"emp-{uuid.uuid4().hex[:10]}"
     if employees_service.get_by_id(new_id):
@@ -90,7 +100,11 @@ def create_employee(payload: EmployeeCreate) -> EmployeeOut:
     return _serialize(created)
 
 
-@router.put("/api/employees/{employee_id}", response_model=EmployeeOut)
+@router.put(
+    "/api/employees/{employee_id}",
+    response_model=EmployeeOut,
+    dependencies=[Depends(require_admin)],
+)
 def update_employee(employee_id: str, payload: EmployeeUpdate) -> EmployeeOut:
     patch = payload.model_dump(exclude_none=True)
     # Map camelCase input → snake_case DB columns
@@ -104,7 +118,7 @@ def update_employee(employee_id: str, payload: EmployeeUpdate) -> EmployeeOut:
     return _serialize(updated)
 
 
-@router.delete("/api/employees/{employee_id}")
+@router.delete("/api/employees/{employee_id}", dependencies=[Depends(require_admin)])
 def delete_employee(employee_id: str) -> dict:
     ok = employees_service.delete(employee_id)
     if not ok:

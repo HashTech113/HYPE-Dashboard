@@ -17,7 +17,6 @@ import {
   getAdminProfile,
   getCurrentCompany,
   getCurrentRole,
-  HR_CREDENTIALS,
   signOut,
   subscribeToAdminProfile,
   type AdminProfile,
@@ -290,18 +289,17 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   };
 
   // Resolve the display name + subtitle shown next to the sidebar avatar.
+  // The cached AuthUser already carries displayName + company, so HR rows
+  // don't need a separate credential lookup.
   const sidebarDisplay = (() => {
     if (role === "admin") {
       return { name: profile.displayName, subtitle: null as string | null, avatarUrl: profile.avatarUrl };
     }
     if (role === "hr") {
-      const cred = company
-        ? HR_CREDENTIALS.find((c) => c.company.toLowerCase() === company.toLowerCase())
-        : undefined;
       return {
-        name: cred?.displayName ?? "HR",
-        subtitle: cred?.company ?? company,
-        avatarUrl: "",
+        name: profile.displayName || "HR",
+        subtitle: company,
+        avatarUrl: profile.avatarUrl,
       };
     }
     return { name: "User", subtitle: null as string | null, avatarUrl: "" };

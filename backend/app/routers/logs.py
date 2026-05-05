@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date as date_cls, datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..config import (
     EARLY_EXIT_GRACE_MIN,
@@ -14,6 +14,7 @@ from ..config import (
     SHIFT_END,
     SHIFT_START,
 )
+from ..dependencies import require_admin_or_hr
 from ..schemas.logs import (
     AttendanceSummaryItem,
     AttendanceSummaryResponse,
@@ -23,7 +24,7 @@ from ..schemas.logs import (
 from ..services import employees as employees_service, logs
 from ..services.attendance import ShiftSettings, parse_hhmm
 
-router = APIRouter(tags=["logs"])
+router = APIRouter(tags=["logs"], dependencies=[Depends(require_admin_or_hr)])
 
 DEFAULT_SUMMARY_DAYS = 90
 

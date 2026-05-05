@@ -49,11 +49,24 @@ CREATE TABLE IF NOT EXISTS attendance_corrections (
     PRIMARY KEY (name, date)
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'hr')),
+    company TEXT NOT NULL DEFAULT '',
+    display_name TEXT NOT NULL DEFAULT '',
+    avatar_url TEXT NOT NULL DEFAULT '',
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_timestamp ON snapshot_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_timestamp ON attendance_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_name ON snapshot_logs (name);
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_name ON attendance_logs (name);
 CREATE INDEX IF NOT EXISTS idx_employees_name ON employees (name);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
 """
 
 

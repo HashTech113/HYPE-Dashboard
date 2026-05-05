@@ -6,9 +6,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from ..dependencies import require_admin_or_hr, require_api_key
 from ..schemas.ingest import IngestRequest, IngestResponse
 from ..services import logs as logs_service
 from ..services.snapshots import normalize_timestamp_iso, synthesize_image_path
@@ -22,7 +23,11 @@ router = APIRouter(tags=["ingest"])
 INGEST_STALE_THRESHOLD_SECONDS = 120
 
 
-@router.post("/api/ingest", response_model=IngestResponse)
+@router.post(
+    "/api/ingest",
+    response_model=IngestResponse,
+    dependencies=[Depends(require_api_key)],
+)
 def ingest(payload: IngestRequest) -> IngestResponse:
     try:
         timestamp_iso = normalize_timestamp_iso(payload.timestamp)
@@ -48,7 +53,11 @@ class IngestLastSeenResponse(BaseModel):
     threshold_seconds: int
 
 
-@router.get("/api/ingest/last-seen", response_model=IngestLastSeenResponse)
+@router.get(
+    "/api/ingest/last-seen",
+    response_model=IngestLastSeenResponse,
+    dependencies=[Depends(require_admin_or_hr)],
+)
 def ingest_last_seen() -> IngestLastSeenResponse:
     last = logs_service.snapshot_last_timestamp()
     if not last:
