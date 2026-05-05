@@ -35,10 +35,23 @@ INGEST_API_KEY = os.getenv("INGEST_API_KEY", "").strip()
 _INGEST_HEADERS = {"X-API-Key": INGEST_API_KEY} if INGEST_API_KEY else {}
 
 
-def extract_snap_id(image_path: str) -> str | None:
-    if image_path.startswith("ingest_") and image_path.endswith(".jpg"):
-        return image_path[len("ingest_"):-len(".jpg")]
-    return None
+def extract_snap_id(image_path: str, camera_id: str | None = None) -> str | None:
+    """Recover the camera-side SnapId from the local image_path so the remote
+    server reconstructs the same path. Multi-camera rows use the form
+    ``ingest_<camera_id>_<snap_id>.jpg``; legacy rows use ``ingest_<snap_id>.jpg``.
+    Content-hash paths (no SnapId at capture time) contain extra underscores
+    and we return None to let the remote rebuild from the image bytes."""
+    if not (image_path.startswith("ingest_") and image_path.endswith(".jpg")):
+        return None
+    raw = image_path[len("ingest_"):-len(".jpg")]
+    if camera_id and raw.startswith(f"{camera_id}_"):
+        raw = raw[len(camera_id) + 1:]
+    # Bare-id form is alphanumeric without separators; anything containing
+    # '_' is a timestamp+content-hash path and cannot be turned back into a
+    # SnapId. Returning None makes the remote use the same content hash.
+    if "_" in raw:
+        return None
+    return raw
 
 
 RETRY_MAX = 3
@@ -67,7 +80,7 @@ def post_with_retry(session: requests.Session, url: str, payload: dict, timeout:
 def replay_once(target: str, timeout: float, sleep_between: float) -> tuple[int, int, int]:
     with connect() as conn:
         rows = conn.execute(
-            "SELECT name, timestamp, image_path, image_data FROM snapshot_logs "
+            "SELECT name, timestamp, image_path, image_data, camera_id FROM snapshot_logs "
             "WHERE image_data IS NOT NULL AND image_data != '' "
             "ORDER BY id ASC"
         ).fetchall()
@@ -78,11 +91,13 @@ def replay_once(target: str, timeout: float, sleep_between: float) -> tuple[int,
     session = requests.Session()
     stored = skipped = failed = 0
     for i, row in enumerate(rows, 1):
+        cam_id = row["camera_id"]
         payload = {
             "name": row["name"],
             "timestamp": row["timestamp"],
             "image_base64": row["image_data"],
-            "snap_id": extract_snap_id(row["image_path"]),
+            "snap_id": extract_snap_id(row["image_path"], cam_id),
+            "camera_id": cam_id,
         }
         ok, was_stored = post_with_retry(session, target, payload, timeout)
         if not ok:

@@ -25,14 +25,26 @@ NAME_SAFE_RE = re.compile(r"[^A-Za-z0-9]+")
 IMAGE_FIELDS = ("Image2", "Image3", "Image1", "Image4")
 
 
-def synthesize_image_path(snap_id: Optional[str], image_b64: str, timestamp_iso: str) -> str:
+def synthesize_image_path(
+    snap_id: Optional[str],
+    image_b64: str,
+    timestamp_iso: str,
+    *,
+    camera_id: Optional[str] = None,
+) -> str:
     """Stable per-capture identifier used as the UNIQUE dedup key in
     snapshot_logs/attendance_logs. Prefer the camera's SnapId; fall back
-    to a content-addressed hash so re-ingesting the same bytes dedups."""
+    to a content-addressed hash so re-ingesting the same bytes dedups.
+
+    When ``camera_id`` is supplied (multi-camera mode) it's woven into the
+    path so two cameras emitting the same SnapId don't collide on the
+    UNIQUE(image_path) constraint. Legacy single-camera captures keep the
+    old ``ingest_<snap_id>.jpg`` shape so existing rows stay valid."""
+    prefix = f"ingest_{camera_id}_" if camera_id else "ingest_"
     if snap_id:
-        return f"ingest_{snap_id}.jpg"
+        return f"{prefix}{snap_id}.jpg"
     digest = hashlib.sha1(image_b64.encode("ascii", errors="ignore")).hexdigest()[:16]
-    return f"ingest_{timestamp_iso.replace(':', '').replace('-', '')}_{digest}.jpg"
+    return f"{prefix}{timestamp_iso.replace(':', '').replace('-', '')}_{digest}.jpg"
 
 
 def normalize_timestamp_iso(value: Any) -> str:

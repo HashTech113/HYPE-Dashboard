@@ -33,13 +33,19 @@ def ingest(payload: IngestRequest) -> IngestResponse:
         timestamp_iso = normalize_timestamp_iso(payload.timestamp)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    image_path = synthesize_image_path(payload.snap_id, payload.image_base64, timestamp_iso)
+    image_path = synthesize_image_path(
+        payload.snap_id,
+        payload.image_base64,
+        timestamp_iso,
+        camera_id=payload.camera_id,
+    )
 
     stored = logs_service.record_capture(
         name=payload.name.strip(),
         timestamp_iso=timestamp_iso,
         image_path=image_path,
         image_data=payload.image_base64,
+        camera_id=payload.camera_id,
     )
     if not stored:
         log.info("ingest dedup: duplicate skipped image_path=%s name=%s", image_path, payload.name)

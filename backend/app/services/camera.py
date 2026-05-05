@@ -4,6 +4,12 @@ Camera HTTP client.
 Thin wrapper around `requests` that handles the Login → X-csrftoken →
 `/API/AI/processAlarm/Get` (live) and `/API/AI/SnapedFaces/Search` +
 `GetByIndex` (historical backfill) flows.
+
+Each ``CameraClient`` instance is scoped to one camera. Construct with no
+args to use the legacy ``CAMERA_*`` env config (which also enables ARP
+rediscovery if the camera's DHCP lease rotates), or pass ``host``,
+``user``, ``password`` explicitly to bind to a specific camera from the
+``cameras`` table — multi-camera capture spawns one client per row.
 """
 
 from __future__ import annotations
@@ -31,64 +37,95 @@ log = logging.getLogger(__name__)
 class CameraClient:
     """Keeps a logged-in session; transparently re-logs in when the camera 401s.
 
-    The base URL lives on the instance so we can swap in a freshly-
-    discovered IP if the camera's DHCP lease rotates and the configured
-    host stops responding (see ``_rediscover``).
+    The base URL lives on the instance so the legacy env-driven client can
+    swap in a freshly-discovered IP if the camera's DHCP lease rotates
+    (see ``_rediscover``). DB-backed cameras have a stable IP edited via
+    the admin UI, so they skip rediscovery.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        host: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        camera_id: str = "",
+        camera_name: str = "",
+        camera_location: str = "",
+    ) -> None:
+        # ``host=None`` means "use the legacy env config" — preserves the
+        # previous single-camera behavior for the env-fallback code path.
         self._session: Optional[requests.Session] = None
-        self._base_url: str = CAMERA_BASE_URL
+        if host:
+            self._base_url = f"http://{host}"
+            self._user = user or CAMERA_USER
+            self._password = password if password is not None else CAMERA_PASS
+            self._enable_rediscovery = False
+        else:
+            self._base_url = CAMERA_BASE_URL
+            self._user = CAMERA_USER
+            self._password = CAMERA_PASS
+            self._enable_rediscovery = True
+        # Identity tags, only used to enrich log messages and ingest payloads.
+        self.camera_id = camera_id
+        self.camera_name = camera_name
+        self.camera_location = camera_location
 
     @property
     def base_url(self) -> str:
         return self._base_url
 
+    @property
+    def label(self) -> str:
+        """Short human label for log lines: name when known, falling back to host."""
+        return self.camera_name or self._base_url
+
     def _login(self) -> requests.Session:
-        log.info("Logging into camera at %s", self._base_url)
+        log.info("[%s] Logging into camera at %s", self.label, self._base_url)
         session = requests.Session()
         try:
             resp = session.post(
                 f"{self._base_url}/API/Web/Login",
                 json={"data": {}},
-                auth=HTTPDigestAuth(CAMERA_USER, CAMERA_PASS),
+                auth=HTTPDigestAuth(self._user, self._password),
                 timeout=REQUEST_TIMEOUT_SECONDS,
             )
         except requests.ReadTimeout:
             log.warning(
-                "Camera login timed out after %.1fs at %s",
-                REQUEST_TIMEOUT_SECONDS,
-                self._base_url,
+                "[%s] Camera login timed out after %.1fs at %s",
+                self.label, REQUEST_TIMEOUT_SECONDS, self._base_url,
             )
             self._rediscover()
             raise
         except (requests.ConnectTimeout, requests.ConnectionError):
             # Connect-level failure is the classic "DHCP rotated the IP"
-            # signal: we can't even reach the host. Try to find it again
-            # before the next retry; the caller's existing retry/backoff
-            # loop will pick up the new base URL on the next iteration.
-            log.warning("Camera login could not connect to %s", self._base_url)
+            # signal: we can't even reach the host. Rediscovery is only
+            # meaningful for the legacy env client (which has the MAC pin
+            # configured); DB cameras skip it.
+            log.warning("[%s] Camera login could not connect to %s", self.label, self._base_url)
             self._rediscover()
             raise
         except requests.RequestException:
-            log.warning("Camera login request failed at %s", self._base_url)
+            log.warning("[%s] Camera login request failed at %s", self.label, self._base_url)
             raise
         if resp.status_code != 200:
-            raise RuntimeError(f"Login failed: {resp.status_code} {resp.text[:200]}")
+            raise RuntimeError(f"[{self.label}] Login failed: {resp.status_code} {resp.text[:200]}")
         token = resp.headers.get("X-csrftoken")
         if not token:
-            raise RuntimeError("Login response missing X-csrftoken header")
+            raise RuntimeError(f"[{self.label}] Login response missing X-csrftoken header")
         session.headers.update({"X-csrftoken": token, "Content-Type": "application/json"})
-        log.info("Camera login succeeded; X-csrftoken received")
+        log.info("[%s] Camera login succeeded; X-csrftoken received", self.label)
         return session
 
     def _rediscover(self) -> None:
-        """Look up the camera's current IP via ARP. No-op if discovery
-        finds the same address we already have, or if it finds nothing
-        (we'll keep retrying the configured host)."""
+        """Look up the camera's current IP via ARP. No-op for non-legacy
+        clients (DB-backed cameras have stable IPs editable via admin UI),
+        or when discovery finds nothing."""
+        if not self._enable_rediscovery:
+            return
         new_ip = discover_camera(
-            user=CAMERA_USER,
-            password=CAMERA_PASS,
+            user=self._user,
+            password=self._password,
             expected_mac=CAMERA_MAC or None,
             subnet_prefixes=CAMERA_DISCOVERY_SUBNETS,
         )
@@ -98,8 +135,8 @@ class CameraClient:
         if candidate == self._base_url:
             return
         log.info(
-            "Camera rediscovered: %s -> %s (MAC pin=%s)",
-            self._base_url, candidate, CAMERA_MAC or "(OUI filter)",
+            "[%s] Camera rediscovered: %s -> %s (MAC pin=%s)",
+            self.label, self._base_url, candidate, CAMERA_MAC or "(OUI filter)",
         )
         self._base_url = candidate
 

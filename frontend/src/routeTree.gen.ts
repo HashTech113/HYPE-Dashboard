@@ -23,6 +23,7 @@ import { Route as DashboardEmployeesRouteImport } from './routes/_dashboard.empl
 import { Route as DashboardCamerasRouteImport } from './routes/_dashboard.cameras'
 import { Route as DashboardAlertsRouteImport } from './routes/_dashboard.alerts'
 import { Route as DashboardAdminRouteImport } from './routes/_dashboard.admin'
+import { Route as DashboardCamerasIndexRouteImport } from './routes/_dashboard.cameras.index'
 import { Route as DashboardCamerasLiveRouteImport } from './routes/_dashboard.cameras.live'
 
 const LoginRoute = LoginRouteImport.update({
@@ -94,6 +95,11 @@ const DashboardAdminRoute = DashboardAdminRouteImport.update({
   path: '/admin',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardCamerasIndexRoute = DashboardCamerasIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => DashboardCamerasRoute,
+} as any)
 const DashboardCamerasLiveRoute = DashboardCamerasLiveRouteImport.update({
   id: '/live',
   path: '/live',
@@ -115,11 +121,11 @@ export interface FileRoutesByFullPath {
   '/login/hr': typeof LoginHrRoute
   '/login/': typeof LoginIndexRoute
   '/cameras/live': typeof DashboardCamerasLiveRoute
+  '/cameras/': typeof DashboardCamerasIndexRoute
 }
 export interface FileRoutesByTo {
   '/admin': typeof DashboardAdminRoute
   '/alerts': typeof DashboardAlertsRoute
-  '/cameras': typeof DashboardCamerasRouteWithChildren
   '/employees': typeof DashboardEmployeesRoute
   '/presence': typeof DashboardPresenceRoute
   '/reports': typeof DashboardReportsRoute
@@ -130,6 +136,7 @@ export interface FileRoutesByTo {
   '/': typeof DashboardIndexRoute
   '/login': typeof LoginIndexRoute
   '/cameras/live': typeof DashboardCamerasLiveRoute
+  '/cameras': typeof DashboardCamerasIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -148,6 +155,7 @@ export interface FileRoutesById {
   '/_dashboard/': typeof DashboardIndexRoute
   '/login/': typeof LoginIndexRoute
   '/_dashboard/cameras/live': typeof DashboardCamerasLiveRoute
+  '/_dashboard/cameras/': typeof DashboardCamerasIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -166,11 +174,11 @@ export interface FileRouteTypes {
     | '/login/hr'
     | '/login/'
     | '/cameras/live'
+    | '/cameras/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/admin'
     | '/alerts'
-    | '/cameras'
     | '/employees'
     | '/presence'
     | '/reports'
@@ -181,6 +189,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/cameras/live'
+    | '/cameras'
   id:
     | '__root__'
     | '/_dashboard'
@@ -198,6 +207,7 @@ export interface FileRouteTypes {
     | '/_dashboard/'
     | '/login/'
     | '/_dashboard/cameras/live'
+    | '/_dashboard/cameras/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -305,6 +315,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAdminRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/_dashboard/cameras/': {
+      id: '/_dashboard/cameras/'
+      path: '/'
+      fullPath: '/cameras/'
+      preLoaderRoute: typeof DashboardCamerasIndexRouteImport
+      parentRoute: typeof DashboardCamerasRoute
+    }
     '/_dashboard/cameras/live': {
       id: '/_dashboard/cameras/live'
       path: '/live'
@@ -317,10 +334,12 @@ declare module '@tanstack/react-router' {
 
 interface DashboardCamerasRouteChildren {
   DashboardCamerasLiveRoute: typeof DashboardCamerasLiveRoute
+  DashboardCamerasIndexRoute: typeof DashboardCamerasIndexRoute
 }
 
 const DashboardCamerasRouteChildren: DashboardCamerasRouteChildren = {
   DashboardCamerasLiveRoute: DashboardCamerasLiveRoute,
+  DashboardCamerasIndexRoute: DashboardCamerasIndexRoute,
 }
 
 const DashboardCamerasRouteWithChildren =

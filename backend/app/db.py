@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS snapshot_logs (
     name TEXT NOT NULL,
     timestamp TEXT NOT NULL,
     image_path TEXT NOT NULL UNIQUE,
-    image_data TEXT
+    image_data TEXT,
+    camera_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS attendance_logs (
@@ -22,7 +23,8 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
     name TEXT NOT NULL,
     timestamp TEXT NOT NULL,
     image_path TEXT NOT NULL UNIQUE,
-    image_data TEXT
+    image_data TEXT,
+    camera_id TEXT
 );
 
 CREATE TABLE IF NOT EXISTS employees (
@@ -119,6 +121,10 @@ def init_schema() -> None:
         for table in ("snapshot_logs", "attendance_logs"):
             if not _column_exists(conn, table, "image_data"):
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN image_data TEXT")
+            # Multi-camera capture: tag each event with its source camera.
+            # NULL on legacy rows and on captures from the env-fallback mode.
+            if not _column_exists(conn, table, "camera_id"):
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN camera_id TEXT")
         if not _column_exists(conn, "employees", "dob"):
             conn.execute("ALTER TABLE employees ADD COLUMN dob TEXT NOT NULL DEFAULT ''")
         if not _column_exists(conn, "employees", "image_url"):

@@ -33,11 +33,15 @@ def record_capture(
     timestamp_iso: str,
     image_path: str,
     image_data: Optional[str] = None,
+    camera_id: Optional[str] = None,
 ) -> bool:
     """Insert one detection into `snapshot_logs`, and into `attendance_logs`
     when the face is a recognized employee. The UNIQUE constraint on
     image_path makes re-runs idempotent. Returns True if anything was
     inserted, False if the row was a duplicate.
+
+    ``camera_id`` is optional — None for legacy / env-fallback mode and for
+    historical rows ingested before multi-camera support landed.
     """
     # Resolve to the canonical employee name so every spelling the camera
     # might emit ("Akhil c v" vs "Akhil C V") lands in the DB under the
@@ -50,16 +54,16 @@ def record_capture(
     try:
         with connect() as conn:
             cur = conn.execute(
-                "INSERT OR IGNORE INTO snapshot_logs (name, timestamp, image_path, image_data) "
-                "VALUES (?, ?, ?, ?)",
-                (name, timestamp_iso, image_path, image_data),
+                "INSERT OR IGNORE INTO snapshot_logs (name, timestamp, image_path, image_data, camera_id) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (name, timestamp_iso, image_path, image_data, camera_id),
             )
             inserted = cur.rowcount > 0
             if _is_recognized(name):
                 conn.execute(
-                    "INSERT OR IGNORE INTO attendance_logs (name, timestamp, image_path, image_data) "
-                    "VALUES (?, ?, ?, ?)",
-                    (name, timestamp_iso, image_path, image_data),
+                    "INSERT OR IGNORE INTO attendance_logs (name, timestamp, image_path, image_data, camera_id) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (name, timestamp_iso, image_path, image_data, camera_id),
                 )
             return inserted
     except sqlite3.DatabaseError as e:

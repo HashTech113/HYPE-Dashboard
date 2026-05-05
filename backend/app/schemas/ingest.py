@@ -12,6 +12,10 @@ class IngestRequest(BaseModel):
     timestamp: str = Field(..., description="ISO8601 timestamp, UTC preferred")
     image_base64: str = Field(..., min_length=1, description="Base64-encoded JPEG (no data-URL prefix)")
     snap_id: Optional[str] = Field(None, description="Camera-side unique id, used for dedup")
+    camera_id: Optional[str] = Field(
+        None,
+        description="Source camera's id from the cameras table. Optional — omitted in env-fallback mode.",
+    )
 
 
 class IngestResponse(BaseModel):

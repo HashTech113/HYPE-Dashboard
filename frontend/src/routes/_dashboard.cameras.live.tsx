@@ -1,10 +1,9 @@
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MapPin, RefreshCw, Video, VideoOff } from "lucide-react";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getCurrentRole } from "@/lib/auth";
 import {
   buildCameraStreamUrl,
   getCameraStreamToken,
@@ -12,12 +11,8 @@ import {
   type Camera,
 } from "@/api/dashboardApi";
 
+// Admin-only guard lives on the parent layout (_dashboard.cameras.tsx).
 export const Route = createFileRoute("/_dashboard/cameras/live")({
-  beforeLoad: () => {
-    if (getCurrentRole() !== "admin") {
-      throw redirect({ to: "/" });
-    }
-  },
   component: LiveCamerasPage,
 });
 
@@ -26,8 +21,11 @@ function LiveCamerasPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = async () => {
-    setLoading(true);
+  // `silent=true` polls in the background (no spinner flicker), used by the
+  // 10s auto-refresh so a freshly-added camera shows up without the operator
+  // having to click anything.
+  const refresh = async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const items = await listCameras();
@@ -35,12 +33,16 @@ function LiveCamerasPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load cameras.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     void refresh();
+    const handle = window.setInterval(() => {
+      void refresh(true);
+    }, 10_000);
+    return () => window.clearInterval(handle);
   }, []);
 
   const connected = useMemo(
@@ -94,22 +96,24 @@ function LiveCamerasPage() {
 }
 
 function EmptyState({ totalCameras }: { totalCameras: number }) {
+  const noCameras = totalCameras === 0;
   return (
     <div className="mt-8 flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50/60 px-6 py-14 text-center">
       <VideoOff className="h-10 w-10 text-slate-400" />
       <div className="text-sm font-medium text-slate-700">
-        {totalCameras === 0 ? "No cameras configured yet." : "No connected cameras."}
+        {noCameras ? "Add a camera to view the live feed" : "No connected cameras yet."}
       </div>
-      <div className="max-w-md text-xs text-slate-500">
-        {totalCameras === 0
-          ? "Add a camera and verify the connection — it will appear here automatically."
-          : "Once at least one camera reports a successful connection, its live feed will appear here."}
-      </div>
+      {noCameras ? null : (
+        <div className="max-w-md text-xs text-slate-500">
+          Once at least one camera reports a successful connection, its live feed will appear
+          here.
+        </div>
+      )}
       <Link
         to="/cameras"
         className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-[#4aa590] to-[#2f8f7b] px-4 py-2 text-xs font-semibold text-white"
       >
-        Manage cameras
+        {noCameras ? "Add Camera" : "Manage cameras"}
       </Link>
     </div>
   );

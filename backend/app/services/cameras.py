@@ -79,6 +79,28 @@ def all_cameras() -> list[Camera]:
     return [_row_to_camera(r) for r in rows]
 
 
+def connected_cameras_with_credentials() -> list[tuple[Camera, str]]:
+    """Return ``(Camera, decrypted_password)`` pairs for every camera with
+    ``connection_status='connected'``. Cameras whose password fails to
+    decrypt (e.g. CAMERA_SECRET_KEY rotated) are skipped with a logged
+    error so capture can keep running on the rest. Used by capture.py to
+    build per-camera workers."""
+    pairs: list[tuple[Camera, str]] = []
+    for cam in all_cameras():
+        if cam.connection_status != "connected":
+            continue
+        try:
+            password = crypto.decrypt(cam.password_encrypted)
+        except Exception as exc:
+            log.error(
+                "Skipping camera %r (id=%s): password decrypt failed (%s)",
+                cam.name, cam.id, exc,
+            )
+            continue
+        pairs.append((cam, password))
+    return pairs
+
+
 def get_by_id(camera_id: str) -> Optional[Camera]:
     with connect() as conn:
         row = conn.execute(
