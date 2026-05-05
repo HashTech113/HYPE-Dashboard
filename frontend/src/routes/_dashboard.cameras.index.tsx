@@ -408,9 +408,6 @@ type CameraFormDialogProps = {
 function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDialogProps) {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [showPassword, setShowPassword] = useState(false);
-  // Path is collapsed by default; revealed for non-default camera models
-  // via the "Customize path" link under the read-only RTSP URL display.
-  const [showPathEditor, setShowPathEditor] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [check, setCheck] = useState<CameraCheckResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -435,7 +432,6 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
       setError(null);
       setCheck(null);
       setShowPassword(false);
-      setShowPathEditor(false);
     }
   }, [open, camera]);
 
