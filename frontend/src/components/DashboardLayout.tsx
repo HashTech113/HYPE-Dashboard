@@ -407,7 +407,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           </div>
         </header>
 
-        <div className="relative flex min-h-0 flex-1 pt-2 sm:pt-3">
+        <div className="relative flex min-h-0 flex-1 overflow-hidden rounded-2xl bg-white">
           {/* Desktop / tablet sidebar — in flow, push layout */}
           <div
             className={cn(
