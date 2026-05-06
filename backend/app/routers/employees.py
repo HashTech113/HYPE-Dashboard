@@ -24,6 +24,8 @@ class EmployeeOut(BaseModel):
     role: str
     dob: str = ""
     imageUrl: str = ""
+    email: str = ""
+    mobile: str = ""
 
 
 class EmployeeListResponse(BaseModel):
@@ -40,6 +42,8 @@ class EmployeeCreate(BaseModel):
     role: str = "Employee"
     dob: str = ""
     imageUrl: str = ""
+    email: str = ""
+    mobile: str = ""
 
 
 class EmployeeUpdate(BaseModel):
@@ -51,6 +55,8 @@ class EmployeeUpdate(BaseModel):
     role: Optional[str] = None
     dob: Optional[str] = None
     imageUrl: Optional[str] = None
+    email: Optional[str] = None
+    mobile: Optional[str] = None
 
 
 def _serialize(emp) -> EmployeeOut:
@@ -64,6 +70,8 @@ def _serialize(emp) -> EmployeeOut:
         role=emp.role,
         dob=emp.dob,
         imageUrl=emp.image_url,
+        email=emp.email,
+        mobile=emp.mobile,
     )
 
 
@@ -96,6 +104,8 @@ def create_employee(payload: EmployeeCreate) -> EmployeeOut:
         role=payload.role,
         dob=payload.dob,
         image_url=payload.imageUrl,
+        email=payload.email,
+        mobile=payload.mobile,
     )
     return _serialize(created)
 

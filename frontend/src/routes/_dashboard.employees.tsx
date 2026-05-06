@@ -111,10 +111,10 @@ function EmployeesPage() {
         <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
           {/* Filter row */}
           <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-3">
-            <Search className="h-4 w-4 text-primary" />
+            <Search className="h-5 w-5 text-primary" />
 
             <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-xs font-semibold text-sky-900">Employees</span>
+              <span className="whitespace-nowrap text-sm font-semibold text-sky-900">Employees</span>
               <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
                 <SelectTrigger className="h-9 w-[160px] border-sky-200 focus:ring-sky-300">
                   <SelectValue placeholder="All Employees" />
@@ -132,7 +132,7 @@ function EmployeesPage() {
 
             {!isCompanyScoped ? (
               <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">Companies</span>
+                <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">Companies</span>
                 <Select value={selectedCompany} onValueChange={setSelectedCompany}>
                   <SelectTrigger className="h-9 w-[150px] border-indigo-200 focus:ring-indigo-300">
                     <SelectValue placeholder="All Companies" />
@@ -150,7 +150,7 @@ function EmployeesPage() {
             ) : null}
 
             <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-xs font-semibold text-emerald-900">Departments</span>
+              <span className="whitespace-nowrap text-sm font-semibold text-emerald-900">Departments</span>
               <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
                 <SelectTrigger className="h-9 w-[160px] border-emerald-200 focus:ring-emerald-300">
                   <SelectValue placeholder="All Departments" />
@@ -167,7 +167,7 @@ function EmployeesPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-xs font-semibold text-amber-900">Role</span>
+              <span className="whitespace-nowrap text-sm font-semibold text-amber-900">Role</span>
               <Select
                 value={selectedRole}
                 onValueChange={(value) => {

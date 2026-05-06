@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CalendarCheck, ChevronLeft, ChevronRight, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
+import { CalendarCheck, Loader2, RefreshCw, Save, Trash2 } from "lucide-react";
 
 import {
   type AttendanceCorrection,
@@ -40,21 +40,36 @@ const STATUS_CHOICES: AttendanceStatusFull[] = [
   "Holiday",
 ];
 
+const MONTH_OPTIONS = [
+  { value: "01", label: "Jan" },
+  { value: "02", label: "Feb" },
+  { value: "03", label: "Mar" },
+  { value: "04", label: "Apr" },
+  { value: "05", label: "May" },
+  { value: "06", label: "Jun" },
+  { value: "07", label: "Jul" },
+  { value: "08", label: "Aug" },
+  { value: "09", label: "Sep" },
+  { value: "10", label: "Oct" },
+  { value: "11", label: "Nov" },
+  { value: "12", label: "Dec" },
+] as const;
+
 // User-facing label override for the dropdown. The wire/API value stays
 // "Holiday" so the backend's status_override whitelist keeps working.
 const STATUS_DROPDOWN_LABEL: Partial<Record<AttendanceStatusFull, string>> = {
   Holiday: "Company Leave",
 };
 
-const STATUS_PILL_CLASS: Record<AttendanceStatusFull, string> = {
-  Present: "border-emerald-300 bg-emerald-50 text-emerald-700",
-  Late: "border-amber-300 bg-amber-50 text-amber-700",
-  "Early Exit": "border-orange-300 bg-orange-50 text-orange-700",
-  Absent: "border-rose-300 bg-rose-50 text-rose-700",
-  WFH: "border-violet-300 bg-violet-50 text-violet-700",
-  "Paid Leave": "border-blue-300 bg-blue-50 text-blue-700",
-  LOP: "border-rose-400 bg-rose-100 text-rose-800",
-  Holiday: "border-sky-300 bg-sky-50 text-sky-700",
+const STATUS_TEXT_CLASS: Record<AttendanceStatusFull, string> = {
+  Present: "text-emerald-700",
+  Late: "text-amber-700",
+  "Early Exit": "text-orange-700",
+  Absent: "text-rose-700",
+  WFH: "text-violet-700",
+  "Paid Leave": "text-blue-700",
+  LOP: "text-rose-800",
+  Holiday: "text-sky-700",
 };
 
 type DayRow = {
@@ -112,16 +127,13 @@ function thisMonthKey(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function shiftMonth(monthKey: string, delta: number): string {
-  const [year, month] = monthKey.split("-").map(Number);
-  const next = new Date(year, month - 1 + delta, 1);
-  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function formatMonthLabel(monthKey: string): string {
-  const [year, month] = monthKey.split("-").map(Number);
-  const date = new Date(year, month - 1, 1);
-  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(date);
+function monthParts(monthKey: string): { year: string; month: string } {
+  const match = monthKey.match(/^(\d{4})-(0[1-9]|1[0-2])$/);
+  if (match) {
+    return { year: match[1], month: match[2] };
+  }
+  const [year, month] = thisMonthKey().split("-");
+  return { year, month };
 }
 
 function weekdayLabel(iso: string): string {
@@ -138,7 +150,16 @@ function correctionToDraft(correction: AttendanceCorrection | undefined): DayDra
 export function EditAttendancePanel() {
   const { employees } = useEmployees();
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>("");
-  const [monthKey, setMonthKey] = useState<string>(thisMonthKey());
+  const [selectedMonth, setSelectedMonth] = useState<string>(thisMonthKey());
+  const monthKey = selectedMonth || thisMonthKey();
+  const { year: selectedYearPart, month: selectedMonthPart } = useMemo(
+    () => monthParts(monthKey),
+    [monthKey],
+  );
+  const yearOptions = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    return Array.from({ length: 31 }, (_, idx) => String(currentYear + 2 - idx));
+  }, []);
 
   const selectedEmployee = useMemo(
     () => employees.find((e) => e.employeeId === selectedEmployeeId) ?? null,
@@ -280,10 +301,9 @@ export function EditAttendancePanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Sticky top bar: heading + filters + summary stay pinned while the
-          table below scrolls. The parent (Settings tab content) is the
-          scroll container, so position:sticky anchors against it. */}
-      <div className="sticky top-0 z-10 flex flex-col gap-3 bg-white pb-3">
+      {/* Top region: heading + filters + summary. Sits as a fixed-height
+          flex child so only the table region below scrolls. */}
+      <div className="flex shrink-0 flex-col gap-3 bg-white pb-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
           <CalendarCheck className="h-5 w-5 text-primary" />
           Attendance Corrections
@@ -291,7 +311,7 @@ export function EditAttendancePanel() {
 
         <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-slate-200 bg-slate-50/50 p-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <label className="text-sm font-semibold text-sky-900">
               Employee
             </label>
             <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
@@ -309,33 +329,40 @@ export function EditAttendancePanel() {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Month
+            <label className="text-sm font-semibold text-emerald-900">
+              Choose Month
             </label>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9"
-                onClick={() => setMonthKey((m) => shiftMonth(m, -1))}
-                aria-label="Previous month"
+            <div className="flex w-[230px] items-center gap-2">
+              <Select
+                value={selectedMonthPart}
+                onValueChange={(value) => setSelectedMonth(`${selectedYearPart}-${value}`)}
               >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <div className="min-w-[160px] rounded-md border border-slate-200 bg-white px-3 py-1.5 text-center text-sm font-semibold text-slate-700">
-                {formatMonthLabel(monthKey)}
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className="h-9 w-9"
-                onClick={() => setMonthKey((m) => shiftMonth(m, 1))}
-                aria-label="Next month"
+                <SelectTrigger className="h-9 w-[108px] border-emerald-200 focus:ring-emerald-300">
+                  <SelectValue placeholder="Month" />
+                </SelectTrigger>
+                <SelectContent className="max-h-56">
+                  {MONTH_OPTIONS.map((month) => (
+                    <SelectItem key={month.value} value={month.value}>
+                      {month.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={selectedYearPart}
+                onValueChange={(value) => setSelectedMonth(`${value}-${selectedMonthPart}`)}
               >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
+                <SelectTrigger className="h-9 w-[114px] border-emerald-200 focus:ring-emerald-300">
+                  <SelectValue placeholder="Year" />
+                </SelectTrigger>
+                <SelectContent className="max-h-56">
+                  {yearOptions.map((year) => (
+                    <SelectItem key={year} value={year}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -386,25 +413,25 @@ export function EditAttendancePanel() {
         ) : null}
       </div>
 
-      {/* Scroll body: the table sits below the sticky header and is the
-          only element that scrolls when content overflows. */}
+      {/* Scroll body: only the table data scrolls. The Table component
+          already provides an inner scroll wrapper and sticky `th`s, so we
+          just need to give it a bounded height via flex. */}
       <div className="mt-3 min-h-0 flex-1">
         {!selectedEmployee ? (
           <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/40 px-6 py-12 text-center text-sm text-slate-500">
             Select an employee to view and edit their attendance for the month.
           </div>
         ) : (
-          <div className="rounded-2xl border border-slate-200 bg-white">
-            <Table className="min-w-[680px]">
-              <TableHeader>
-                <TableRow className="bg-slate-50/60">
-                  <TableHead className="w-20">Date</TableHead>
-                  <TableHead className="w-20">Day</TableHead>
-                  <TableHead className="w-[160px]">Current Status</TableHead>
-                  <TableHead className="w-[200px]">Override Status</TableHead>
-                  <TableHead className="w-[160px] text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
+          <Table className="min-w-[680px]">
+            <TableHeader>
+              <TableRow className="bg-slate-50/60">
+                <TableHead className="w-20">Date</TableHead>
+                <TableHead className="w-20">Day</TableHead>
+                <TableHead className="w-[160px]">Current Status</TableHead>
+                <TableHead className="w-[200px]">Override Status</TableHead>
+                <TableHead className="w-[160px] text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
               <TableBody>
                 {rows.map((row) => {
                   const draft = row.draft;
@@ -427,9 +454,8 @@ export function EditAttendancePanel() {
                         {effectiveStatus ? (
                           <span
                             className={cn(
-                              "inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wide",
-                              STATUS_PILL_CLASS[effectiveStatus] ??
-                                "border-slate-200 bg-slate-50 text-slate-700",
+                              "text-sm font-semibold",
+                              STATUS_TEXT_CLASS[effectiveStatus] ?? "text-slate-700",
                             )}
                           >
                             {effectiveStatus}
@@ -497,9 +523,8 @@ export function EditAttendancePanel() {
                     </TableRow>
                   );
                 })}
-              </TableBody>
-            </Table>
-          </div>
+            </TableBody>
+          </Table>
         )}
       </div>
     </div>

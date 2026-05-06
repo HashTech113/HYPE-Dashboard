@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Cropper, { type Area } from "react-easy-crop";
-import { Eye, EyeOff } from "lucide-react";
 import { type Employee } from "@/api/dashboardApi";
+import { getCurrentCompany } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -127,12 +127,17 @@ export function EmployeeForm({
   saveLabel = "Save Changes",
   showCancel = false,
 }: EmployeeFormProps) {
+  // HR users are scoped to one company; their employees should always belong
+  // to that company. Lock the field rather than show a dropdown.
+  const scopedCompany = getCurrentCompany();
   const [draft, setDraft] = useState<Employee>({
     ...employee,
     dob: normalizeDob(employee.dob),
     shift: normalizeShift(employee.shift),
+    email: employee.email ?? "",
+    mobile: employee.mobile ?? "",
+    company: employee.company || scopedCompany || employee.company,
   });
-  const [showPassword, setShowPassword] = useState(false);
   const [cropSource, setCropSource] = useState<string | null>(null);
   const [cropPosition, setCropPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [cropZoom, setCropZoom] = useState<number>(1);
@@ -174,8 +179,11 @@ export function EmployeeForm({
       ...employee,
       dob: normalizeDob(employee.dob),
       shift: normalizeShift(employee.shift),
+      email: employee.email ?? "",
+      mobile: employee.mobile ?? "",
+      company: employee.company || scopedCompany || employee.company,
     });
-  }, [employee]);
+  }, [employee, scopedCompany]);
 
   const companyOptions = COMPANY_OPTIONS.includes(draft.company as (typeof COMPANY_OPTIONS)[number])
     ? COMPANY_OPTIONS
@@ -274,39 +282,44 @@ export function EmployeeForm({
             )}
           </div>
         </div>
-        <div className="col-span-2 space-y-2">
-          <Label>Password</Label>
-          <div className="relative">
-            <Input
-              type={showPassword ? "text" : "password"}
-              value={draft.password}
-              onChange={(e) => setDraft({ ...draft, password: e.target.value })}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="absolute right-1 top-1/2 h-7 w-7 -translate-y-1/2"
-              onClick={() => setShowPassword((prev) => !prev)}
-            >
-              {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </Button>
-          </div>
+        <div className="space-y-2">
+          <Label>Email ID</Label>
+          <Input
+            type="email"
+            value={draft.email ?? ""}
+            placeholder="name@example.com"
+            onChange={(e) => setDraft({ ...draft, email: e.target.value })}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Mobile Number</Label>
+          <Input
+            type="tel"
+            value={draft.mobile ?? ""}
+            placeholder="+91 98765 43210"
+            onChange={(e) => setDraft({ ...draft, mobile: e.target.value })}
+          />
         </div>
         <div className="space-y-2">
           <Label>Company</Label>
-          <Select value={draft.company} onValueChange={(value) => setDraft({ ...draft, company: value })}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select company" />
-            </SelectTrigger>
-            <SelectContent>
-              {companyOptions.map((company) => (
-                <SelectItem key={company} value={company}>
-                  {company}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {scopedCompany ? (
+            // HR is locked to their own company; show the value as a disabled
+            // input so it's visually obvious it can't be changed.
+            <Input value={draft.company} disabled />
+          ) : (
+            <Select value={draft.company} onValueChange={(value) => setDraft({ ...draft, company: value })}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select company" />
+              </SelectTrigger>
+              <SelectContent>
+                {companyOptions.map((company) => (
+                  <SelectItem key={company} value={company}>
+                    {company}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
         <div className="space-y-2">
           <Label>Department</Label>

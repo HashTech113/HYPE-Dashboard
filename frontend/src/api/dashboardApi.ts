@@ -27,8 +27,14 @@ export type Employee = {
   department: string;
   shift: string;
   role: "Admin" | "Employee";
-  password: string;
+  /** Legacy field — kept on the type for older callers, but the EmployeeForm
+   * no longer collects it. Default to empty string when constructing. */
+  password?: string;
   dob: string;
+  /** Optional on the type for backward compat with old mock data; the
+   * EmployeeForm always sends a string (possibly empty). */
+  email?: string;
+  mobile?: string;
 };
 
 export type PresenceRecord = {

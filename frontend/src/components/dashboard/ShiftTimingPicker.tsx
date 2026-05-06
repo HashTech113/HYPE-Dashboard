@@ -1,4 +1,3 @@
-import { Clock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -40,17 +39,6 @@ export function formatShiftTo12Hour(value: string) {
   return `${to12Hour(start)} - ${to12Hour(end)}`;
 }
 
-function shiftDurationLabel(start: string, end: string) {
-  if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return "";
-  const [sh, sm] = start.split(":").map(Number);
-  const [eh, em] = end.split(":").map(Number);
-  const minutes = eh * 60 + em - (sh * 60 + sm);
-  if (minutes <= 0) return "";
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`;
-}
-
 export function ShiftTimingPicker({ value, onChange, startLabel = "Start Time", endLabel = "End Time" }: ShiftTimingPickerProps) {
   const normalized = normalizeShift(value);
   const [startRaw, endRaw] = normalized.includes("-") ? normalized.split("-") : ["", ""];
@@ -61,8 +49,6 @@ export function ShiftTimingPicker({ value, onChange, startLabel = "Start Time", 
     onChange(`${nextStart || "00:00"}-${nextEnd || "00:00"}`);
   };
 
-  const preview = formatShiftTo12Hour(`${start || "00:00"}-${end || "00:00"}`);
-  const duration = shiftDurationLabel(start, end);
   const valid = isValidShift(`${start}-${end}`);
   const showInvalid = Boolean(start && end) && !valid;
 
@@ -85,13 +71,6 @@ export function ShiftTimingPicker({ value, onChange, startLabel = "Start Time", 
             onChange={(event) => updateShift(start, event.target.value)}
           />
         </div>
-      </div>
-      <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50/70 px-2.5 py-1.5">
-        <div className="flex items-center gap-2 text-xs text-slate-600">
-          <Clock className="h-3.5 w-3.5 text-slate-500" />
-          <span className="font-medium text-slate-700">{preview || "Pick a start and end time"}</span>
-        </div>
-        {duration ? <span className="text-[11px] font-medium text-slate-500">Duration: {duration}</span> : null}
       </div>
       {showInvalid ? (
         <p className="text-xs text-destructive">End time must be after start time.</p>

@@ -767,7 +767,7 @@ function PresencePage() {
         actions={
           <div className="ml-[5rem] flex flex-1 flex-wrap items-center gap-3 sm:ml-[6rem]">
             <div className="flex items-center gap-2">
-              <Search className="h-4 w-4 text-primary" />
+              <Search className="h-5 w-5 text-primary" />
               <span className="whitespace-nowrap text-sm font-semibold text-sky-900">
                 Employees
               </span>
@@ -823,11 +823,11 @@ function PresencePage() {
           {!isCompanyScoped ? (
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">
+                <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">
                   Company
                 </span>
                 <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="h-10 w-[130px] border-indigo-200 focus:ring-indigo-300 sm:w-[140px] md:w-[150px]">
+                  <SelectTrigger className="h-9 w-[130px] border-indigo-200 focus:ring-indigo-300 sm:w-[140px] md:w-[150px]">
                     <SelectValue placeholder="Select company" />
                   </SelectTrigger>
                   <SelectContent>

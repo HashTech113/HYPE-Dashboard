@@ -36,7 +36,9 @@ CREATE TABLE IF NOT EXISTS employees (
     shift TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'Employee',
     dob TEXT NOT NULL DEFAULT '',
-    image_url TEXT NOT NULL DEFAULT ''
+    image_url TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    mobile TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS attendance_corrections (
@@ -138,6 +140,10 @@ def init_schema() -> None:
             conn.execute("ALTER TABLE employees ADD COLUMN dob TEXT NOT NULL DEFAULT ''")
         if not _column_exists(conn, "employees", "image_url"):
             conn.execute("ALTER TABLE employees ADD COLUMN image_url TEXT NOT NULL DEFAULT ''")
+        if not _column_exists(conn, "employees", "email"):
+            conn.execute("ALTER TABLE employees ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+        if not _column_exists(conn, "employees", "mobile"):
+            conn.execute("ALTER TABLE employees ADD COLUMN mobile TEXT NOT NULL DEFAULT ''")
         # Backfill new attendance_corrections columns on databases created
         # before report-level overrides existed.
         for col, ddl in (

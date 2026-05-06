@@ -70,8 +70,9 @@ export function EditEmployeesPanel() {
     department: "",
     shift: "09:00-18:00",
     role: "Employee",
-    password: "",
     dob: "1990-01-01",
+    email: "",
+    mobile: "",
   };
 
   return (
@@ -108,7 +109,7 @@ export function EditEmployeesPanel() {
 
       {!isCompanyScoped ? (
         <div className="flex items-center gap-2">
-          <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">
+          <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">
             Company
           </span>
           <Select value={companyFilter} onValueChange={setCompanyFilter}>
