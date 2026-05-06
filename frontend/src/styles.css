@@ -246,6 +246,19 @@
   background-color: rgba(100, 116, 139, 0.8);
 }
 
+/* Search dropdown menus should stay scrollable but keep scrollbars visually
+   hidden for a cleaner filter UI, regardless of parent scrollbar policies. */
+.search-dropdown-scrollbar-hidden {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+.search-dropdown-scrollbar-hidden::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+}
+
 /* Dashboard widgets: line-draw animation for Presence Trend chart */
 @keyframes drawLine {
   to {

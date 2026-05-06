@@ -105,12 +105,14 @@ export function SearchableSelect({
           if (disabled) return;
           setIsEditing(true);
           setOpen(true);
-          setQuery(selectedOption?.label ?? "");
+          // Open with full options list; filtering begins only when user types.
+          setQuery("");
         }}
         onDoubleClick={() => {
           if (disabled) return;
           setIsEditing(true);
           setOpen(true);
+          setQuery("");
         }}
         onChange={(e) => {
           setIsEditing(true);
@@ -158,7 +160,7 @@ export function SearchableSelect({
       {open ? (
         <div
           className={cn(
-            "absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
+            "search-dropdown-scrollbar-hidden absolute z-50 mt-1 max-h-56 w-full overflow-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md",
             dropdownClassName,
           )}
         >
