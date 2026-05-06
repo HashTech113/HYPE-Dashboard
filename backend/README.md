@@ -140,7 +140,7 @@ Paginated log of every capture (recognised + Unknown). Sourced from `snapshot_lo
 | `MAX_PAGE_LIMIT` | `500` | Max `limit` / `latest` |
 | `SHIFT_START` | `09:30` | Local shift start |
 | `SHIFT_END` | `18:30` | Local shift end |
-| `LATE_GRACE_MIN` | `5` | Minutes of grace before a late arrival |
+| `LATE_GRACE_MIN` | `15` | Minutes of grace before a late arrival |
 | `EARLY_EXIT_GRACE_MIN` | `5` | Minutes of grace before an early exit |
 | `LOCAL_TZ_OFFSET_MIN` | `330` | Local timezone offset from UTC |
 | `ALLOWED_ORIGINS` | *(unset)* | Extra CORS origins, comma-separated |

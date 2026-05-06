@@ -60,10 +60,11 @@ DEFAULT_HISTORY_START = os.getenv("DEFAULT_HISTORY_START", "2026-04-15")
 DEFAULT_PAGE_LIMIT = int(os.getenv("DEFAULT_PAGE_LIMIT", "50"))
 MAX_PAGE_LIMIT = int(os.getenv("MAX_PAGE_LIMIT", "500"))
 
-# Attendance shift defaults — clock-in 09:30, clock-out 18:30, IST (+05:30).
+# Attendance shift defaults — clock-in 09:30, late after 09:45 (15 min grace),
+# clock-out 18:30, IST (+05:30).
 SHIFT_START = os.getenv("SHIFT_START", "09:30")
 SHIFT_END = os.getenv("SHIFT_END", "18:30")
-LATE_GRACE_MIN = int(os.getenv("LATE_GRACE_MIN", "5"))
+LATE_GRACE_MIN = int(os.getenv("LATE_GRACE_MIN", "15"))
 EARLY_EXIT_GRACE_MIN = int(os.getenv("EARLY_EXIT_GRACE_MIN", "5"))
 LOCAL_TZ_OFFSET_MIN = int(os.getenv("LOCAL_TZ_OFFSET_MIN", "330"))
 

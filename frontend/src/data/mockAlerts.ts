@@ -17,7 +17,7 @@ export const mockAlerts: Alert[] = [
 ];
 
 export const alertRules = {
-  lateThreshold: 10,
+  lateThreshold: 15,
   earlyExitThreshold: 30,
   multipleExitsThreshold: 3,
   afterHoursStart: "20:00",
