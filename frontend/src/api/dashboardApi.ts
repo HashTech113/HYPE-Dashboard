@@ -311,6 +311,16 @@ export type AttendanceBreakInterval = {
   duration: string;
 };
 
+export type AttendanceStatusFull =
+  | "Present"
+  | "Late"
+  | "Early Exit"
+  | "Absent"
+  | "WFH"
+  | "Paid Leave"
+  | "LOP"
+  | "Holiday";
+
 export type AttendanceSummaryItem = {
   id: string;
   name: string;
@@ -322,7 +332,7 @@ export type AttendanceSummaryItem = {
   late_entry_seconds: number;
   early_exit_minutes: number;
   early_exit_seconds: number;
-  status: "Present" | "Late" | "Early Exit" | "Absent";
+  status: AttendanceStatusFull;
   total_hours: string;
   total_working_hours?: string;
   total_break_time?: string;
@@ -335,6 +345,9 @@ export type AttendanceSummaryItem = {
   missing_checkout?: boolean;
   is_active?: boolean;
   correction_applied?: boolean;
+  paid_leave?: boolean;
+  lop?: boolean;
+  wfh?: boolean;
 };
 
 export type AttendanceSummaryResponse = {
@@ -525,4 +538,85 @@ export async function getCameraStreamToken(id: string): Promise<{ token: string;
  * query string because <img> can't set Authorization. */
 export function buildCameraStreamUrl(id: string, token: string): string {
   return `${FACE_API_BASE}/api/cameras/${encodeURIComponent(id)}/stream?token=${encodeURIComponent(token)}`;
+}
+
+// ---- Attendance corrections (HR/Admin report-level edits) -----------------
+
+export type AttendanceCorrection = {
+  name: string;
+  date: string;
+  entry_iso: string | null;
+  exit_iso: string | null;
+  total_break_seconds: number | null;
+  missing_checkout_resolved: boolean;
+  note: string | null;
+  status_override: AttendanceStatusFull | null;
+  paid_leave: boolean;
+  lop: boolean;
+  wfh: boolean;
+  updated_by: string | null;
+  updated_at: string;
+};
+
+export type AttendanceCorrectionUpsert = {
+  name: string;
+  date: string;
+  entry_iso?: string | null;
+  exit_iso?: string | null;
+  total_break_seconds?: number | null;
+  missing_checkout_resolved?: boolean;
+  note?: string | null;
+  status_override?: AttendanceStatusFull | null;
+  paid_leave?: boolean | null;
+  lop?: boolean | null;
+  wfh?: boolean | null;
+};
+
+export async function listAttendanceCorrections(params: {
+  name?: string;
+  start?: string;
+  end?: string;
+} = {}): Promise<AttendanceCorrection[]> {
+  const url = buildUrl("/api/attendance/corrections", {
+    name: params.name,
+    start: params.start,
+    end: params.end,
+  });
+  const resp = await authFetch(url, { cache: "no-store" });
+  const data = await jsonOrThrow<{ items: AttendanceCorrection[] }>(resp, "Failed to load corrections");
+  return data.items;
+}
+
+/** Window event broadcast after any attendance correction is written, so
+ * other open views (Attendance History, Reports) can invalidate their cache
+ * and refetch immediately instead of waiting for the next poll tick. */
+export const ATTENDANCE_CORRECTION_EVENT = "attendance-dashboard:correction-changed";
+
+function broadcastCorrectionChange(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(ATTENDANCE_CORRECTION_EVENT));
+}
+
+export async function upsertAttendanceCorrection(
+  payload: AttendanceCorrectionUpsert,
+): Promise<AttendanceCorrection> {
+  const resp = await authFetch(buildUrl("/api/attendance/corrections", {}), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const out = await jsonOrThrow<AttendanceCorrection>(resp, "Failed to save attendance correction");
+  broadcastCorrectionChange();
+  return out;
+}
+
+export async function deleteAttendanceCorrection(name: string, date: string): Promise<void> {
+  const resp = await authFetch(
+    buildUrl("/api/attendance/corrections", { name, date }),
+    { method: "DELETE" },
+  );
+  if (!resp.ok && resp.status !== 404) {
+    throw new Error(`Failed to clear correction (${resp.status})`);
+  }
+  broadcastCorrectionChange();
 }

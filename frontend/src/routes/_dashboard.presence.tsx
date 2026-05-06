@@ -5,7 +5,11 @@ import { SectionShell } from "@/components/dashboard/SectionShell";
 import { mockPresenceHistory, type PresenceRecord } from "@/data/mockPresence";
 import { mockHolidayCalendar } from "@/data/mockHolidayCalendar";
 import { useEmployees } from "@/contexts/EmployeesContext";
-import { getAttendanceLogs, type AttendanceSummaryItem } from "@/api/dashboardApi";
+import {
+  ATTENDANCE_CORRECTION_EVENT,
+  getAttendanceLogs,
+  type AttendanceSummaryItem,
+} from "@/api/dashboardApi";
 import { companyMatches } from "@/lib/auth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -155,13 +159,27 @@ function earlyExitLabel(record: PresenceRecord | null): string {
   return formatDurationSeconds(seconds);
 }
 
-const statusPillClassName: Record<"Present" | "Late" | "Early Exit" | "Absent" | "Holiday" | "Sunday", string> = {
+type PillKey =
+  | "Present"
+  | "Late"
+  | "Early Exit"
+  | "Absent"
+  | "Holiday"
+  | "Sunday"
+  | "WFH"
+  | "Paid Leave"
+  | "LOP";
+
+const statusPillClassName: Record<PillKey, string> = {
   Present: "border-emerald-200 bg-emerald-50 text-emerald-700",
   Late: "border-orange-200 bg-orange-50 text-orange-700",
   "Early Exit": "border-orange-200 bg-orange-50 text-orange-700",
   Absent: "border-rose-200 bg-rose-50 text-rose-700",
   Holiday: "border-blue-200 bg-blue-50 text-blue-700",
   Sunday: "border-orange-200 bg-orange-50 text-orange-700",
+  WFH: "border-violet-200 bg-violet-50 text-violet-700",
+  "Paid Leave": "border-blue-200 bg-blue-50 text-blue-700",
+  LOP: "border-rose-300 bg-rose-100 text-rose-800",
 };
 
 type DetailTone =
@@ -382,9 +400,15 @@ function PresencePage() {
     activeRef.current = true;
     loadAttendance();
     const id = window.setInterval(() => loadAttendance(), ATTENDANCE_REFRESH_MS);
+    // Refetch immediately when an HR/Admin saves an edit in Settings → Edit
+    // Attendance Report, so this view reflects the change without waiting
+    // for the next 5s poll tick.
+    const onCorrection = () => loadAttendance();
+    window.addEventListener(ATTENDANCE_CORRECTION_EVENT, onCorrection);
     return () => {
       activeRef.current = false;
       window.clearInterval(id);
+      window.removeEventListener(ATTENDANCE_CORRECTION_EVENT, onCorrection);
     };
   }, [loadAttendance]);
 
@@ -680,12 +704,7 @@ function PresencePage() {
       <SectionShell
         title="Attendance History"
         icon={<Calendar className="h-5 w-5 text-primary" />}
-        // Flat treatment: kill the neumorphic shadow + outer border so the
-        // card blends into the now-white page instead of looking like a
-        // raised box on a tinted background.
-        // More pronounced curve and a wider inset so the card visibly
-        // shrinks away from the page edges.
-        className="animate-fade-in-up mx-2 my-2 !rounded-3xl !border !border-slate-200 !shadow-sm"
+        className="animate-fade-in-up"
         contentClassName="flex min-h-0 flex-1 flex-col gap-2.5 p-3"
         inlineActions
         actions={
@@ -1016,25 +1035,24 @@ function PresencePage() {
                     (Present=emerald, Absent=red, Sundays=orange, Leaves=blue)
                     so the eye can scan the row and the calendar with the
                     same color cues. */}
-                {/* Two centered rows: 4 stats each. Bottom-aligned via the
-                    parent layout, and each row uses justify-center so the
-                    pairs sit symmetrically under the calendar. */}
+                {/* Two centered rows with fixed metric order for quick month
+                    scanning. */}
                 <div className="mt-3 flex flex-col items-center gap-1 text-xs text-slate-900">
                   <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 whitespace-nowrap">
                     <SummaryStat label="Total Working Days" value={totalWorkingDays} numberClass="text-slate-700" />
                     <SummaryDivider />
-                    <SummaryStat label="Present" value={monthlySummary.present} numberClass="text-emerald-600" />
-                    <SummaryDivider />
-                    <SummaryStat label="Absent" value={monthlySummary.absent} numberClass="text-red-600" />
-                    <SummaryDivider />
-                    <SummaryStat label="WFH" value={monthlySummary.wfh} numberClass="text-violet-600" />
-                  </div>
-                  <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 whitespace-nowrap">
-                    <SummaryStat label="Paid Leave" value={monthlySummary.paidLeave} numberClass="text-blue-600" />
-                    <SummaryDivider />
                     <SummaryStat label="Sundays" value={monthlySummary.sundays} numberClass="text-orange-600" />
                     <SummaryDivider />
                     <SummaryStat label="Company Leaves" value={monthlySummary.companyLeaves} numberClass="text-blue-600" />
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 whitespace-nowrap">
+                    <SummaryStat label="Present" value={monthlySummary.present} numberClass="text-emerald-600" />
+                    <SummaryDivider />
+                    <SummaryStat label="WFH" value={monthlySummary.wfh} numberClass="text-violet-600" />
+                    <SummaryDivider />
+                    <SummaryStat label="Paid Leave" value={monthlySummary.paidLeave} numberClass="text-blue-600" />
+                    <SummaryDivider />
+                    <SummaryStat label="Absent" value={monthlySummary.absent} numberClass="text-red-600" />
                     <SummaryDivider />
                     <SummaryStat label="LOP" value={lopCount} numberClass="text-rose-600" />
                   </div>

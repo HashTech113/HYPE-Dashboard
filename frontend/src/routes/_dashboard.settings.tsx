@@ -1,74 +1,75 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { Settings as SettingsIcon, Users, UserCog, ArrowRight } from "lucide-react";
+import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import {
+  Settings as SettingsIcon,
+  Users,
+  CalendarCheck,
+  UserCog,
+} from "lucide-react";
+
 import { SectionShell } from "@/components/dashboard/SectionShell";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { getCurrentRole } from "@/lib/auth";
+import { cn } from "@/lib/utils";
+
+import { EditEmployeesPanel } from "@/components/dashboard/settings/EditEmployeesPanel";
+import { EditAttendancePanel } from "@/components/dashboard/settings/EditAttendancePanel";
+import { EditProfilePanel } from "@/components/dashboard/settings/EditProfilePanel";
 
 export const Route = createFileRoute("/_dashboard/settings")({
   component: SettingsPage,
 });
 
+type TabId = "employees" | "attendance" | "profile";
+
+const TABS: { id: TabId; label: string; icon: typeof Users }[] = [
+  { id: "employees", label: "Edit Employee Management", icon: Users },
+  { id: "attendance", label: "Edit Attendance Report", icon: CalendarCheck },
+  { id: "profile", label: "Edit Profile", icon: UserCog },
+];
+
 function SettingsPage() {
-  const role = getCurrentRole();
-  const isAdmin = role === "admin";
+  const [active, setActive] = useState<TabId>("employees");
 
   return (
-    <div className="flex min-h-full flex-col">
-      <SectionShell title="Settings" icon={<SettingsIcon className="h-5 w-5 text-primary" />}>
+    <div className="flex h-full flex-col overflow-hidden">
+      <SectionShell
+        title="Settings"
+        icon={<SettingsIcon className="h-5 w-5 text-primary" />}
+        className="animate-fade-in-up"
+        contentClassName="flex min-h-0 flex-1 flex-col gap-4 p-4"
+      >
         <div
-          className={
-            isAdmin
-              ? "grid grid-cols-1 gap-6 lg:grid-cols-2"
-              : "grid grid-cols-1 gap-6 lg:max-w-xl"
-          }
+          role="tablist"
+          aria-label="Settings sections"
+          className="flex flex-wrap items-center gap-2 border-b border-slate-200 pb-2"
         >
-          <Card className="animate-fade-in-up">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Users className="h-4 w-4 text-primary" />
-                Employee Management
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                {isAdmin
-                  ? "View and edit all employees in the system, manage their information, shift timings, and more."
-                  : "View and edit your company's employees, manage their information, shift timings, and more."}
-              </p>
-              <Link to="/employees" className="w-full">
-                <Button className="mt-2 w-full" variant="default">
-                  <Users className="mr-2 h-4 w-4" />
-                  Open Employee Management
-                  <ArrowRight className="ml-auto h-4 w-4" />
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
+          {TABS.map((tab) => {
+            const Icon = tab.icon;
+            const selected = tab.id === active;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setActive(tab.id)}
+                className={cn(
+                  "flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-colors",
+                  selected
+                    ? "border-[#3f9382] bg-[#eef7f4] text-[#2f8f7b]"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-800",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
 
-          {isAdmin ? (
-            <Card className="animate-fade-in-up">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <UserCog className="h-4 w-4 text-primary" />
-                  Admin Management
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Review the admin profile, update display name and logo, and manage admin
-                  account credentials.
-                </p>
-                <Link to="/admin" className="w-full">
-                  <Button className="mt-2 w-full" variant="default">
-                    <UserCog className="mr-2 h-4 w-4" />
-                    Open Admin Management
-                    <ArrowRight className="ml-auto h-4 w-4" />
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          ) : null}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {active === "employees" ? <EditEmployeesPanel /> : null}
+          {active === "attendance" ? <EditAttendancePanel /> : null}
+          {active === "profile" ? <EditProfilePanel /> : null}
         </div>
       </SectionShell>
     </div>

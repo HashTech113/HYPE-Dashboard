@@ -1,12 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Download, Pencil, Trash2, Users, Filter } from "lucide-react";
+import { Download, Search, Settings as SettingsIcon, Trash2, Users } from "lucide-react";
 import { type Employee } from "@/api/dashboardApi";
 import { useEmployees } from "@/contexts/EmployeesContext";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,7 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
-import { EmployeeForm, COMPANY_OPTIONS } from "@/components/dashboard/EmployeeForm";
+import { COMPANY_OPTIONS } from "@/components/dashboard/EmployeeForm";
 import { formatShiftTo12Hour } from "@/components/dashboard/ShiftTimingPicker";
 
 type RoleFilter = "all" | Employee["role"];
@@ -40,7 +39,7 @@ export const Route = createFileRoute("/_dashboard/employees")({
 });
 
 function EmployeesPage() {
-  const { employees, updateEmployee, addEmployee, deleteEmployee, scopedCompany } = useEmployees();
+  const { employees, deleteEmployee, scopedCompany } = useEmployees();
   // HR users see only their own company's roster, so the Company filter and
   // Company column are redundant — hide both.
   const isCompanyScoped = scopedCompany !== null;
@@ -55,9 +54,6 @@ function EmployeesPage() {
   useEffect(() => {
     setSelectedRole(roleFromSearch ?? "all");
   }, [roleFromSearch]);
-  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
 
   const companyOptions = useMemo(() => {
@@ -102,39 +98,10 @@ function EmployeesPage() {
     });
   }, [employeesForSelectedCompany, selectedEmployee, selectedRole, selectedDepartment]);
 
-  const handleEdit = (employee: Employee) => {
-    setEditingEmployee(employee);
-    setEditDialogOpen(true);
-  };
-
-  const handleSaveEdit = (updated: Employee) => {
-    updateEmployee(updated.id, updated);
-    setEditDialogOpen(false);
-    setEditingEmployee(null);
-  };
-
-  const handleAddSave = (created: Employee) => {
-    addEmployee({ ...created, id: created.id || `emp-${Date.now()}` });
-    setAddDialogOpen(false);
-  };
-
   const handleDeleteConfirm = () => {
     if (!employeeToDelete) return;
     deleteEmployee(employeeToDelete.id);
     setEmployeeToDelete(null);
-  };
-
-  const blankEmployee: Employee = {
-    id: "",
-    name: "",
-    employeeId: "",
-    imageUrl: "",
-    company: COMPANY_OPTIONS[0],
-    department: "",
-    shift: "09:00-18:00",
-    role: "Employee",
-    password: "",
-    dob: "1990-01-01",
   };
 
   return (
@@ -145,25 +112,12 @@ function EmployeesPage() {
         className="animate-fade-in-up"
         actions={
           <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:gap-3">
-            <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
-              <DialogTrigger asChild>
-                <Button size="sm" className="h-10 gap-1.5 px-4">
-                  <Plus className="h-4 w-4" />Add Employee
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-lg">
-                <DialogHeader>
-                  <DialogTitle>Add New Employee</DialogTitle>
-                </DialogHeader>
-                <EmployeeForm
-                  employee={blankEmployee}
-                  saveLabel="Save Employee"
-                  showCancel
-                  onCancel={() => setAddDialogOpen(false)}
-                  onSave={handleAddSave}
-                />
-              </DialogContent>
-            </Dialog>
+            <Link to="/settings">
+              <Button size="sm" className="h-10 gap-1.5 px-4">
+                <SettingsIcon className="h-4 w-4" />
+                Manage in Settings
+              </Button>
+            </Link>
             <Button variant="outline" size="sm" className="h-10 gap-1.5 px-4">
               <Download className="h-4 w-4" />Export
             </Button>
@@ -174,7 +128,7 @@ function EmployeesPage() {
         <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
           {/* Filter row */}
           <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-3">
-            <Filter className="h-4 w-4 text-primary" />
+            <Search className="h-4 w-4 text-primary" />
 
             <div className="flex items-center gap-2">
               <span className="whitespace-nowrap text-xs font-semibold text-sky-900">Employees</span>
@@ -301,9 +255,6 @@ function EmployeesPage() {
                     <TableCell className="hidden lg:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle text-amber-700 last:border-r-0">{formatShiftTo12Hour(employee.shift)}</TableCell>
                     <TableCell className="border-r border-slate-200 py-2 align-middle text-right last:border-r-0">
                       <div className="flex justify-end gap-1">
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-sky-700 hover:bg-sky-50 hover:text-sky-800" onClick={() => handleEdit(employee)}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -328,22 +279,6 @@ function EmployeesPage() {
           </div>
         </CardContent>
       </Card>
-
-      <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Edit Employee</DialogTitle>
-          </DialogHeader>
-          {editingEmployee ? (
-            <EmployeeForm
-              employee={editingEmployee}
-              onSave={handleSaveEdit}
-              onCancel={() => setEditDialogOpen(false)}
-              showCancel
-            />
-          ) : null}
-        </DialogContent>
-      </Dialog>
 
       <AlertDialog open={Boolean(employeeToDelete)} onOpenChange={(open) => !open && setEmployeeToDelete(null)}>
         <AlertDialogContent>

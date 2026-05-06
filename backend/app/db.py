@@ -47,6 +47,15 @@ CREATE TABLE IF NOT EXISTS attendance_corrections (
     total_break_seconds INTEGER,
     missing_checkout_resolved INTEGER NOT NULL DEFAULT 0,
     note TEXT,
+    -- Report-level overrides (HR-set, separate from auto-detected log fixes).
+    -- status_override is an exact final status string; paid_leave/lop/wfh
+    -- are 0/1 flags so monthly summaries can count them without re-deriving
+    -- from status alone.
+    status_override TEXT,
+    paid_leave INTEGER NOT NULL DEFAULT 0,
+    lop INTEGER NOT NULL DEFAULT 0,
+    wfh INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (name, date)
 );
@@ -129,3 +138,14 @@ def init_schema() -> None:
             conn.execute("ALTER TABLE employees ADD COLUMN dob TEXT NOT NULL DEFAULT ''")
         if not _column_exists(conn, "employees", "image_url"):
             conn.execute("ALTER TABLE employees ADD COLUMN image_url TEXT NOT NULL DEFAULT ''")
+        # Backfill new attendance_corrections columns on databases created
+        # before report-level overrides existed.
+        for col, ddl in (
+            ("status_override", "ALTER TABLE attendance_corrections ADD COLUMN status_override TEXT"),
+            ("paid_leave", "ALTER TABLE attendance_corrections ADD COLUMN paid_leave INTEGER NOT NULL DEFAULT 0"),
+            ("lop", "ALTER TABLE attendance_corrections ADD COLUMN lop INTEGER NOT NULL DEFAULT 0"),
+            ("wfh", "ALTER TABLE attendance_corrections ADD COLUMN wfh INTEGER NOT NULL DEFAULT 0"),
+            ("updated_by", "ALTER TABLE attendance_corrections ADD COLUMN updated_by TEXT"),
+        ):
+            if not _column_exists(conn, "attendance_corrections", col):
+                conn.execute(ddl)

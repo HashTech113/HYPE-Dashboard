@@ -298,6 +298,22 @@ def build_daily_records(
             entry_local, exit_local, shift
         )
 
+        # Report-level overrides win over the auto-classified status. These
+        # are HR-set and reflect things the camera pipeline can't infer.
+        paid_leave_flag = False
+        lop_flag = False
+        wfh_flag = False
+        if correction:
+            override_status = correction.get("status_override")
+            if override_status:
+                status = override_status
+                correction_applied = True
+            paid_leave_flag = bool(int(correction.get("paid_leave") or 0))
+            lop_flag = bool(int(correction.get("lop") or 0))
+            wfh_flag = bool(int(correction.get("wfh") or 0))
+            if paid_leave_flag or lop_flag or wfh_flag:
+                correction_applied = True
+
         records.append({
             "name": name,
             "date": target_date.isoformat(),
@@ -332,42 +348,71 @@ def build_daily_records(
             "missing_checkout": missing_checkout,
             "is_active": is_active,
             "correction_applied": correction_applied,
+            "paid_leave": paid_leave_flag,
+            "lop": lop_flag,
+            "wfh": wfh_flag,
         })
 
+    seen = {r["name"].lower() for r in records}
+
+    def _absent_or_corrected_row(display: str) -> dict:
+        """Build a no-capture row, applying any correction for this day."""
+        corr = (corrections or {}).get((display.lower(), target_date.isoformat()))
+        override_status = (corr.get("status_override") if corr else None) or "Absent"
+        pl = bool(int(corr.get("paid_leave") or 0)) if corr else False
+        lp = bool(int(corr.get("lop") or 0)) if corr else False
+        wf = bool(int(corr.get("wfh") or 0)) if corr else False
+        return {
+            "name": display,
+            "date": target_date.isoformat(),
+            "entry": None,
+            "exit": None,
+            "entry_iso": None,
+            "exit_iso": None,
+            "total_hours": "—",
+            "total_working_hours": "—",
+            "total_minutes": 0,
+            "total_working_seconds": 0,
+            "total_break_seconds": 0,
+            "total_break_time": "—",
+            "break_details": [],
+            "status": override_status,
+            "late_minutes": 0,
+            "late_seconds": 0,
+            "early_exit_minutes": 0,
+            "early_exit_seconds": 0,
+            "capture_count": 0,
+            "entry_image_url": None,
+            "exit_image_url": None,
+            "entry_image_archived": False,
+            "exit_image_archived": False,
+            "missing_checkout": False,
+            "is_active": False,
+            "correction_applied": bool(corr),
+            "paid_leave": pl,
+            "lop": lp,
+            "wfh": wf,
+        }
+
     if expected_names:
-        seen = {r["name"].lower() for r in records}
         for raw in expected_names:
             normalized = _normalize_name(raw)
             if not normalized or normalized.lower() in seen:
                 continue
-            records.append({
-                "name": normalized,
-                "date": target_date.isoformat(),
-                "entry": None,
-                "exit": None,
-                "entry_iso": None,
-                "exit_iso": None,
-                "total_hours": "—",
-                "total_working_hours": "—",
-                "total_minutes": 0,
-                "total_working_seconds": 0,
-                "total_break_seconds": 0,
-                "total_break_time": "—",
-                "break_details": [],
-                "status": "Absent",
-                "late_minutes": 0,
-                "late_seconds": 0,
-                "early_exit_minutes": 0,
-                "early_exit_seconds": 0,
-                "capture_count": 0,
-                "entry_image_url": None,
-                "exit_image_url": None,
-                "entry_image_archived": False,
-                "exit_image_archived": False,
-                "missing_checkout": False,
-                "is_active": False,
-                "correction_applied": False,
-            })
+            records.append(_absent_or_corrected_row(normalized))
+            seen.add(normalized.lower())
+
+    # Surface correction-only days even when expected_names wasn't supplied
+    # (e.g. /api/attendance/range filtered to a single employee). Without
+    # this, an HR-marked Paid Leave / WFH / LOP for a day with no captures
+    # would silently disappear from the response.
+    if corrections:
+        target_iso = target_date.isoformat()
+        for (key, c_date), corr in corrections.items():
+            if c_date != target_iso or key in seen:
+                continue
+            records.append(_absent_or_corrected_row(corr.get("name") or key))
+            seen.add(key)
 
     records.sort(key=lambda r: (r["status"] == "Absent", r["name"].lower()))
     return records

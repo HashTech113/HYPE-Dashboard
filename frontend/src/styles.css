@@ -259,51 +259,41 @@
   animation: drawLine 1.2s ease forwards;
 }
 
-/* Neumorphic surfaces — raised cards with soft dual shadows + hover lift.
-   Wrapped in @layer components so Tailwind utility classes (e.g.
-   `bg-emerald-500`) can override the default background while keeping the
-   shadow + transition. */
+/* Flat surfaces — shadows removed site-wide per design direction.
+   Class names retained so existing components keep working without churn,
+   but the neumorphic dual-shadow effect is intentionally a no-op. */
 @layer components {
   .neu-surface {
     background-color: var(--color-card);
-    box-shadow:
-      -6px -6px 12px rgba(255, 255, 255, 0.9),
-      6px 6px 14px rgba(17, 24, 39, 0.08);
-    transition:
-      transform 250ms ease-in-out,
-      box-shadow 250ms ease-in-out;
+    transition: transform 250ms ease-in-out;
   }
 
   .neu-surface-hover:hover {
     transform: translateY(-4px);
-    box-shadow:
-      -8px -8px 18px rgba(255, 255, 255, 0.95),
-      10px 12px 24px rgba(17, 24, 39, 0.12);
   }
 
-  /* Softly inset surface — used for muted/ghost tiles. */
   .neu-inset {
     background-color: var(--color-background);
-    box-shadow:
-      inset 4px 4px 8px rgba(17, 24, 39, 0.06),
-      inset -4px -4px 8px rgba(255, 255, 255, 0.85);
   }
 
-  /* Rounded pill-style control — matches the calendar reference header chips. */
   .neu-pill {
     background-color: var(--color-card);
     border-radius: 9999px;
-    box-shadow:
-      -4px -4px 10px rgba(255, 255, 255, 0.9),
-      4px 4px 10px rgba(17, 24, 39, 0.07);
-    transition:
-      transform 200ms ease-in-out,
-      box-shadow 200ms ease-in-out;
+    transition: transform 200ms ease-in-out;
   }
+}
 
-  .neu-pill:hover {
-    box-shadow:
-      -5px -5px 12px rgba(255, 255, 255, 0.95),
-      6px 6px 14px rgba(17, 24, 39, 0.10);
-  }
+/* Global shadow kill-switch — nullifies Tailwind shadow utilities
+   (shadow, shadow-sm, shadow-md, shadow-xl, shadow-[arbitrary], etc.)
+   so existing className strings don't have to be edited individually. */
+*,
+*::before,
+*::after {
+  --tw-shadow: 0 0 #0000;
+  --tw-shadow-colored: 0 0 #0000;
+}
+[class~="shadow"],
+[class*=" shadow-"],
+[class^="shadow-"] {
+  box-shadow: none !important;
 }

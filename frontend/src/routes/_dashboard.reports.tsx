@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, FileText, Filter, RefreshCw } from "lucide-react";
+import { Download, FileText, RefreshCw, Search } from "lucide-react";
 import {
+  ATTENDANCE_CORRECTION_EVENT,
   getAttendanceLogs,
   type AttendanceSummaryItem,
   type Employee,
@@ -229,9 +230,14 @@ function ReportsPage() {
     fetchData();
     if (intervalRef.current) clearInterval(intervalRef.current);
     intervalRef.current = setInterval(() => fetchData(), POLL_INTERVAL_MS);
+    // Refetch immediately when an HR/Admin saves an attendance correction
+    // in Settings, so reports reflect the change without a poll lag.
+    const onCorrection = () => fetchData();
+    window.addEventListener(ATTENDANCE_CORRECTION_EVENT, onCorrection);
     return () => {
       activeRef.current = false;
       if (intervalRef.current) clearInterval(intervalRef.current);
+      window.removeEventListener(ATTENDANCE_CORRECTION_EVENT, onCorrection);
     };
   }, [fetchData]);
 
@@ -345,7 +351,7 @@ function ReportsPage() {
           <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
             <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 md:flex-row md:items-center md:justify-between">
               <div className="flex flex-wrap items-center gap-3">
-                <Filter className="h-4 w-4 text-primary" />
+                <Search className="h-4 w-4 text-primary" />
 
                 <div className="flex items-center gap-2">
                   <span className="whitespace-nowrap text-xs font-semibold text-sky-900">

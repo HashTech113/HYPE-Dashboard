@@ -1,7 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { getCurrentRole } from "@/lib/auth";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Filter, RefreshCw, Users } from "lucide-react";
+import { Download, RefreshCw, Search, Users } from "lucide-react";
 import {
   getSnapshotLogs,
   type Employee,
@@ -254,7 +254,7 @@ function LiveCapturesPage() {
           <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
             {/* Filter row */}
             <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-3">
-              <Filter className="h-4 w-4 text-primary" />
+              <Search className="h-4 w-4 text-primary" />
 
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-xs font-semibold text-sky-900">

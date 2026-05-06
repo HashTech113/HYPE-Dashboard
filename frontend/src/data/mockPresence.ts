@@ -5,7 +5,7 @@ export interface PresenceRecord {
   entryTime: string;
   exitTime: string | null;
   totalHours: string;
-  status: "Present" | "Late" | "Early Exit" | "Absent";
+  status: "Present" | "Late" | "Early Exit" | "Absent" | "WFH" | "Paid Leave" | "LOP" | "Holiday";
   date: string;
   entryImage?: string;
   exitImage?: string;

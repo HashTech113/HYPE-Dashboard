@@ -7,7 +7,16 @@ from typing import Literal, Optional
 from pydantic import BaseModel
 
 
-Status = Literal["Present", "Late", "Early Exit", "Absent"]
+Status = Literal[
+    "Present",
+    "Late",
+    "Early Exit",
+    "Absent",
+    "WFH",
+    "Paid Leave",
+    "LOP",
+    "Holiday",
+]
 
 
 class ShiftConfig(BaseModel):
@@ -54,6 +63,9 @@ class AttendanceRecord(BaseModel):
     missing_checkout: bool = False
     is_active: bool = False
     correction_applied: bool = False
+    paid_leave: bool = False
+    lop: bool = False
+    wfh: bool = False
 
 
 class AttendanceDayResponse(BaseModel):

@@ -25,7 +25,12 @@ export function SectionShell({
   contentClassName,
 }: SectionShellProps) {
   return (
-    <Card className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", className)}>
+    <Card
+      className={cn(
+        "mx-2 my-2 flex min-h-0 flex-1 flex-col overflow-hidden !rounded-3xl !border !border-slate-200",
+        className,
+      )}
+    >
       <CardContent className={cn("flex min-h-0 flex-1 flex-col gap-4 p-4", contentClassName)}>
         <PageHeader title={title} icon={icon} actions={actions} inlineActions={inlineActions} />
         {children}

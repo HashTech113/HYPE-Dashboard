@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from ..config import JWT_TTL_SECONDS
-from ..dependencies import get_current_user, require_admin
+from ..dependencies import get_current_user, require_admin_or_hr
 from ..services import auth as auth_service
 from ..services.auth import User
 
@@ -108,10 +108,12 @@ class UpdateProfileRequest(BaseModel):
 @router.put("/profile", response_model=UserOut)
 def update_profile(
     payload: UpdateProfileRequest,
-    user: User = Depends(require_admin),
+    user: User = Depends(require_admin_or_hr),
 ) -> UserOut:
-    """Admin-only profile update. Only the calling admin's row is touched —
-    HR profiles are managed via the (future) user-management UI."""
+    """Self-update of the calling user's profile. Both admin and HR can call
+    this — each only updates their OWN row, never anyone else's. The change
+    is mirrored into the JWT cache via the get_by_id refresh on the next
+    authenticated request."""
     new_username = payload.username.strip() if payload.username else None
     if new_username and new_username != user.username:
         existing = auth_service.get_by_username(new_username)

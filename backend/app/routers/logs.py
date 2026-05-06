@@ -89,6 +89,9 @@ def _to_summary_item(row: dict, directory: list) -> AttendanceSummaryItem:
         missing_checkout=bool(row.get("missing_checkout")),
         is_active=bool(row.get("is_active")),
         correction_applied=bool(row.get("correction_applied")),
+        paid_leave=bool(row.get("paid_leave")),
+        lop=bool(row.get("lop")),
+        wfh=bool(row.get("wfh")),
     )
 
 
