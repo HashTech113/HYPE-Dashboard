@@ -1,12 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export type DatePickerProps = {
   /** ISO date string (YYYY-MM-DD) or empty for no selection. */
@@ -65,9 +59,10 @@ export function DatePicker({
   }, [value]);
 
   const yearOptions = useMemo(() => {
-    const out: string[] = [];
+    const out: { value: string; label: string }[] = [];
     for (let y = maxYear; y >= minYear; y -= 1) {
-      out.push(String(y));
+      const yy = String(y);
+      out.push({ value: yy, label: yy });
     }
     return out;
   }, [maxYear, minYear]);
@@ -78,8 +73,20 @@ export function DatePicker({
     const maxDays = Number.isInteger(y) && Number.isInteger(m) && m >= 1 && m <= 12
       ? daysInMonth(y, m)
       : 31;
-    return Array.from({ length: maxDays }, (_, i) => String(i + 1).padStart(2, "0"));
+    return Array.from({ length: maxDays }, (_, i) => {
+      const value = String(i + 1).padStart(2, "0");
+      return { value, label: String(i + 1) };
+    });
   }, [year, month]);
+
+  const monthOptions = useMemo(
+    () =>
+      MONTHS.map((label, idx) => ({
+        value: String(idx + 1).padStart(2, "0"),
+        label,
+      })),
+    [],
+  );
 
   const update = (next: { year?: string; month?: string; day?: string }) => {
     const nextYear = next.year ?? year;
@@ -105,47 +112,38 @@ export function DatePicker({
         className,
       )}
     >
-      <Select value={month || undefined} onValueChange={(v) => update({ month: v })} disabled={disabled}>
-        <SelectTrigger className="h-8 w-[72px] shrink-0 rounded-none border-0 bg-transparent px-2 text-sm shadow-none focus:ring-0">
-          <SelectValue placeholder="Mon" />
-        </SelectTrigger>
-        <SelectContent className="max-h-64">
-          {MONTHS.map((label, idx) => {
-            const val = String(idx + 1).padStart(2, "0");
-            return (
-              <SelectItem key={val} value={val}>
-                {label}
-              </SelectItem>
-            );
-          })}
-        </SelectContent>
-      </Select>
+      <SearchableSelect
+        value={month}
+        options={monthOptions}
+        onValueChange={(v) => update({ month: v })}
+        placeholder="Mon"
+        disabled={disabled}
+        clearValue=""
+        className="h-8 w-[72px] shrink-0 rounded-none border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-0"
+        dropdownClassName="max-h-56"
+      />
       <div className="h-5 w-px shrink-0 bg-slate-200" />
-      <Select value={day || undefined} onValueChange={(v) => update({ day: v })} disabled={disabled}>
-        <SelectTrigger className="h-8 w-[64px] shrink-0 rounded-none border-0 bg-transparent px-2 text-sm shadow-none focus:ring-0">
-          <SelectValue placeholder="Day" />
-        </SelectTrigger>
-        <SelectContent className="max-h-64">
-          {dayOptions.map((d) => (
-            <SelectItem key={d} value={d}>
-              {Number(d)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <SearchableSelect
+        value={day}
+        options={dayOptions}
+        onValueChange={(v) => update({ day: v })}
+        placeholder="Day"
+        disabled={disabled}
+        clearValue=""
+        className="h-8 w-[64px] shrink-0 rounded-none border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-0"
+        dropdownClassName="max-h-56"
+      />
       <div className="h-5 w-px shrink-0 bg-slate-200" />
-      <Select value={year || undefined} onValueChange={(v) => update({ year: v })} disabled={disabled}>
-        <SelectTrigger className="h-8 min-w-0 flex-1 rounded-none border-0 bg-transparent px-2 text-sm shadow-none focus:ring-0">
-          <SelectValue placeholder="Year" />
-        </SelectTrigger>
-        <SelectContent className="max-h-64">
-          {yearOptions.map((y) => (
-            <SelectItem key={y} value={y}>
-              {y}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <SearchableSelect
+        value={year}
+        options={yearOptions}
+        onValueChange={(v) => update({ year: v })}
+        placeholder="Year"
+        disabled={disabled}
+        clearValue=""
+        className="h-8 min-w-0 flex-1 rounded-none border-0 bg-transparent px-2 text-sm shadow-none focus-visible:ring-0"
+        dropdownClassName="max-h-56"
+      />
     </div>
   );
 }

@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Table,
   TableBody,
@@ -158,8 +159,15 @@ export function EditAttendancePanel() {
   );
   const yearOptions = useMemo(() => {
     const currentYear = new Date().getFullYear();
-    return Array.from({ length: 31 }, (_, idx) => String(currentYear + 2 - idx));
+    return Array.from({ length: 31 }, (_, idx) => {
+      const year = String(currentYear + 2 - idx);
+      return { value: year, label: year };
+    });
   }, []);
+  const employeeFilterOptions = useMemo(
+    () => employees.map((emp) => ({ value: emp.employeeId, label: emp.name })),
+    [employees],
+  );
 
   const selectedEmployee = useMemo(
     () => employees.find((e) => e.employeeId === selectedEmployeeId) ?? null,
@@ -206,6 +214,14 @@ export function EditAttendancePanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => {
+      setFeedback(null);
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
 
   // Per-day rows for the current month, joined with API summaries + drafts.
   const today = todayKey();
@@ -314,18 +330,14 @@ export function EditAttendancePanel() {
             <label className="text-sm font-semibold text-sky-900">
               Employee
             </label>
-            <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
-              <SelectTrigger className="h-9 w-[220px] border-sky-200 focus:ring-sky-300">
-                <SelectValue placeholder="Select employee" />
-              </SelectTrigger>
-              <SelectContent>
-                {employees.map((emp) => (
-                  <SelectItem key={emp.employeeId} value={emp.employeeId}>
-                    {emp.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={selectedEmployeeId}
+              onValueChange={setSelectedEmployeeId}
+              options={employeeFilterOptions}
+              clearValue=""
+              placeholder="Select employee"
+              className="h-9 w-[220px] border-sky-200 focus-visible:ring-sky-300"
+            />
           </div>
 
           <div className="flex flex-col gap-1">
@@ -333,36 +345,24 @@ export function EditAttendancePanel() {
               Choose Month
             </label>
             <div className="flex w-[230px] items-center gap-2">
-              <Select
+              <SearchableSelect
                 value={selectedMonthPart}
                 onValueChange={(value) => setSelectedMonth(`${selectedYearPart}-${value}`)}
-              >
-                <SelectTrigger className="h-9 w-[108px] border-emerald-200 focus:ring-emerald-300">
-                  <SelectValue placeholder="Month" />
-                </SelectTrigger>
-                <SelectContent className="max-h-56">
-                  {MONTH_OPTIONS.map((month) => (
-                    <SelectItem key={month.value} value={month.value}>
-                      {month.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Select
+                options={MONTH_OPTIONS}
+                placeholder="Month"
+                showClear={false}
+                className="h-9 w-[108px] border-emerald-200 focus-visible:ring-emerald-300"
+                dropdownClassName="max-h-56"
+              />
+              <SearchableSelect
                 value={selectedYearPart}
                 onValueChange={(value) => setSelectedMonth(`${value}-${selectedMonthPart}`)}
-              >
-                <SelectTrigger className="h-9 w-[114px] border-emerald-200 focus:ring-emerald-300">
-                  <SelectValue placeholder="Year" />
-                </SelectTrigger>
-                <SelectContent className="max-h-56">
-                  {yearOptions.map((year) => (
-                    <SelectItem key={year} value={year}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={yearOptions}
+                placeholder="Year"
+                showClear={false}
+                className="h-9 w-[114px] border-emerald-200 focus-visible:ring-emerald-300"
+                dropdownClassName="max-h-56"
+              />
             </div>
           </div>
 

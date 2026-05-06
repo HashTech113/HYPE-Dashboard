@@ -21,13 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Table,
   TableBody,
@@ -60,6 +54,13 @@ export function EditEmployeesPanel() {
     if (companyFilter === "all") return employees;
     return employees.filter((employee) => employee.company === companyFilter);
   }, [employees, companyFilter]);
+  const companyFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "All Companies" },
+      ...companyOptions.map((company) => ({ value: company, label: company })),
+    ],
+    [companyOptions],
+  );
 
   const blankEmployee: Employee = {
     id: "",
@@ -112,19 +113,14 @@ export function EditEmployeesPanel() {
           <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">
             Company
           </span>
-          <Select value={companyFilter} onValueChange={setCompanyFilter}>
-            <SelectTrigger className="h-9 w-[180px] border-indigo-200 focus:ring-indigo-300">
-              <SelectValue placeholder="All Companies" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Companies</SelectItem>
-              {companyOptions.map((company) => (
-                <SelectItem key={company} value={company}>
-                  {company}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableSelect
+            value={companyFilter}
+            onValueChange={setCompanyFilter}
+            options={companyFilterOptions}
+            clearValue="all"
+            placeholder="All Companies"
+            className="h-9 w-[180px] border-indigo-200 focus-visible:ring-indigo-300"
+          />
         </div>
       ) : null}
 

@@ -11,7 +11,7 @@ import {
   type AttendanceSummaryItem,
 } from "@/api/dashboardApi";
 import { companyMatches } from "@/lib/auth";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DatePicker } from "@/components/dashboard/DatePicker";
@@ -466,6 +466,23 @@ function PresencePage() {
       : employees.filter((employee) => employee.company === selectedCompany)),
     [employees, selectedCompany]
   );
+  const employeeFilterOptions = useMemo(
+    () => [
+      { value: "none", label: "Select Employee" },
+      ...employeesForSelectedCompany.map((emp) => ({
+        value: emp.employeeId,
+        label: emp.name,
+      })),
+    ],
+    [employeesForSelectedCompany],
+  );
+  const companyFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "All Companies" },
+      ...companyOptions.map((company) => ({ value: company, label: company })),
+    ],
+    [companyOptions],
+  );
 
   useEffect(() => {
     if (selectedEmployee === "none") {
@@ -771,19 +788,14 @@ function PresencePage() {
               <span className="whitespace-nowrap text-sm font-semibold text-sky-900">
                 Employees
               </span>
-              <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                <SelectTrigger className="h-9 w-[155px] border-sky-200 focus:ring-sky-300 sm:w-[170px] md:w-[180px]">
-                  <SelectValue placeholder="Select employee" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Select Employee</SelectItem>
-                  {employeesForSelectedCompany.map((emp) => (
-                    <SelectItem key={emp.employeeId} value={emp.employeeId}>
-                      {emp.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={selectedEmployee}
+                onValueChange={setSelectedEmployee}
+                options={employeeFilterOptions}
+                clearValue="none"
+                placeholder="Select employee"
+                className="h-9 w-[155px] border-sky-200 focus-visible:ring-sky-300 sm:w-[170px] md:w-[180px]"
+              />
             </div>
 
             <div className="flex items-center gap-2">
@@ -826,19 +838,14 @@ function PresencePage() {
                 <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">
                   Company
                 </span>
-                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="h-9 w-[130px] border-indigo-200 focus:ring-indigo-300 sm:w-[140px] md:w-[150px]">
-                    <SelectValue placeholder="Select company" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Companies</SelectItem>
-                    {companyOptions.map((company) => (
-                      <SelectItem key={company} value={company}>
-                        {company}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={selectedCompany}
+                  onValueChange={setSelectedCompany}
+                  options={companyFilterOptions}
+                  clearValue="all"
+                  placeholder="Select company"
+                  className="h-9 w-[130px] border-indigo-200 focus-visible:ring-indigo-300 sm:w-[140px] md:w-[150px]"
+                />
               </div>
             </div>
           ) : null}

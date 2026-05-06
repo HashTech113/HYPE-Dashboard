@@ -13,13 +13,7 @@ import { SectionShell } from "@/components/dashboard/SectionShell";
 import { DatePicker } from "@/components/dashboard/DatePicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 import { formatDateDash, formatTime12 } from "@/lib/dateFormat";
 import {
@@ -109,6 +103,23 @@ function LiveCapturesPage() {
         ? employees
         : employees.filter((employee) => employee.company === selectedCompany),
     [employees, selectedCompany],
+  );
+  const employeeFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "All Employees" },
+      ...employeesForSelectedCompany.map((employee) => ({
+        value: employee.employeeId,
+        label: employee.name,
+      })),
+    ],
+    [employeesForSelectedCompany],
+  );
+  const companyFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "All Companies" },
+      ...companyOptions.map((company) => ({ value: company, label: company })),
+    ],
+    [companyOptions],
   );
 
   useEffect(() => {
@@ -260,38 +271,28 @@ function LiveCapturesPage() {
                 <span className="whitespace-nowrap text-sm font-semibold text-sky-900">
                   Employees
                 </span>
-                <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                  <SelectTrigger className="h-9 w-[140px] border-sky-200 focus:ring-sky-300 sm:w-[150px] md:w-[160px]">
-                    <SelectValue placeholder="All Employees" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Employees</SelectItem>
-                    {employeesForSelectedCompany.map((employee) => (
-                      <SelectItem key={employee.employeeId} value={employee.employeeId}>
-                        {employee.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={selectedEmployee}
+                  onValueChange={setSelectedEmployee}
+                  options={employeeFilterOptions}
+                  clearValue="all"
+                  placeholder="All Employees"
+                  className="h-9 w-[140px] border-sky-200 focus-visible:ring-sky-300 sm:w-[150px] md:w-[160px]"
+                />
               </div>
 
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">
                   Companies
                 </span>
-                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="h-9 w-[125px] border-indigo-200 focus:ring-indigo-300 sm:w-[135px] md:w-[145px]">
-                    <SelectValue placeholder="All Companies" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Companies</SelectItem>
-                    {companyOptions.map((company) => (
-                      <SelectItem key={company} value={company}>
-                        {company}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={selectedCompany}
+                  onValueChange={setSelectedCompany}
+                  options={companyFilterOptions}
+                  clearValue="all"
+                  placeholder="All Companies"
+                  className="h-9 w-[125px] border-indigo-200 focus-visible:ring-indigo-300 sm:w-[135px] md:w-[145px]"
+                />
               </div>
 
               <div className="flex items-center gap-2">

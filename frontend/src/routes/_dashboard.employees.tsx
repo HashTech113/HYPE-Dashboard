@@ -6,7 +6,7 @@ import { useEmployees } from "@/contexts/EmployeesContext";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { COMPANY_OPTIONS } from "@/components/dashboard/EmployeeForm";
 import { formatShiftTo12Hour } from "@/components/dashboard/ShiftTimingPicker";
@@ -86,6 +86,38 @@ function EmployeesPage() {
       return true;
     });
   }, [employeesForSelectedCompany, selectedEmployee, selectedRole, selectedDepartment]);
+  const employeeFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "All Employees" },
+      ...employeesForSelectedCompany.map((emp) => ({
+        value: emp.employeeId,
+        label: emp.name,
+      })),
+    ],
+    [employeesForSelectedCompany],
+  );
+  const companyFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "All Companies" },
+      ...companyOptions.map((company) => ({ value: company, label: company })),
+    ],
+    [companyOptions],
+  );
+  const departmentFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "All Departments" },
+      ...departmentOptions.map((department) => ({ value: department, label: department })),
+    ],
+    [departmentOptions],
+  );
+  const roleFilterOptions = useMemo(
+    () => [
+      { value: "all", label: "All Roles" },
+      { value: "Admin", label: "Admin" },
+      { value: "Employee", label: "Employee" },
+    ],
+    [],
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -115,60 +147,45 @@ function EmployeesPage() {
 
             <div className="flex items-center gap-2">
               <span className="whitespace-nowrap text-sm font-semibold text-sky-900">Employees</span>
-              <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                <SelectTrigger className="h-9 w-[160px] border-sky-200 focus:ring-sky-300">
-                  <SelectValue placeholder="All Employees" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Employees</SelectItem>
-                  {employeesForSelectedCompany.map((emp) => (
-                    <SelectItem key={emp.employeeId} value={emp.employeeId}>
-                      {emp.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={selectedEmployee}
+                onValueChange={setSelectedEmployee}
+                options={employeeFilterOptions}
+                clearValue="all"
+                placeholder="All Employees"
+                className="h-9 w-[160px] border-sky-200 focus-visible:ring-sky-300"
+              />
             </div>
 
             {!isCompanyScoped ? (
               <div className="flex items-center gap-2">
                 <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">Companies</span>
-                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                  <SelectTrigger className="h-9 w-[150px] border-indigo-200 focus:ring-indigo-300">
-                    <SelectValue placeholder="All Companies" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Companies</SelectItem>
-                    {companyOptions.map((company) => (
-                      <SelectItem key={company} value={company}>
-                        {company}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <SearchableSelect
+                  value={selectedCompany}
+                  onValueChange={setSelectedCompany}
+                  options={companyFilterOptions}
+                  clearValue="all"
+                  placeholder="All Companies"
+                  className="h-9 w-[150px] border-indigo-200 focus-visible:ring-indigo-300"
+                />
               </div>
             ) : null}
 
             <div className="flex items-center gap-2">
               <span className="whitespace-nowrap text-sm font-semibold text-emerald-900">Departments</span>
-              <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                <SelectTrigger className="h-9 w-[160px] border-emerald-200 focus:ring-emerald-300">
-                  <SelectValue placeholder="All Departments" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Departments</SelectItem>
-                  {departmentOptions.map((department) => (
-                    <SelectItem key={department} value={department}>
-                      {department}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={selectedDepartment}
+                onValueChange={setSelectedDepartment}
+                options={departmentFilterOptions}
+                clearValue="all"
+                placeholder="All Departments"
+                className="h-9 w-[160px] border-emerald-200 focus-visible:ring-emerald-300"
+              />
             </div>
 
             <div className="flex items-center gap-2">
               <span className="whitespace-nowrap text-sm font-semibold text-amber-900">Role</span>
-              <Select
+              <SearchableSelect
                 value={selectedRole}
                 onValueChange={(value) => {
                   const next = value as RoleFilter;
@@ -181,16 +198,11 @@ function EmployeesPage() {
                     replace: true,
                   });
                 }}
-              >
-                <SelectTrigger className="h-9 w-[140px] border-amber-200 focus:ring-amber-300">
-                  <SelectValue placeholder="All Roles" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Roles</SelectItem>
-                  <SelectItem value="Admin">Admin</SelectItem>
-                  <SelectItem value="Employee">Employee</SelectItem>
-                </SelectContent>
-              </Select>
+                options={roleFilterOptions}
+                clearValue="all"
+                placeholder="All Roles"
+                className="h-9 w-[140px] border-amber-200 focus-visible:ring-amber-300"
+              />
             </div>
 
             <div className="ml-auto flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
