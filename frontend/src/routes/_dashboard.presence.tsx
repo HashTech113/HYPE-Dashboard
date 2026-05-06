@@ -685,7 +685,7 @@ function PresencePage() {
         // raised box on a tinted background.
         // More pronounced curve and a wider inset so the card visibly
         // shrinks away from the page edges.
-        className="animate-fade-in-up mx-6 my-4 !rounded-3xl !border !border-slate-200 !shadow-sm"
+        className="animate-fade-in-up mx-2 my-2 !rounded-3xl !border !border-slate-200 !shadow-sm"
         contentClassName="flex min-h-0 flex-1 flex-col gap-2.5 p-3"
         inlineActions
         actions={
