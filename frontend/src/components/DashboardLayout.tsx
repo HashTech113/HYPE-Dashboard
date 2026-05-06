@@ -273,11 +273,12 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   // on sign-out, so a fresh read on the next sign-in is guaranteed.
   const role = getCurrentRole();
 
-  // Keep the sidebar / header avatar synced with admin profile edits.
+  // Keep the sidebar / header avatar synced with profile edits — HR can
+  // now edit their profile too via Settings → Edit Profile, so the
+  // subscription must run for both roles.
   useEffect(() => {
-    if (role !== "admin") return;
     return subscribeToAdminProfile(() => setProfile(getAdminProfile()));
-  }, [role]);
+  }, []);
 
   const handleLogout = () => {
     signOut();

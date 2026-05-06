@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { UserCog } from "lucide-react";
 
 import {
   ChangePasswordDialog,
@@ -6,23 +7,25 @@ import {
   ProfileCard,
   useProfile,
 } from "@/components/dashboard/profile/ProfileEditor";
-import { getCurrentRole } from "@/lib/auth";
 
 export function EditProfilePanel() {
   const profile = useProfile();
   const [editOpen, setEditOpen] = useState(false);
   const [passwordOpen, setPasswordOpen] = useState(false);
-  const role = getCurrentRole();
-  const subtitle = role === "admin" ? "Administrator" : role === "hr" ? "HR" : null;
 
   return (
-    <div className="flex flex-col items-center justify-center gap-6 py-6">
-      <ProfileCard
-        profile={profile}
-        subtitle={subtitle}
-        onEdit={() => setEditOpen(true)}
-        onChangePassword={() => setPasswordOpen(true)}
-      />
+    <div className="flex flex-col gap-4">
+      <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+        <UserCog className="h-5 w-5 text-primary" />
+        Edit Profile
+      </h2>
+      <div className="flex flex-col items-center justify-center gap-6 py-2">
+        <ProfileCard
+          profile={profile}
+          onEdit={() => setEditOpen(true)}
+          onChangePassword={() => setPasswordOpen(true)}
+        />
+      </div>
       <EditProfileDialog open={editOpen} onOpenChange={setEditOpen} profile={profile} />
       <ChangePasswordDialog open={passwordOpen} onOpenChange={setPasswordOpen} />
     </div>

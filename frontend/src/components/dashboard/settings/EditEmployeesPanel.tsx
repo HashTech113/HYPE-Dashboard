@@ -77,16 +77,10 @@ export function EditEmployeesPanel() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
-            <Users className="h-5 w-5 text-primary" />
-            Employee Records
-          </h2>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Add, edit, or remove employees. Changes are saved to the central
-            employee directory.
-          </p>
-        </div>
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+          <Users className="h-5 w-5 text-primary" />
+          Edit Employee Records
+        </h2>
         <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
           <DialogTrigger asChild>
             <Button size="sm" className="h-10 gap-1.5 px-4">

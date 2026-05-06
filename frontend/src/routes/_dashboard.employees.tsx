@@ -1,21 +1,11 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { Download, Search, Settings as SettingsIcon, Trash2, Users } from "lucide-react";
+import { Download, Search, Settings as SettingsIcon, Users } from "lucide-react";
 import { type Employee } from "@/api/dashboardApi";
 import { useEmployees } from "@/contexts/EmployeesContext";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table";
 import { COMPANY_OPTIONS } from "@/components/dashboard/EmployeeForm";
@@ -39,7 +29,7 @@ export const Route = createFileRoute("/_dashboard/employees")({
 });
 
 function EmployeesPage() {
-  const { employees, deleteEmployee, scopedCompany } = useEmployees();
+  const { employees, scopedCompany } = useEmployees();
   // HR users see only their own company's roster, so the Company filter and
   // Company column are redundant — hide both.
   const isCompanyScoped = scopedCompany !== null;
@@ -54,7 +44,6 @@ function EmployeesPage() {
   useEffect(() => {
     setSelectedRole(roleFromSearch ?? "all");
   }, [roleFromSearch]);
-  const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
 
   const companyOptions = useMemo(() => {
     const fromData = Array.from(new Set(employees.map((employee) => employee.company)));
@@ -97,12 +86,6 @@ function EmployeesPage() {
       return true;
     });
   }, [employeesForSelectedCompany, selectedEmployee, selectedRole, selectedDepartment]);
-
-  const handleDeleteConfirm = () => {
-    if (!employeeToDelete) return;
-    deleteEmployee(employeeToDelete.id);
-    setEmployeeToDelete(null);
-  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -209,6 +192,17 @@ function EmployeesPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="ml-auto flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
+              <Users className="h-4 w-4 text-primary" />
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Total Employees:
+              </span>
+              <span className="text-sm font-bold text-slate-900">{filtered.length}</span>
+              {filtered.length !== employees.length ? (
+                <span className="text-xs font-medium text-slate-400">/ {employees.length}</span>
+              ) : null}
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-auto">
@@ -217,13 +211,10 @@ function EmployeesPage() {
                 <TableRow className="bg-slate-50/60 hover:bg-slate-50/80">
                   <TableHead className="w-14 whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-slate-700 last:border-r-0">S/N</TableHead>
                   <TableHead className="w-[220px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Employee Name</TableHead>
-                  <TableHead className="w-[120px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-slate-700 last:border-r-0">ID</TableHead>
-                  {!isCompanyScoped ? (
-                    <TableHead className="hidden md:table-cell w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Company</TableHead>
-                  ) : null}
-                  <TableHead className="hidden md:table-cell w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-emerald-700 last:border-r-0">Department</TableHead>
-                  <TableHead className="hidden lg:table-cell w-[150px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Shift</TableHead>
-                  <TableHead className="w-[120px] whitespace-nowrap border-r border-slate-200 text-right font-bold uppercase tracking-wide text-slate-700 last:border-r-0">Actions</TableHead>
+                  <TableHead className="w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Company</TableHead>
+                  <TableHead className="w-[140px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-slate-700 last:border-r-0">Employee ID</TableHead>
+                  <TableHead className="w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-emerald-700 last:border-r-0">Department</TableHead>
+                  <TableHead className="w-[150px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Shift</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -247,29 +238,15 @@ function EmployeesPage() {
                         <span className="truncate font-medium text-foreground">{employee.name}</span>
                       </div>
                     </TableCell>
+                    <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-indigo-700 last:border-r-0">{employee.company || "—"}</TableCell>
                     <TableCell className="border-r border-slate-200 py-2 align-middle text-slate-500 last:border-r-0">{employee.employeeId}</TableCell>
-                    {!isCompanyScoped ? (
-                      <TableCell className="hidden md:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-indigo-700 last:border-r-0">{employee.company}</TableCell>
-                    ) : null}
-                    <TableCell className="hidden md:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-emerald-700 last:border-r-0">{employee.department || "—"}</TableCell>
-                    <TableCell className="hidden lg:table-cell whitespace-nowrap border-r border-slate-200 py-2 align-middle text-amber-700 last:border-r-0">{formatShiftTo12Hour(employee.shift)}</TableCell>
-                    <TableCell className="border-r border-slate-200 py-2 align-middle text-right last:border-r-0">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:bg-rose-50 hover:text-destructive"
-                          onClick={() => setEmployeeToDelete(employee)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </TableCell>
+                    <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-emerald-700 last:border-r-0">{employee.department || "—"}</TableCell>
+                    <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-amber-700 last:border-r-0">{formatShiftTo12Hour(employee.shift)}</TableCell>
                   </TableRow>
                 ))}
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={isCompanyScoped ? 6 : 7} className="py-10 text-center text-muted-foreground">
+                    <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
                       No employees match the current filters.
                     </TableCell>
                   </TableRow>
@@ -280,27 +257,6 @@ function EmployeesPage() {
         </CardContent>
       </Card>
 
-      <AlertDialog open={Boolean(employeeToDelete)} onOpenChange={(open) => !open && setEmployeeToDelete(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm employee deletion</AlertDialogTitle>
-            <AlertDialogDescription>
-              {employeeToDelete
-                ? `Are you sure you want to delete ${employeeToDelete.name} (${employeeToDelete.employeeId})?`
-                : "Are you sure you want to delete this employee?"}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteConfirm}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
       </SectionShell>
     </div>
   );

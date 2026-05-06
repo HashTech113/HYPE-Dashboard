@@ -25,7 +25,15 @@ export const Route = createFileRoute("/_dashboard/presence")({
   component: PresencePage,
 });
 
-type CalendarCellStatus = "Present" | "Absent" | "Holiday" | "Sunday" | null;
+type CalendarCellStatus =
+  | "Present"
+  | "Absent"
+  | "Holiday"
+  | "Sunday"
+  | "WFH"
+  | "Paid Leave"
+  | "LOP"
+  | null;
 
 const calendarDayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -34,7 +42,7 @@ const calendarDayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // white for contrast, and the raised dual-shadow shape comes from the
 // `.neu-surface` utility class.
 const calendarStatusStyles: Record<Exclude<CalendarCellStatus, null>, {
-  code: "P" | "A" | "H" | "S";
+  code: "P" | "A" | "H" | "S" | "W" | "PL" | "L";
   label: string;
   cellClassName: string;
   numberClass: string;
@@ -80,6 +88,33 @@ const calendarStatusStyles: Record<Exclude<CalendarCellStatus, null>, {
     dotClass: "bg-orange-500 shadow-sm",
     bubbleClassName: "border-orange-300 bg-orange-100 text-orange-700",
   },
+  WFH: {
+    code: "W",
+    label: "WFH",
+    cellClassName: "border border-violet-400",
+    numberClass: "text-violet-600",
+    labelClass: "text-violet-600",
+    dotClass: "bg-violet-500 shadow-sm",
+    bubbleClassName: "border-violet-300 bg-violet-100 text-violet-700",
+  },
+  "Paid Leave": {
+    code: "PL",
+    label: "Paid Leave",
+    cellClassName: "border border-blue-400",
+    numberClass: "text-blue-600",
+    labelClass: "text-blue-600",
+    dotClass: "bg-blue-500 shadow-sm",
+    bubbleClassName: "border-blue-300 bg-blue-100 text-blue-700",
+  },
+  LOP: {
+    code: "L",
+    label: "LOP",
+    cellClassName: "border border-rose-500",
+    numberClass: "text-rose-700",
+    labelClass: "text-rose-700",
+    dotClass: "bg-rose-600 shadow-sm",
+    bubbleClassName: "border-rose-300 bg-rose-100 text-rose-800",
+  },
 };
 
 function formatDateKey(date: Date) {
@@ -90,18 +125,26 @@ function formatDateKey(date: Date) {
 
 
 function toCalendarStatus(status: PresenceRecord["status"]): Exclude<CalendarCellStatus, null> {
-  if (status === "Absent") {
-    return "Absent";
-  }
+  if (status === "Absent") return "Absent";
+  if (status === "LOP") return "LOP";
+  if (status === "Paid Leave") return "Paid Leave";
+  if (status === "WFH") return "WFH";
+  if (status === "Holiday") return "Holiday";
   return "Present";
 }
 
-function summarizeDailyStatus(statuses: PresenceRecord["status"][]): Exclude<CalendarCellStatus, null> {
-  const normalizedStatuses = statuses.map(toCalendarStatus);
-
-  if (normalizedStatuses.includes("Absent")) {
-    return "Absent";
-  }
+// Priority when multiple records share a day: LOP > Absent > Paid Leave >
+// Holiday > WFH > Present. (Late / Early Exit collapse into Present for the
+// month-grid view; the per-day detail panel still shows the precise status.)
+function summarizeDailyStatus(
+  statuses: PresenceRecord["status"][],
+): Exclude<CalendarCellStatus, null> {
+  const mapped = statuses.map(toCalendarStatus);
+  if (mapped.includes("LOP")) return "LOP";
+  if (mapped.includes("Absent")) return "Absent";
+  if (mapped.includes("Paid Leave")) return "Paid Leave";
+  if (mapped.includes("Holiday")) return "Holiday";
+  if (mapped.includes("WFH")) return "WFH";
   return "Present";
 }
 
@@ -451,16 +494,19 @@ function PresencePage() {
     });
   }, [selectedEmployee, employees, attendanceSummaries]);
 
+  // When an employee is first selected, jump the calendar to the latest
+  // month that has records so the operator doesn't land on an empty view.
+  // Only fires once per employee change — after that, the user is free to
+  // navigate to any past or future month.
+  const focusedEmployeeRef = useRef<string | null>(null);
   useEffect(() => {
+    if (selectedEmployee === "none") {
+      focusedEmployeeRef.current = null;
+      return;
+    }
+    if (focusedEmployeeRef.current === selectedEmployee) return;
     if (apiRecordsForSelected.length === 0) return;
-    const inCurrentMonth = apiRecordsForSelected.some((r) => {
-      const d = new Date(r.date);
-      return (
-        d.getFullYear() === calendarMonth.getFullYear() &&
-        d.getMonth() === calendarMonth.getMonth()
-      );
-    });
-    if (inCurrentMonth) return;
+    focusedEmployeeRef.current = selectedEmployee;
     const latest = apiRecordsForSelected
       .map((r) => new Date(r.date))
       .sort((a, b) => b.getTime() - a.getTime())[0];
@@ -468,7 +514,7 @@ function PresencePage() {
       setCalendarMonth(new Date(latest.getFullYear(), latest.getMonth(), 1));
       setSelectedDate(formatDateKey(latest));
     }
-  }, [apiRecordsForSelected, calendarMonth]);
+  }, [selectedEmployee, apiRecordsForSelected]);
 
   const historyRecords = useMemo(() => {
     if (selectedEmployee === "none") return [];
@@ -672,7 +718,15 @@ function PresencePage() {
   const selectedDayLabel = selectedDate ? formatDisplayDate(selectedDate) : "No date selected";
 
   const monthlySummary = useMemo(() => {
-    const summary = { present: 0, absent: 0, wfh: 0, paidLeave: 0, sundays: 0, companyLeaves: 0 };
+    const summary = {
+      present: 0,
+      absent: 0,
+      wfh: 0,
+      paidLeave: 0,
+      lop: 0,
+      sundays: 0,
+      companyLeaves: 0,
+    };
     calendarCells.forEach((cell) => {
       if (!cell.inCurrentMonth) {
         return;
@@ -684,6 +738,9 @@ function PresencePage() {
       if (cell.status === "Present") summary.present += 1;
       if (cell.status === "Absent") summary.absent += 1;
       if (cell.status === "Holiday") summary.companyLeaves += 1;
+      if (cell.status === "WFH") summary.wfh += 1;
+      if (cell.status === "Paid Leave") summary.paidLeave += 1;
+      if (cell.status === "LOP") summary.lop += 1;
     });
     return summary;
   }, [calendarCells]);
@@ -696,7 +753,7 @@ function PresencePage() {
       }).length,
     [calendarCells]
   );
-  const lopCount = 0;
+  const lopCount = monthlySummary.lop;
   const totalWorkingDays = Math.max(weekdaysInMonth - monthlySummary.companyLeaves, 0);
 
   return (

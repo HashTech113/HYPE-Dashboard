@@ -40,15 +40,21 @@ const STATUS_CHOICES: AttendanceStatusFull[] = [
   "Holiday",
 ];
 
+// User-facing label override for the dropdown. The wire/API value stays
+// "Holiday" so the backend's status_override whitelist keeps working.
+const STATUS_DROPDOWN_LABEL: Partial<Record<AttendanceStatusFull, string>> = {
+  Holiday: "Company Leave",
+};
+
 const STATUS_PILL_CLASS: Record<AttendanceStatusFull, string> = {
-  Present: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  Late: "border-amber-200 bg-amber-50 text-amber-700",
-  "Early Exit": "border-orange-200 bg-orange-50 text-orange-700",
-  Absent: "border-rose-200 bg-rose-50 text-rose-700",
-  WFH: "border-violet-200 bg-violet-50 text-violet-700",
-  "Paid Leave": "border-blue-200 bg-blue-50 text-blue-700",
-  LOP: "border-rose-300 bg-rose-100 text-rose-800",
-  Holiday: "border-sky-200 bg-sky-50 text-sky-700",
+  Present: "border-emerald-300 bg-emerald-50 text-emerald-700",
+  Late: "border-amber-300 bg-amber-50 text-amber-700",
+  "Early Exit": "border-orange-300 bg-orange-50 text-orange-700",
+  Absent: "border-rose-300 bg-rose-50 text-rose-700",
+  WFH: "border-violet-300 bg-violet-50 text-violet-700",
+  "Paid Leave": "border-blue-300 bg-blue-50 text-blue-700",
+  LOP: "border-rose-400 bg-rose-100 text-rose-800",
+  Holiday: "border-sky-300 bg-sky-50 text-sky-700",
 };
 
 type DayRow = {
@@ -57,20 +63,32 @@ type DayRow = {
   weekday: string;
   isFuture: boolean;
   effective: AttendanceSummaryItem | null;
-  // Local edit buffer; when null the day has no pending edits.
+  // Local edit buffer; null when the day has no pending edits.
   draft: DayDraft | null;
 };
 
+// Drafts now only carry the override status. Paid Leave / LOP / WFH flags
+// are derived from the override on save (see `flagsFromStatus`) — there's
+// no separate UI control for them anymore since "Override Status" already
+// expresses the same intent.
 type DayDraft = {
   status_override: AttendanceStatusFull | null;
+};
+
+function flagsFromStatus(status: AttendanceStatusFull | null): {
   paid_leave: boolean;
   lop: boolean;
   wfh: boolean;
-};
+} {
+  return {
+    paid_leave: status === "Paid Leave",
+    lop: status === "LOP",
+    wfh: status === "WFH",
+  };
+}
 
 function monthStartEnd(monthKey: string): { start: string; end: string; days: string[] } {
   const [year, month] = monthKey.split("-").map(Number);
-  const startDate = new Date(year, month - 1, 1);
   const endDate = new Date(year, month, 0);
   const days: string[] = [];
   for (let d = 1; d <= endDate.getDate(); d += 1) {
@@ -113,17 +131,8 @@ function weekdayLabel(iso: string): string {
 
 function correctionToDraft(correction: AttendanceCorrection | undefined): DayDraft | null {
   if (!correction) return null;
-  const draft: DayDraft = {
-    status_override: correction.status_override,
-    paid_leave: correction.paid_leave,
-    lop: correction.lop,
-    wfh: correction.wfh,
-  };
-  // If everything is at defaults, treat as "no edit yet".
-  if (!draft.status_override && !draft.paid_leave && !draft.lop && !draft.wfh) {
-    return null;
-  }
-  return draft;
+  if (!correction.status_override) return null;
+  return { status_override: correction.status_override };
 }
 
 export function EditAttendancePanel() {
@@ -161,7 +170,6 @@ export function EditAttendancePanel() {
       ]);
       setSummaries(logsResp.items);
       setCorrections(corrList);
-      // Seed drafts from saved corrections so the UI mirrors persisted state.
       const seed: Record<string, DayDraft | null> = {};
       for (const corr of corrList) {
         seed[corr.date] = correctionToDraft(corr);
@@ -178,8 +186,7 @@ export function EditAttendancePanel() {
     void refresh();
   }, [refresh]);
 
-  // Build per-day rows: every day in the month, joined with the summary
-  // (if any), with a draft buffer that starts from the persisted correction.
+  // Per-day rows for the current month, joined with API summaries + drafts.
   const today = todayKey();
   const rows: DayRow[] = useMemo(() => {
     const summaryByDate = new Map<string, AttendanceSummaryItem>();
@@ -194,8 +201,8 @@ export function EditAttendancePanel() {
     }));
   }, [days, summaries, drafts, today]);
 
-  // Monthly summary, computed off the merged effective values so HR can see
-  // their edits reflected immediately without an extra refetch.
+  // Monthly summary, computed off the merged effective values so HR sees
+  // the impact of saved edits without an extra refresh.
   const monthly = useMemo(() => {
     let present = 0;
     let absent = 0;
@@ -220,25 +227,12 @@ export function EditAttendancePanel() {
       else if (status === "LOP") lop += 1;
       else if (status === "WFH") wfh += 1;
       else if (status === "Holiday") holiday += 1;
-      // Flags can independently bump counts even when status is e.g. Present.
-      if (r.effective.paid_leave && status !== "Paid Leave") paid += 1;
-      if (r.effective.lop && status !== "LOP") lop += 1;
-      if (r.effective.wfh && status !== "WFH") wfh += 1;
     }
     return { present, absent, late, earlyExit, paid, lop, wfh, holiday };
   }, [rows]);
 
-  const updateDraft = (date: string, patch: Partial<DayDraft>) => {
-    setDrafts((prev) => {
-      const current: DayDraft = prev[date] ?? {
-        status_override: null,
-        paid_leave: false,
-        lop: false,
-        wfh: false,
-      };
-      const next: DayDraft = { ...current, ...patch };
-      return { ...prev, [date]: next };
-    });
+  const updateDraft = (date: string, status: AttendanceStatusFull | null) => {
+    setDrafts((prev) => ({ ...prev, [date]: status ? { status_override: status } : null }));
   };
 
   const saveRow = async (date: string) => {
@@ -249,13 +243,12 @@ export function EditAttendancePanel() {
     setError(null);
     setFeedback(null);
     try {
+      const flags = flagsFromStatus(draft.status_override);
       await upsertAttendanceCorrection({
         name: selectedEmployee.name,
         date,
         status_override: draft.status_override,
-        paid_leave: draft.paid_leave,
-        lop: draft.lop,
-        wfh: draft.wfh,
+        ...flags,
       });
       setFeedback(`Saved ${date}`);
       await refresh();
@@ -286,94 +279,82 @@ export function EditAttendancePanel() {
     corrections.some((c) => c.date === date);
 
   return (
-    <div className="flex flex-col gap-4">
-      <div>
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Sticky top bar: heading + filters + summary stay pinned while the
+          table below scrolls. The parent (Settings tab content) is the
+          scroll container, so position:sticky anchors against it. */}
+      <div className="sticky top-0 z-10 flex flex-col gap-3 bg-white pb-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
           <CalendarCheck className="h-5 w-5 text-primary" />
           Attendance Corrections
         </h2>
-        <p className="mt-0.5 text-sm text-slate-500">
-          Pick an employee and month, then override status or mark a day as
-          Paid Leave / LOP / WFH. Saved edits flow through to Attendance
-          History and reports.
-        </p>
-      </div>
 
-      <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-slate-200 bg-slate-50/50 p-3">
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Employee
-          </label>
-          <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
-            <SelectTrigger className="h-9 w-[220px] border-sky-200 focus:ring-sky-300">
-              <SelectValue placeholder="Select employee" />
-            </SelectTrigger>
-            <SelectContent>
-              {employees.map((emp) => (
-                <SelectItem key={emp.employeeId} value={emp.employeeId}>
-                  {emp.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <div className="flex flex-wrap items-end gap-4 rounded-2xl border border-slate-200 bg-slate-50/50 p-3">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Employee
+            </label>
+            <Select value={selectedEmployeeId} onValueChange={setSelectedEmployeeId}>
+              <SelectTrigger className="h-9 w-[220px] border-sky-200 focus:ring-sky-300">
+                <SelectValue placeholder="Select employee" />
+              </SelectTrigger>
+              <SelectContent>
+                {employees.map((emp) => (
+                  <SelectItem key={emp.employeeId} value={emp.employeeId}>
+                    {emp.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Month
-          </label>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9"
-              onClick={() => setMonthKey((m) => shiftMonth(m, -1))}
-              aria-label="Previous month"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <div className="min-w-[160px] rounded-md border border-slate-200 bg-white px-3 py-1.5 text-center text-sm font-semibold text-slate-700">
-              {formatMonthLabel(monthKey)}
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Month
+            </label>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                onClick={() => setMonthKey((m) => shiftMonth(m, -1))}
+                aria-label="Previous month"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <div className="min-w-[160px] rounded-md border border-slate-200 bg-white px-3 py-1.5 text-center text-sm font-semibold text-slate-700">
+                {formatMonthLabel(monthKey)}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                onClick={() => setMonthKey((m) => shiftMonth(m, 1))}
+                aria-label="Next month"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
             </div>
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
             <Button
               type="button"
               variant="outline"
-              size="icon"
-              className="h-9 w-9"
-              onClick={() => setMonthKey((m) => shiftMonth(m, 1))}
-              aria-label="Next month"
+              size="sm"
+              onClick={() => void refresh()}
+              disabled={loading || !selectedEmployee}
+              className="h-9 gap-1.5"
             >
-              <ChevronRight className="h-4 w-4" />
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              Refresh
             </Button>
           </div>
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void refresh()}
-            disabled={loading || !selectedEmployee}
-            className="h-9 gap-1.5"
-          >
-            <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-            Refresh
-          </Button>
-        </div>
-      </div>
-
-      {!selectedEmployee ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/40 px-6 py-12 text-center text-sm text-slate-500">
-          Select an employee to view and edit their attendance for the month.
-        </div>
-      ) : null}
-
-      {selectedEmployee ? (
-        <>
-          {/* Summary row — recomputed from the merged data so HR sees the
-              effect of saved edits without an extra refresh. */}
+        {selectedEmployee ? (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-700">
             <SummaryStat label="Present" value={monthly.present} className="text-emerald-700" />
             <Divider />
@@ -391,36 +372,43 @@ export function EditAttendancePanel() {
             <Divider />
             <SummaryStat label="Holiday" value={monthly.holiday} className="text-sky-700" />
           </div>
+        ) : null}
 
-          {error ? (
-            <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {error}
-            </div>
-          ) : null}
-          {feedback ? (
-            <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              {feedback}
-            </div>
-          ) : null}
+        {error ? (
+          <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {error}
+          </div>
+        ) : null}
+        {feedback ? (
+          <div role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            {feedback}
+          </div>
+        ) : null}
+      </div>
 
+      {/* Scroll body: the table sits below the sticky header and is the
+          only element that scrolls when content overflows. */}
+      <div className="mt-3 min-h-0 flex-1">
+        {!selectedEmployee ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/40 px-6 py-12 text-center text-sm text-slate-500">
+            Select an employee to view and edit their attendance for the month.
+          </div>
+        ) : (
           <div className="rounded-2xl border border-slate-200 bg-white">
-            <Table className="min-w-[860px]">
+            <Table className="min-w-[680px]">
               <TableHeader>
                 <TableRow className="bg-slate-50/60">
                   <TableHead className="w-20">Date</TableHead>
                   <TableHead className="w-20">Day</TableHead>
-                  <TableHead className="w-[140px]">Current Status</TableHead>
-                  <TableHead className="w-[170px]">Override Status</TableHead>
-                  <TableHead className="w-[110px] text-center">Paid Leave</TableHead>
-                  <TableHead className="w-[110px] text-center">LOP</TableHead>
-                  <TableHead className="w-[110px] text-center">WFH</TableHead>
+                  <TableHead className="w-[160px]">Current Status</TableHead>
+                  <TableHead className="w-[200px]">Override Status</TableHead>
                   <TableHead className="w-[160px] text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((row) => {
                   const draft = row.draft;
-                  const effectiveStatus = row.effective?.status ?? "—";
+                  const effectiveStatus = row.effective?.status ?? null;
                   const isCorrected = hasCorrection(row.date);
                   const draftDirty = Boolean(draft);
                   const isSaving = savingDate === row.date;
@@ -436,28 +424,28 @@ export function EditAttendancePanel() {
                       <TableCell className="font-mono text-slate-700">{row.dayLabel}</TableCell>
                       <TableCell className="text-slate-500">{row.weekday}</TableCell>
                       <TableCell>
-                        {row.effective ? (
+                        {effectiveStatus ? (
                           <span
                             className={cn(
-                              "inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold",
-                              STATUS_PILL_CLASS[row.effective.status as AttendanceStatusFull] ??
+                              "inline-flex items-center rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wide",
+                              STATUS_PILL_CLASS[effectiveStatus] ??
                                 "border-slate-200 bg-slate-50 text-slate-700",
                             )}
                           >
                             {effectiveStatus}
                           </span>
                         ) : (
-                          <span className="text-xs text-slate-400">No record</span>
+                          <span className="text-xs italic text-slate-400">No record</span>
                         )}
                       </TableCell>
                       <TableCell>
                         <Select
                           value={draft?.status_override ?? "__keep__"}
                           onValueChange={(value) =>
-                            updateDraft(row.date, {
-                              status_override:
-                                value === "__keep__" ? null : (value as AttendanceStatusFull),
-                            })
+                            updateDraft(
+                              row.date,
+                              value === "__keep__" ? null : (value as AttendanceStatusFull),
+                            )
                           }
                           disabled={row.isFuture}
                         >
@@ -468,44 +456,11 @@ export function EditAttendancePanel() {
                             <SelectItem value="__keep__">Keep current</SelectItem>
                             {STATUS_CHOICES.map((s) => (
                               <SelectItem key={s} value={s}>
-                                {s}
+                                {STATUS_DROPDOWN_LABEL[s] ?? s}
                               </SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer accent-blue-600"
-                          checked={Boolean(draft?.paid_leave)}
-                          disabled={row.isFuture}
-                          onChange={(e) =>
-                            updateDraft(row.date, { paid_leave: e.target.checked })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer accent-rose-600"
-                          checked={Boolean(draft?.lop)}
-                          disabled={row.isFuture}
-                          onChange={(e) =>
-                            updateDraft(row.date, { lop: e.target.checked })
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4 cursor-pointer accent-violet-600"
-                          checked={Boolean(draft?.wfh)}
-                          disabled={row.isFuture}
-                          onChange={(e) =>
-                            updateDraft(row.date, { wfh: e.target.checked })
-                          }
-                        />
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1.5">
@@ -545,8 +500,8 @@ export function EditAttendancePanel() {
               </TableBody>
             </Table>
           </div>
-        </>
-      ) : null}
+        )}
+      </div>
     </div>
   );
 }
