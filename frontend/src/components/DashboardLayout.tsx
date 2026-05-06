@@ -469,7 +469,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             </aside>
           </div>
 
-          <main className="scrollbar-hidden z-10 min-h-0 min-w-0 flex-1 overflow-y-auto bg-[#eef3f9] p-3 sm:p-4 md:p-5">
+          <main className="scrollbar-hidden z-10 min-h-0 min-w-0 flex-1 overflow-y-auto bg-white p-3 sm:p-4 md:p-5">
             {children}
           </main>
         </div>

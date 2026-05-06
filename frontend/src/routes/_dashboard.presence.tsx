@@ -1,6 +1,6 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { Calendar, Filter, ChevronLeft, ChevronRight, Image as ImageIcon, RefreshCw } from "lucide-react";
+import { Calendar, Search, ChevronLeft, ChevronRight, Image as ImageIcon, RefreshCw } from "lucide-react";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { mockPresenceHistory, type PresenceRecord } from "@/data/mockPresence";
 import { mockHolidayCalendar } from "@/data/mockHolidayCalendar";
@@ -321,6 +321,27 @@ function DetailField({
 }
 
 const ATTENDANCE_REFRESH_MS = 5_000;
+
+function SummaryStat({
+  label,
+  value,
+  numberClass,
+}: {
+  label: string;
+  value: number;
+  numberClass: string;
+}) {
+  return (
+    <span className="inline-flex items-baseline gap-1">
+      <span className="font-semibold text-slate-900">{label}:</span>
+      <span className={cn("font-bold", numberClass)}>{value}</span>
+    </span>
+  );
+}
+
+function SummaryDivider() {
+  return <span aria-hidden="true" className="text-slate-300">|</span>;
+}
 
 function PresencePage() {
   const { employees, scopedCompany } = useEmployees();
@@ -659,88 +680,92 @@ function PresencePage() {
       <SectionShell
         title="Attendance History"
         icon={<Calendar className="h-5 w-5 text-primary" />}
-        className="animate-fade-in-up"
+        // Flat treatment: kill the neumorphic shadow + outer border so the
+        // card blends into the now-white page instead of looking like a
+        // raised box on a tinted background.
+        // More pronounced curve and a wider inset so the card visibly
+        // shrinks away from the page edges.
+        className="animate-fade-in-up mx-6 my-4 !rounded-3xl !border !border-slate-200 !shadow-sm"
         contentClassName="flex min-h-0 flex-1 flex-col gap-2.5 p-3"
-      >
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
-              <Filter className="h-4 w-4 text-primary" />
+        inlineActions
+        actions={
+          <div className="ml-[5rem] flex flex-1 flex-wrap items-center gap-3 sm:ml-[6rem]">
+            <div className="flex items-center gap-2">
+              <Search className="h-4 w-4 text-primary" />
+              <span className="whitespace-nowrap text-sm font-semibold text-sky-900">
+                Employees
+              </span>
+              <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
+                <SelectTrigger className="h-9 w-[155px] border-sky-200 focus:ring-sky-300 sm:w-[170px] md:w-[180px]">
+                  <SelectValue placeholder="Select employee" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Select Employee</SelectItem>
+                  {employeesForSelectedCompany.map((emp) => (
+                    <SelectItem key={emp.employeeId} value={emp.employeeId}>
+                      {emp.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-sm font-semibold text-emerald-900">
+                Choose Date
+              </span>
+              <DatePicker
+                value={selectedDate}
+                onChange={(next) => {
+                  setSelectedDate(next);
+                  if (next) {
+                    const [year, month] = next.split("-").map(Number);
+                    setCalendarMonth(new Date(year, month - 1, 1));
+                  }
+                }}
+                className="w-[230px]"
+              />
+            </div>
+
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto h-9 gap-1.5 px-4"
+              onClick={() => loadAttendance({ manual: true })}
+              disabled={refreshing}
+              title="Refresh attendance data"
+            >
+              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </Button>
+          </div>
+        }
+      >
+          {/* The only thing left in this row is the admin-only Company
+              picker. HR users skip the row entirely because their company
+              is already implied by their session. */}
+          {!isCompanyScoped ? (
+            <div className="flex flex-wrap items-center gap-3">
               <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-xs font-semibold text-sky-900">
-                  Employees
+                <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">
+                  Company
                 </span>
-                <Select value={selectedEmployee} onValueChange={setSelectedEmployee}>
-                  <SelectTrigger className="h-10 w-[145px] border-sky-200 focus:ring-sky-300 sm:w-[155px] md:w-[165px]">
-                    <SelectValue placeholder="Select employee" />
+                <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+                  <SelectTrigger className="h-10 w-[130px] border-indigo-200 focus:ring-indigo-300 sm:w-[140px] md:w-[150px]">
+                    <SelectValue placeholder="Select company" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Select Employee</SelectItem>
-                    {employeesForSelectedCompany.map((emp) => (
-                      <SelectItem key={emp.employeeId} value={emp.employeeId}>
-                        {emp.name}
+                    <SelectItem value="all">All Companies</SelectItem>
+                    {companyOptions.map((company) => (
+                      <SelectItem key={company} value={company}>
+                        {company}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-
-              {/* Company picker is admin-only — HR users are scoped to one
-                  company already, so showing it (or its locked badge) is
-                  redundant. The data filter still uses scopedCompany. */}
-              {!isCompanyScoped ? (
-                <div className="flex items-center gap-2">
-                  <span className="whitespace-nowrap text-xs font-semibold text-[#393E2E]">
-                    Company
-                  </span>
-                  <Select value={selectedCompany} onValueChange={setSelectedCompany}>
-                    <SelectTrigger className="h-10 w-[130px] border-indigo-200 focus:ring-indigo-300 sm:w-[140px] md:w-[150px]">
-                      <SelectValue placeholder="Select company" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Companies</SelectItem>
-                      {companyOptions.map((company) => (
-                        <SelectItem key={company} value={company}>
-                          {company}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ) : null}
-
-              <div className="ml-80 flex items-center gap-2 sm:ml-96">
-                <span className="whitespace-nowrap text-sm font-semibold text-emerald-900">
-                  Choose Date
-                </span>
-                <DatePicker
-                  value={selectedDate}
-                  onChange={(next) => {
-                    setSelectedDate(next);
-                    if (next) {
-                      const [year, month] = next.split("-").map(Number);
-                      setCalendarMonth(new Date(year, month - 1, 1));
-                    }
-                  }}
-                  className="w-[230px]"
-                />
-              </div>
             </div>
-
-            <div className="flex shrink-0 items-center gap-2 self-start xl:self-auto">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-10 gap-1.5 px-4"
-                onClick={() => loadAttendance({ manual: true })}
-                disabled={refreshing}
-                title="Refresh attendance data"
-              >
-                <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-                {refreshing ? "Refreshing…" : "Refresh"}
-              </Button>
-            </div>
-          </div>
+          ) : null}
 
           {(
             <div className="grid min-h-0 flex-1 items-stretch gap-3 2xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
@@ -751,7 +776,11 @@ function PresencePage() {
                     {hasSelectedEmployee ? selectedDayLabel : ""}
                   </p>
                 </div>
-                <div className="mt-2 grid min-h-0 flex-1 gap-2 xl:grid-cols-[minmax(260px,0.95fr)_minmax(0,1fr)]">
+                {/* Inner scroll keeps the Employee Details panel within the
+                    card's height while letting the operator reach every field
+                    (avatar + 3 left-column fields + 8 right-column fields) on
+                    smaller viewports. */}
+                <div className="mt-2 grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1 xl:grid-cols-[minmax(260px,0.95fr)_minmax(0,1fr)]">
                   <div className="grid min-h-0 grid-rows-[auto_repeat(3,auto)] gap-1.5 xl:grid-rows-[1.7fr_repeat(3,minmax(0,1fr))]">
                     <div className="flex min-h-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2.5">
                       <Avatar className="h-32 w-32 border border-slate-200 bg-slate-100">
@@ -779,7 +808,7 @@ function PresencePage() {
                     <DetailField tone="violet" label="Employee ID" value={selectedEmployeeData?.employeeId ?? ""} />
                   </div>
 
-                  <div className="grid min-h-0 grid-rows-[repeat(6,auto)] gap-1.5 xl:grid-rows-[repeat(6,minmax(0,1fr))]">
+                  <div className="grid min-h-0 grid-rows-[repeat(8,auto)] gap-1.5 xl:grid-rows-[repeat(8,minmax(0,1fr))]">
                     <DetailField
                       tone={
                         selectedDayIsSunday
@@ -850,6 +879,20 @@ function PresencePage() {
                       tone="indigo"
                       label="Total Hours"
                       value={hasSelectedEmployee ? selectedDayRecord?.totalHours ?? "—" : ""}
+                    />
+                    {/* Placeholder fields — wiring to break-tracking data is
+                        a future task. For now they render the same "no value"
+                        treatment as the other fields when no employee/day
+                        is selected. */}
+                    <DetailField
+                      tone="orange"
+                      label="Break Time"
+                      value={hasSelectedEmployee ? "—" : ""}
+                    />
+                    <DetailField
+                      tone="orange"
+                      label="Total Break Time"
+                      value={hasSelectedEmployee ? "—" : ""}
                     />
                   </div>
                 </div>
@@ -968,8 +1011,33 @@ function PresencePage() {
                   </div>
                 </div>
 
-                <div className="mt-3 shrink-0 text-right text-[10px] text-slate-900">
-                  Total Working Days: {totalWorkingDays} | Present: {monthlySummary.present} | Absent: {monthlySummary.absent} | WFH: {monthlySummary.wfh} | Paid Leave: {monthlySummary.paidLeave} | Sundays : {monthlySummary.sundays} | Company Leaves : {monthlySummary.companyLeaves} | LOP: {lopCount}
+                {/* Per-stat labels are bolder + dark slate; the numbers pick
+                    up the same color palette as the calendar status legend
+                    (Present=emerald, Absent=red, Sundays=orange, Leaves=blue)
+                    so the eye can scan the row and the calendar with the
+                    same color cues. */}
+                {/* Two centered rows: 4 stats each. Bottom-aligned via the
+                    parent layout, and each row uses justify-center so the
+                    pairs sit symmetrically under the calendar. */}
+                <div className="mt-3 flex flex-col items-center gap-1 text-xs text-slate-900">
+                  <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 whitespace-nowrap">
+                    <SummaryStat label="Total Working Days" value={totalWorkingDays} numberClass="text-slate-700" />
+                    <SummaryDivider />
+                    <SummaryStat label="Present" value={monthlySummary.present} numberClass="text-emerald-600" />
+                    <SummaryDivider />
+                    <SummaryStat label="Absent" value={monthlySummary.absent} numberClass="text-red-600" />
+                    <SummaryDivider />
+                    <SummaryStat label="WFH" value={monthlySummary.wfh} numberClass="text-violet-600" />
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 whitespace-nowrap">
+                    <SummaryStat label="Paid Leave" value={monthlySummary.paidLeave} numberClass="text-blue-600" />
+                    <SummaryDivider />
+                    <SummaryStat label="Sundays" value={monthlySummary.sundays} numberClass="text-orange-600" />
+                    <SummaryDivider />
+                    <SummaryStat label="Company Leaves" value={monthlySummary.companyLeaves} numberClass="text-blue-600" />
+                    <SummaryDivider />
+                    <SummaryStat label="LOP" value={lopCount} numberClass="text-rose-600" />
+                  </div>
                 </div>
               </section>
             </div>

@@ -7,6 +7,9 @@ type SectionShellProps = {
   title: string;
   icon?: React.ReactNode;
   actions?: React.ReactNode;
+  /** Render actions inline with the title (next to it) instead of pushing
+   * them to the far right of the header row. */
+  inlineActions?: boolean;
   children: React.ReactNode;
   className?: string;
   contentClassName?: string;
@@ -16,6 +19,7 @@ export function SectionShell({
   title,
   icon,
   actions,
+  inlineActions,
   children,
   className,
   contentClassName,
@@ -23,7 +27,7 @@ export function SectionShell({
   return (
     <Card className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", className)}>
       <CardContent className={cn("flex min-h-0 flex-1 flex-col gap-4 p-4", contentClassName)}>
-        <PageHeader title={title} icon={icon} actions={actions} />
+        <PageHeader title={title} icon={icon} actions={actions} inlineActions={inlineActions} />
         {children}
       </CardContent>
     </Card>
