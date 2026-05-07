@@ -1,9 +1,10 @@
 """Cameras CRUD + RTSP connection check + MJPEG stream proxy generator.
 
-Storage: SQLite ``cameras`` table, with passwords symmetrically encrypted
-at rest (services.crypto). Plaintext passwords never leave this process —
-the API surfaces only a masked RTSP URL preview, and the live stream proxy
-decrypts internally to open the camera connection.
+Storage: ``cameras`` table (PostgreSQL in prod, SQLite locally), with
+passwords symmetrically encrypted at rest (services.crypto). Plaintext
+passwords never leave this process — the API surfaces only a masked
+RTSP URL preview, and the live stream proxy decrypts internally to open
+the camera connection.
 """
 
 from __future__ import annotations
@@ -18,7 +19,10 @@ from datetime import datetime, timezone
 from typing import Optional
 from urllib.parse import quote
 
-from ..db import connect
+from sqlalchemy import func, select
+
+from ..db import session_scope
+from ..models import Camera as CameraModel
 from . import crypto
 
 log = logging.getLogger(__name__)
@@ -41,42 +45,40 @@ class Camera:
     updated_at: str
 
 
-_COLS = (
-    "id, name, location, ip, port, username, password_encrypted, rtsp_path, "
-    "connection_status, last_checked_at, last_check_message, created_at, updated_at"
-)
+def _iso(value: Optional[datetime]) -> Optional[str]:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.isoformat()
 
 
-def _row_to_camera(row) -> Camera:
+def _model_to_camera(row: CameraModel) -> Camera:
     return Camera(
-        id=str(row["id"]),
-        name=str(row["name"]),
-        location=str(row["location"] or ""),
-        ip=str(row["ip"]),
-        port=int(row["port"]),
-        username=str(row["username"] or ""),
-        password_encrypted=str(row["password_encrypted"] or ""),
-        rtsp_path=str(row["rtsp_path"] or ""),
-        connection_status=str(row["connection_status"] or "unknown"),
-        last_checked_at=row["last_checked_at"],
-        last_check_message=row["last_check_message"],
-        created_at=str(row["created_at"]),
-        updated_at=str(row["updated_at"]),
+        id=str(row.id),
+        name=str(row.name),
+        location=str(row.location or ""),
+        ip=str(row.ip),
+        port=int(row.port),
+        username=str(row.username or ""),
+        password_encrypted=str(row.password_encrypted or ""),
+        rtsp_path=str(row.rtsp_path or ""),
+        connection_status=str(row.connection_status or "unknown"),
+        last_checked_at=_iso(row.last_checked_at),
+        last_check_message=row.last_check_message,
+        created_at=_iso(row.created_at) or "",
+        updated_at=_iso(row.updated_at) or "",
     )
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 # ---- CRUD ------------------------------------------------------------------
 
 def all_cameras() -> list[Camera]:
-    with connect() as conn:
-        rows = conn.execute(
-            f"SELECT {_COLS} FROM cameras ORDER BY name COLLATE NOCASE"
-        ).fetchall()
-    return [_row_to_camera(r) for r in rows]
+    with session_scope() as session:
+        rows = session.execute(
+            select(CameraModel).order_by(func.lower(CameraModel.name))
+        ).scalars().all()
+        return [_model_to_camera(r) for r in rows]
 
 
 def connected_cameras_with_credentials() -> list[tuple[Camera, str]]:
@@ -102,11 +104,9 @@ def connected_cameras_with_credentials() -> list[tuple[Camera, str]]:
 
 
 def get_by_id(camera_id: str) -> Optional[Camera]:
-    with connect() as conn:
-        row = conn.execute(
-            f"SELECT {_COLS} FROM cameras WHERE id = ?", (camera_id,)
-        ).fetchone()
-    return _row_to_camera(row) if row else None
+    with session_scope() as session:
+        row = session.get(CameraModel, camera_id)
+        return _model_to_camera(row) if row else None
 
 
 def create(
@@ -120,19 +120,25 @@ def create(
     rtsp_path: str,
 ) -> Camera:
     new_id = f"cam-{uuid.uuid4().hex[:10]}"
-    now = _utc_now_iso()
     pw_enc = crypto.encrypt(password)
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO cameras (id, name, location, ip, port, username, "
-            "password_encrypted, rtsp_path, connection_status, "
-            "last_checked_at, last_check_message, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unknown', NULL, NULL, ?, ?)",
-            (new_id, name, location, ip, port, username, pw_enc, rtsp_path, now, now),
+    with session_scope() as session:
+        session.add(
+            CameraModel(
+                id=new_id,
+                name=name,
+                location=location,
+                ip=ip,
+                port=port,
+                username=username,
+                password_encrypted=pw_enc,
+                rtsp_path=rtsp_path,
+                connection_status="unknown",
+            )
         )
-    cam = get_by_id(new_id)
-    assert cam is not None
-    return cam
+        session.flush()
+        row = session.get(CameraModel, new_id)
+        assert row is not None
+        return _model_to_camera(row)
 
 
 def update(
@@ -146,51 +152,49 @@ def update(
     password: Optional[str] = None,
     rtsp_path: Optional[str] = None,
 ) -> Optional[Camera]:
-    sets: list[str] = []
-    params: list = []
-    if name is not None:
-        sets.append("name = ?"); params.append(name)
-    if location is not None:
-        sets.append("location = ?"); params.append(location)
-    if ip is not None:
-        sets.append("ip = ?"); params.append(ip)
-    if port is not None:
-        sets.append("port = ?"); params.append(port)
-    if username is not None:
-        sets.append("username = ?"); params.append(username)
-    # Empty/None password = leave existing one untouched (so the operator
-    # can edit the form without re-entering the password every time).
-    if password is not None and password != "":
-        sets.append("password_encrypted = ?"); params.append(crypto.encrypt(password))
-    if rtsp_path is not None:
-        sets.append("rtsp_path = ?"); params.append(rtsp_path)
-    if not sets:
-        return get_by_id(camera_id)
-    sets.append("updated_at = ?"); params.append(_utc_now_iso())
-    params.append(camera_id)
-    with connect() as conn:
-        cur = conn.execute(
-            f"UPDATE cameras SET {', '.join(sets)} WHERE id = ?", params
-        )
-        if cur.rowcount == 0:
+    with session_scope() as session:
+        row = session.get(CameraModel, camera_id)
+        if row is None:
             return None
-    return get_by_id(camera_id)
+        if name is not None:
+            row.name = name
+        if location is not None:
+            row.location = location
+        if ip is not None:
+            row.ip = ip
+        if port is not None:
+            row.port = port
+        if username is not None:
+            row.username = username
+        # Empty/None password = leave existing one untouched (so the operator
+        # can edit the form without re-entering the password every time).
+        if password is not None and password != "":
+            row.password_encrypted = crypto.encrypt(password)
+        if rtsp_path is not None:
+            row.rtsp_path = rtsp_path
+        # ``onupdate`` on the model bumps updated_at automatically.
+        session.flush()
+        return _model_to_camera(row)
 
 
 def delete(camera_id: str) -> bool:
-    with connect() as conn:
-        cur = conn.execute("DELETE FROM cameras WHERE id = ?", (camera_id,))
-    return cur.rowcount > 0
+    with session_scope() as session:
+        row = session.get(CameraModel, camera_id)
+        if row is None:
+            return False
+        session.delete(row)
+        return True
 
 
 def update_status(camera_id: str, *, status: str, message: str) -> None:
-    now = _utc_now_iso()
-    with connect() as conn:
-        conn.execute(
-            "UPDATE cameras SET connection_status = ?, last_checked_at = ?, "
-            "last_check_message = ?, updated_at = ? WHERE id = ?",
-            (status, now, message, now, camera_id),
-        )
+    now = datetime.now(timezone.utc)
+    with session_scope() as session:
+        row = session.get(CameraModel, camera_id)
+        if row is None:
+            return
+        row.connection_status = status
+        row.last_checked_at = now
+        row.last_check_message = message
 
 
 # ---- RTSP URL helpers ------------------------------------------------------

@@ -10,8 +10,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import upgrade
 from .config import DB_PATH
-from .db import init_schema
+from .db import DIALECT, init_db
 from .routers import (
     admin,
     attendance,
@@ -85,17 +86,21 @@ async def _retention_loop() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    log.info("using database at %s", DB_PATH)
-    init_schema()
+    if DIALECT == "sqlite":
+        log.info("using SQLite database at %s", DB_PATH)
+    else:
+        log.info("using %s database (DATABASE_URL set)", DIALECT)
+    init_db()
+    upgrade.run()
     seed_employees_if_empty()
     seed_users_if_empty()
     count = snapshot_log_count()
     if count == 0:
         log.warning(
-            "snapshot_logs is empty — if this is production, check that the "
-            "Railway persistent volume is mounted and DATABASE_PATH points "
-            "inside it (current DB path: %s).",
-            DB_PATH,
+            "snapshot_logs is empty — if this is production, check that "
+            "DATABASE_URL points at the right database (or, when running "
+            "on the SQLite fallback, that the Railway persistent volume "
+            "is mounted and DATABASE_PATH is set inside it).",
         )
     else:
         log.info("snapshot_logs has %d rows", count)

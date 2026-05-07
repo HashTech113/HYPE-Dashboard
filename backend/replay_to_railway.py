@@ -28,8 +28,9 @@ import sys
 import time
 
 import requests
+from sqlalchemy import text
 
-from app.db import connect
+from app.db import session_scope
 
 INGEST_API_KEY = os.getenv("INGEST_API_KEY", "").strip()
 _INGEST_HEADERS = {"X-API-Key": INGEST_API_KEY} if INGEST_API_KEY else {}
@@ -78,12 +79,14 @@ def post_with_retry(session: requests.Session, url: str, payload: dict, timeout:
 
 
 def replay_once(target: str, timeout: float, sleep_between: float) -> tuple[int, int, int]:
-    with connect() as conn:
-        rows = conn.execute(
-            "SELECT name, timestamp, image_path, image_data, camera_id FROM snapshot_logs "
-            "WHERE image_data IS NOT NULL AND image_data != '' "
-            "ORDER BY id ASC"
-        ).fetchall()
+    with session_scope() as db_session:
+        rows = db_session.execute(
+            text(
+                "SELECT name, timestamp, image_path, image_data, camera_id FROM snapshot_logs "
+                "WHERE image_data IS NOT NULL AND image_data != '' "
+                "ORDER BY id ASC"
+            )
+        ).mappings().all()
 
     total = len(rows)
     print(f"replaying {total} rows to {target}", flush=True)
@@ -92,9 +95,14 @@ def replay_once(target: str, timeout: float, sleep_between: float) -> tuple[int,
     stored = skipped = failed = 0
     for i, row in enumerate(rows, 1):
         cam_id = row["camera_id"]
+        ts = row["timestamp"]
+        # SA returns either a datetime (PostgreSQL) or an ISO string (SQLite)
+        # for the configured DateTime(timezone=True) column. Normalize so the
+        # ingest payload is always a JSON-safe ISO string.
+        ts_iso = ts.isoformat() if hasattr(ts, "isoformat") else str(ts or "")
         payload = {
             "name": row["name"],
-            "timestamp": row["timestamp"],
+            "timestamp": ts_iso,
             "image_base64": row["image_data"],
             "snap_id": extract_snap_id(row["image_path"], cam_id),
             "camera_id": cam_id,

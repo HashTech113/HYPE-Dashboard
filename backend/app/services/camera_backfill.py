@@ -20,8 +20,10 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Iterator, Optional
 
+from sqlalchemy import bindparam, text
+
 from ..config import LOCAL_TZ_OFFSET_MIN
-from ..db import connect
+from ..db import session_scope
 from . import logs as logs_service
 from . import snapshots as snapshots_mod
 from .camera import CameraClient
@@ -97,12 +99,14 @@ def build_face_id_name_map(
         return {}
 
     image_paths = [f"ingest_{sid}.jpg" for sid in cam_snap_to_face]
-    placeholders = ",".join("?" for _ in image_paths)
-    with connect() as conn:
-        rows = conn.execute(
-            f"SELECT image_path, name FROM snapshot_logs WHERE image_path IN ({placeholders})",
-            image_paths,
-        ).fetchall()
+    with session_scope() as session:
+        rows = session.execute(
+            text(
+                "SELECT image_path, name FROM snapshot_logs "
+                "WHERE image_path IN :paths"
+            ).bindparams(bindparam("paths", expanding=True)),
+            {"paths": image_paths},
+        ).mappings().all()
 
     votes: dict[int, Counter] = {}
     for r in rows:
@@ -130,10 +134,11 @@ def build_face_id_name_map(
 
 
 def _existing_image_paths() -> set[str]:
-    with connect() as conn:
-        return {r["image_path"] for r in conn.execute(
-            "SELECT image_path FROM snapshot_logs"
-        ).fetchall()}
+    with session_scope() as session:
+        return {
+            r[0]
+            for r in session.execute(text("SELECT image_path FROM snapshot_logs")).all()
+        }
 
 
 def backfill_window(

@@ -22,10 +22,12 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from datetime import date as date_cls, datetime, time, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
+
+from sqlalchemy import bindparam, text
 
 from ..config import LOCAL_TZ_OFFSET_MIN
-from ..db import connect
+from ..db import session_scope
 
 log = logging.getLogger(__name__)
 
@@ -42,16 +44,24 @@ def today_local() -> date_cls:
     return datetime.now(timezone.utc).astimezone(_local_tz()).date()
 
 
-def _local_midnight_utc_iso(local_date: date_cls) -> str:
+def _local_midnight_utc(local_date: date_cls) -> datetime:
     midnight_local = datetime.combine(local_date, time(0, 0), tzinfo=_local_tz())
-    return midnight_local.astimezone(timezone.utc).isoformat()
+    return midnight_local.astimezone(timezone.utc)
 
 
-def _parse_utc(ts: str) -> Optional[datetime]:
-    try:
-        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except ValueError:
+def _parse_utc(value: Any) -> Optional[datetime]:
+    """Parse a row's timestamp column into a UTC datetime. Accepts both
+    string (SQLite) and datetime (Postgres) — SA returns whichever the
+    underlying driver provides for the configured DateTime(timezone=True)."""
+    if isinstance(value, datetime):
+        dt = value
+    elif value is None:
         return None
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
@@ -82,17 +92,19 @@ def prune_old_snapshots() -> dict[str, int]:
     today = today_local()
     yesterday = today - timedelta(days=1)
     # Anything strictly older than the start of `yesterday` (local) is in scope.
-    cutoff_utc_iso = _local_midnight_utc_iso(yesterday)
+    cutoff_utc = _local_midnight_utc(yesterday)
     tz = _local_tz()
 
     summary: dict[str, int] = {}
     for table in _TABLES:
-        with connect() as conn:
-            rows = conn.execute(
-                f"SELECT id, name, timestamp FROM {table} "
-                f"WHERE image_data IS NOT NULL AND timestamp < ?",
-                (cutoff_utc_iso,),
-            ).fetchall()
+        with session_scope() as session:
+            rows = session.execute(
+                text(
+                    f"SELECT id, name, timestamp FROM {table} "
+                    f"WHERE image_data IS NOT NULL AND timestamp < :cutoff"
+                ),
+                {"cutoff": cutoff_utc},
+            ).mappings().all()
 
             groups: dict[tuple[str, date_cls], list[tuple[datetime, int]]] = defaultdict(list)
             display_name: dict[tuple[str, date_cls], str] = {}
@@ -140,13 +152,14 @@ def prune_old_snapshots() -> dict[str, int]:
                 )
 
             cleared = 0
+            update_stmt = text(
+                f"UPDATE {table} SET image_data = NULL WHERE id IN :ids"
+            ).bindparams(bindparam("ids", expanding=True))
             for i in range(0, len(ids_to_clear), _UPDATE_CHUNK):
                 chunk = ids_to_clear[i : i + _UPDATE_CHUNK]
-                placeholders = ",".join("?" * len(chunk))
-                conn.execute(
-                    f"UPDATE {table} SET image_data = NULL WHERE id IN ({placeholders})",
-                    chunk,
-                )
+                if not chunk:
+                    continue
+                session.execute(update_stmt, {"ids": chunk})
                 cleared += len(chunk)
             summary[table] = cleared
 

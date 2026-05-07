@@ -15,6 +15,20 @@ _db_env = os.getenv("DATABASE_PATH", "").strip()
 DB_PATH = Path(_db_env) if _db_env else BASE_DIR / "database.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
+# Production database URL. When set, the backend connects to PostgreSQL
+# (or any SQLAlchemy-compatible URL); when empty AND we're not in
+# production, the SQLite file at DB_PATH is used as a transparent
+# fallback. Railway's Postgres plugin sets DATABASE_URL automatically when
+# linked; the app/db.py loader rewrites the legacy `postgres://` prefix
+# to `postgresql+psycopg://` so SQLAlchemy 2.x picks the psycopg v3 driver.
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+# Production guard. When APP_ENV=production (or RAILWAY_ENVIRONMENT is set
+# by Railway itself), app/db.py refuses to start with the SQLite fallback
+# and requires DATABASE_URL — so a missing DB env var fails fast at boot
+# rather than silently serving an ephemeral local DB in production.
+APP_ENV = os.getenv("APP_ENV", "development").strip().lower()
+
 CAMERA_HOST = os.getenv("CAMERA_HOST", "172.18.10.12")
 CAMERA_USER = os.getenv("CAMERA_USER", "admin")
 # CAMERA_PASS must be supplied via env. Falling back to a hardcoded default

@@ -1,196 +1,283 @@
-"""SQLite connection + schema for attendance_logs and snapshot_logs."""
+"""Database engine + session helpers.
+
+Replaces the previous raw ``sqlite3`` layer with SQLAlchemy 2.x. The same
+code path supports two dialects:
+
+  * **PostgreSQL** (production / Railway) — selected when ``DATABASE_URL``
+    is set. Railway's legacy ``postgres://`` prefix is rewritten to
+    ``postgresql+psycopg://`` so SQLAlchemy 2 picks the psycopg v3 driver.
+
+  * **SQLite** (local dev fallback) — used when ``DATABASE_URL`` is empty
+    AND we're not running in production. WAL/synchronous PRAGMAs are
+    re-applied on every connection for parity with the legacy behavior.
+
+The production guard refuses to start with the SQLite fallback when
+``APP_ENV=production`` (or Railway's own ``RAILWAY_ENVIRONMENT`` is set)
+so a missing ``DATABASE_URL`` fails fast at boot rather than silently
+serving an ephemeral local DB.
+
+Public API:
+
+  * ``Base``                      — declarative base re-exported from models
+  * ``engine``                    — module-level SQLAlchemy engine
+  * ``SessionLocal``              — sessionmaker bound to ``engine``
+  * ``get_db()``                  — FastAPI dependency (yields a Session,
+                                    auto-commits on clean exit)
+  * ``session_scope()``           — context manager for non-request callers
+                                    (capture loop, retention job, scripts)
+  * ``init_db()``                 — idempotent ``create_all`` over every
+                                    registered model
+  * ``upsert_on_conflict_do_nothing(...)`` /
+    ``upsert_on_conflict_do_update(...)`` — dialect-aware ``INSERT ... ON
+    CONFLICT`` helpers shared by services that need real upserts.
+  * ``DIALECT``                   — 'postgresql' or 'sqlite' for callers
+                                    that need to branch on dialect.
+"""
 
 from __future__ import annotations
 
-import sqlite3
+import logging
+import os
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Any, Iterable, Iterator, Optional
 
-from .config import DB_PATH
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.orm import Session, sessionmaker
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS snapshot_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    image_path TEXT NOT NULL UNIQUE,
-    image_data TEXT,
-    camera_id TEXT
-);
+from .config import APP_ENV, DATABASE_URL, DB_PATH
+from .models import Base  # registers every model with Base.metadata on import
 
-CREATE TABLE IF NOT EXISTS attendance_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    image_path TEXT NOT NULL UNIQUE,
-    image_data TEXT,
-    camera_id TEXT,
-    -- Multi-source attendance: 'local_camera' for capture.py / face recognition
-    -- rows, 'external_api' for rows imported from a third-party HR system via
-    -- POST /api/external-attendance/sync. Reports + dashboards merge both
-    -- sources transparently — the column exists for filtering / auditing.
-    source TEXT NOT NULL DEFAULT 'local_camera',
-    -- Vendor-side event id from the external system; used to dedup imports.
-    -- NULL for local_camera rows.
-    external_event_id TEXT,
-    -- Normalized to one of: IN, OUT, BREAK_OUT, BREAK_IN. NULL for camera
-    -- rows (which are just "presence ticks", not typed punches).
-    event_type TEXT
-);
-
-CREATE TABLE IF NOT EXISTS employees (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    employee_id TEXT NOT NULL,
-    company TEXT NOT NULL DEFAULT '',
-    department TEXT NOT NULL DEFAULT '',
-    shift TEXT NOT NULL DEFAULT '',
-    role TEXT NOT NULL DEFAULT 'Employee',
-    dob TEXT NOT NULL DEFAULT '',
-    image_url TEXT NOT NULL DEFAULT '',
-    email TEXT NOT NULL DEFAULT '',
-    mobile TEXT NOT NULL DEFAULT '',
-    salary_package TEXT NOT NULL DEFAULT ''
-);
-
-CREATE TABLE IF NOT EXISTS attendance_corrections (
-    name TEXT NOT NULL,
-    date TEXT NOT NULL,
-    entry_iso TEXT,
-    exit_iso TEXT,
-    total_break_seconds INTEGER,
-    missing_checkout_resolved INTEGER NOT NULL DEFAULT 0,
-    note TEXT,
-    -- Report-level overrides (HR-set, separate from auto-detected log fixes).
-    -- status_override is an exact final status string; paid_leave/lop/wfh
-    -- are 0/1 flags so monthly summaries can count them without re-deriving
-    -- from status alone.
-    status_override TEXT,
-    paid_leave INTEGER NOT NULL DEFAULT 0,
-    lop INTEGER NOT NULL DEFAULT 0,
-    wfh INTEGER NOT NULL DEFAULT 0,
-    updated_by TEXT,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (name, date)
-);
-
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    username TEXT NOT NULL UNIQUE,
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL CHECK (role IN ('admin', 'hr')),
-    company TEXT NOT NULL DEFAULT '',
-    display_name TEXT NOT NULL DEFAULT '',
-    avatar_url TEXT NOT NULL DEFAULT '',
-    is_active INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS cameras (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    location TEXT NOT NULL DEFAULT '',
-    ip TEXT NOT NULL,
-    port INTEGER NOT NULL DEFAULT 554,
-    username TEXT NOT NULL DEFAULT '',
-    password_encrypted TEXT NOT NULL DEFAULT '',
-    rtsp_path TEXT NOT NULL DEFAULT '/Streaming/Channels/101',
-    connection_status TEXT NOT NULL DEFAULT 'unknown'
-        CHECK (connection_status IN ('unknown', 'connected', 'failed')),
-    last_checked_at TEXT,
-    last_check_message TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_snapshot_logs_timestamp ON snapshot_logs (timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_attendance_logs_timestamp ON attendance_logs (timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_snapshot_logs_name ON snapshot_logs (name);
-CREATE INDEX IF NOT EXISTS idx_attendance_logs_name ON attendance_logs (name);
--- The source / external_event_id indexes are NOT defined inline because the
--- columns they reference are added by ALTER TABLE in init_schema below — on
--- pre-existing DBs the legacy table doesn't have them yet, so creating the
--- index here would error. They're created post-migration instead.
-CREATE INDEX IF NOT EXISTS idx_employees_name ON employees (name);
-CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
-"""
+log = logging.getLogger(__name__)
 
 
-def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH), isolation_level=None, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    # Wait up to 5s for a write lock instead of failing immediately. Capture,
-    # backfill, replay, and uvicorn all open their own connections; without
-    # this PRAGMA a busy WAL writer would surface as "database is locked".
-    conn.execute("PRAGMA busy_timeout = 5000")
-    return conn
+class DBConfigError(RuntimeError):
+    """Raised when the DB configuration is invalid for the current env.
+
+    Notably: ``DATABASE_URL`` is required in production and refusing to
+    silently fall back to an ephemeral SQLite file."""
+
+
+def _is_production() -> bool:
+    if APP_ENV == "production":
+        return True
+    # Railway sets RAILWAY_ENVIRONMENT to "production" / "preview" / etc.
+    return bool(os.getenv("RAILWAY_ENVIRONMENT", "").strip())
+
+
+def _resolve_database_url() -> str:
+    """Pick the active DB URL; rewrite the postgres:// prefix Railway uses."""
+    raw = (DATABASE_URL or "").strip()
+    if raw:
+        # Heroku/Railway-style "postgres://"; SQLAlchemy 2.x needs an explicit
+        # driver. psycopg v3 is on the path (see requirements.txt).
+        if raw.startswith("postgres://"):
+            raw = "postgresql+psycopg://" + raw[len("postgres://"):]
+        elif raw.startswith("postgresql://") and "+psycopg" not in raw.split("://", 1)[0]:
+            raw = "postgresql+psycopg://" + raw[len("postgresql://"):]
+        return raw
+    if _is_production():
+        raise DBConfigError(
+            "DATABASE_URL is required in production. Refusing to start with "
+            "the SQLite fallback. Set DATABASE_URL on the deploy environment."
+        )
+    return f"sqlite:///{DB_PATH}"
+
+
+_RESOLVED_URL = _resolve_database_url()
+_URL_OBJ = make_url(_RESOLVED_URL)
+DIALECT: str = _URL_OBJ.get_backend_name()  # 'postgresql' or 'sqlite'
+
+
+# Log only safe identifiers, never the raw URL (which carries the password).
+log.info(
+    "database backend dialect=%s host=%s database=%s",
+    DIALECT,
+    _URL_OBJ.host or "(local)",
+    _URL_OBJ.database,
+)
+
+
+def _build_engine() -> Engine:
+    if DIALECT == "sqlite":
+        # check_same_thread=False so a connection can be passed across the
+        # FastAPI dep + background task boundary; busy timeout (5s) replaces
+        # the legacy PRAGMA busy_timeout used by the raw sqlite3 layer.
+        return create_engine(
+            _RESOLVED_URL,
+            future=True,
+            connect_args={"check_same_thread": False, "timeout": 5},
+        )
+    return create_engine(
+        _RESOLVED_URL,
+        future=True,
+        pool_size=5,
+        max_overflow=10,
+        pool_recycle=1800,
+        pool_pre_ping=True,
+    )
+
+
+engine: Engine = _build_engine()
+
+
+# Re-apply the SQLite-only PRAGMAs the legacy db.get_connection() used so
+# local-dev parity stays exact (WAL journal, NORMAL synchronous, FK on).
+if DIALECT == "sqlite":
+    @event.listens_for(engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _record):  # noqa: D401 - SA event hook
+        cursor = dbapi_conn.cursor()
+        try:
+            cursor.execute("PRAGMA journal_mode = WAL")
+            cursor.execute("PRAGMA synchronous = NORMAL")
+            cursor.execute("PRAGMA busy_timeout = 5000")
+            cursor.execute("PRAGMA foreign_keys = ON")
+        finally:
+            cursor.close()
+
+
+SessionLocal = sessionmaker(
+    bind=engine, autoflush=False, expire_on_commit=False, future=True,
+)
+
+
+def get_db() -> Iterator[Session]:
+    """FastAPI dependency. Auto-commits on clean exit so handlers don't have
+    to call ``session.commit()`` explicitly — preserves the autocommit
+    semantics the old ``isolation_level=None`` connection had."""
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 @contextmanager
-def connect() -> Iterator[sqlite3.Connection]:
-    conn = get_connection()
+def session_scope() -> Iterator[Session]:
+    """Context manager for code outside the request lifecycle (background
+    workers, CLI scripts, retention job, seed helpers)."""
+    session = SessionLocal()
     try:
-        yield conn
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
     finally:
-        conn.close()
+        session.close()
 
 
-def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-    return any(row["name"] == column for row in rows)
+def init_db() -> None:
+    """Idempotent CREATE for every registered model. Replaces the legacy
+    ``init_schema()`` raw-SQL bootstrap. Safe to call repeatedly."""
+    Base.metadata.create_all(bind=engine)
 
 
-def init_schema() -> None:
-    with connect() as conn:
-        conn.executescript(SCHEMA)
-        for table in ("snapshot_logs", "attendance_logs"):
-            if not _column_exists(conn, table, "image_data"):
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN image_data TEXT")
-            # Multi-camera capture: tag each event with its source camera.
-            # NULL on legacy rows and on captures from the env-fallback mode.
-            if not _column_exists(conn, table, "camera_id"):
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN camera_id TEXT")
-        if not _column_exists(conn, "employees", "dob"):
-            conn.execute("ALTER TABLE employees ADD COLUMN dob TEXT NOT NULL DEFAULT ''")
-        if not _column_exists(conn, "employees", "image_url"):
-            conn.execute("ALTER TABLE employees ADD COLUMN image_url TEXT NOT NULL DEFAULT ''")
-        if not _column_exists(conn, "employees", "email"):
-            conn.execute("ALTER TABLE employees ADD COLUMN email TEXT NOT NULL DEFAULT ''")
-        if not _column_exists(conn, "employees", "mobile"):
-            conn.execute("ALTER TABLE employees ADD COLUMN mobile TEXT NOT NULL DEFAULT ''")
-        if not _column_exists(conn, "employees", "salary_package"):
-            conn.execute("ALTER TABLE employees ADD COLUMN salary_package TEXT NOT NULL DEFAULT ''")
-        # Multi-source attendance: existing rows are local_camera by definition,
-        # so the column gets a default and historical rows are tagged correctly.
-        if not _column_exists(conn, "attendance_logs", "source"):
-            conn.execute(
-                "ALTER TABLE attendance_logs ADD COLUMN source TEXT NOT NULL DEFAULT 'local_camera'"
-            )
-        if not _column_exists(conn, "attendance_logs", "external_event_id"):
-            conn.execute("ALTER TABLE attendance_logs ADD COLUMN external_event_id TEXT")
-        if not _column_exists(conn, "attendance_logs", "event_type"):
-            conn.execute("ALTER TABLE attendance_logs ADD COLUMN event_type TEXT")
-        # Indexes that depend on the columns just added must run AFTER the
-        # ALTER TABLEs above. ``IF NOT EXISTS`` keeps re-runs cheap.
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_attendance_logs_source "
-            "ON attendance_logs (source)"
-        )
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_logs_external_event_id "
-            "ON attendance_logs (external_event_id) "
-            "WHERE external_event_id IS NOT NULL"
-        )
-        # Backfill new attendance_corrections columns on databases created
-        # before report-level overrides existed.
-        for col, ddl in (
-            ("status_override", "ALTER TABLE attendance_corrections ADD COLUMN status_override TEXT"),
-            ("paid_leave", "ALTER TABLE attendance_corrections ADD COLUMN paid_leave INTEGER NOT NULL DEFAULT 0"),
-            ("lop", "ALTER TABLE attendance_corrections ADD COLUMN lop INTEGER NOT NULL DEFAULT 0"),
-            ("wfh", "ALTER TABLE attendance_corrections ADD COLUMN wfh INTEGER NOT NULL DEFAULT 0"),
-            ("updated_by", "ALTER TABLE attendance_corrections ADD COLUMN updated_by TEXT"),
-        ):
-            if not _column_exists(conn, "attendance_corrections", col):
-                conn.execute(ddl)
+# ---- Dialect-aware upsert helpers ------------------------------------------
+#
+# SQLAlchemy's core ``insert(...).values(...)`` doesn't expose ON CONFLICT
+# directly — that's a dialect-specific feature on PostgreSQL and SQLite.
+# These helpers wrap the right import for the active dialect so service
+# code stays portable. ``index_elements`` may be a list of column names OR
+# Column objects; passing names keeps service code dialect-neutral.
+
+
+def _dialect_insert_stmt(model_or_table: Any) -> Any:
+    if DIALECT == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        return pg_insert(model_or_table)
+    if DIALECT == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+        return sqlite_insert(model_or_table)
+    # Fall back to ANSI insert if some other dialect is ever wired up; the
+    # caller's ``on_conflict_*`` chain will raise immediately on misuse.
+    from sqlalchemy import insert as ansi_insert
+    return ansi_insert(model_or_table)
+
+
+def upsert_on_conflict_do_nothing(
+    session: Session,
+    model_or_table: Any,
+    values: dict | list[dict],
+    *,
+    index_elements: Iterable[str],
+) -> Any:
+    """``INSERT ... VALUES (...) ON CONFLICT (cols) DO NOTHING``.
+
+    Returns the SQLAlchemy ``Result``. Service callers typically only need
+    ``result.rowcount`` to count "actually inserted" vs "skipped duplicate"."""
+    stmt = _dialect_insert_stmt(model_or_table).values(values)
+    stmt = stmt.on_conflict_do_nothing(index_elements=list(index_elements))
+    return session.execute(stmt)
+
+
+def upsert_on_conflict_do_update(
+    session: Session,
+    model_or_table: Any,
+    values: dict,
+    *,
+    index_elements: Iterable[str],
+    set_: dict,
+) -> Any:
+    """``INSERT ... VALUES (...) ON CONFLICT (cols) DO UPDATE SET ...``.
+
+    ``set_`` maps column name → SQLAlchemy expression (typically referring
+    to ``stmt.excluded.<col>``). Mirrors the same shape on PG and SQLite —
+    on both dialects ``insert(...).excluded`` is the proposed-new-row alias
+    SQLAlchemy generates.
+    """
+    stmt = _dialect_insert_stmt(model_or_table).values(values)
+    stmt = stmt.on_conflict_do_update(index_elements=list(index_elements), set_=set_)
+    return session.execute(stmt)
+
+
+def excluded_of(model_or_table: Any) -> Any:
+    """Convenience for callers that want to build a ``set_`` dict mapping
+    column names to ``excluded.<col>`` expressions. Returns the
+    ``insert(table).excluded`` proxy for the active dialect."""
+    return _dialect_insert_stmt(model_or_table).excluded
+
+
+# ---- Backwards-compat shim --------------------------------------------------
+#
+# Old call sites used ``with connect() as conn: conn.execute(sql, params)``
+# returning ``sqlite3.Row``-style tuples. They're rewritten to use
+# ``session_scope()`` directly; this shim only exists so any straggler that
+# slips through CI surfaces a loud, actionable error rather than a confusing
+# import failure deep in production.
+
+
+def connect():  # pragma: no cover - sentinel only
+    raise RuntimeError(
+        "app.db.connect() was removed in the SQLAlchemy refactor. Use "
+        "app.db.session_scope() (background callers) or "
+        "Depends(app.db.get_db) (FastAPI routes) instead."
+    )
+
+
+# Optional helper exposed for callers that just want the configured URL
+# without re-parsing.
+def database_url() -> str:
+    return _RESOLVED_URL
+
+
+# Re-export Base so ``from app.db import Base`` keeps working for any
+# external tools or scripts.
+__all__ = [
+    "Base",
+    "DIALECT",
+    "DBConfigError",
+    "SessionLocal",
+    "engine",
+    "get_db",
+    "session_scope",
+    "init_db",
+    "upsert_on_conflict_do_nothing",
+    "upsert_on_conflict_do_update",
+    "excluded_of",
+    "database_url",
+]

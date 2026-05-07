@@ -22,8 +22,9 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from sqlalchemy import inspect, text
 
-from ..db import connect
+from ..db import session_scope
 from ..dependencies import require_admin
 from ..services import corrections as corrections_service
 
@@ -44,6 +45,8 @@ class RenameNameResponse(BaseModel):
     snapshot_logs_updated: int
     attendance_logs_updated: int
     employees_updated: int
+    # Field name preserved for API compat — count reflects the active
+    # ``attendance_report_edits`` table (renamed from attendance_corrections).
     attendance_corrections_updated: int
 
 
@@ -67,26 +70,34 @@ def rename_name(payload: RenameNameRequest) -> RenameNameResponse:
             attendance_corrections_updated=0,
         )
 
-    with connect() as conn:
-        try:
-            conn.execute("BEGIN")
-            snap = conn.execute(
-                "UPDATE snapshot_logs SET name = ? WHERE name = ?", (new, old)
-            ).rowcount
-            att = conn.execute(
-                "UPDATE attendance_logs SET name = ? WHERE name = ?", (new, old)
-            ).rowcount
-            emp = conn.execute(
-                "UPDATE employees SET name = ? WHERE name = ?", (new, old)
-            ).rowcount
-            corr = conn.execute(
-                "UPDATE attendance_corrections SET name = ? WHERE name = ?", (new, old)
-            ).rowcount
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            log.exception("rename-name failed for %r -> %r; rolled back", old, new)
-            raise HTTPException(status_code=500, detail="rename failed; no changes committed")
+    try:
+        with session_scope() as session:
+            params = {"new": new, "old": old}
+            snap = int(session.execute(
+                text("UPDATE snapshot_logs SET name = :new WHERE name = :old"), params,
+            ).rowcount or 0)
+            att = int(session.execute(
+                text("UPDATE attendance_logs SET name = :new WHERE name = :old"), params,
+            ).rowcount or 0)
+            emp = int(session.execute(
+                text("UPDATE employees SET name = :new WHERE name = :old"), params,
+            ).rowcount or 0)
+            corr = int(session.execute(
+                text("UPDATE attendance_report_edits SET name = :new WHERE name = :old"),
+                params,
+            ).rowcount or 0)
+            # Keep names consistent in the legacy attendance_corrections table
+            # while it exists as a one-release safety net (see app/upgrade.py).
+            if inspect(session.get_bind()).has_table("attendance_corrections"):
+                session.execute(
+                    text(
+                        "UPDATE attendance_corrections SET name = :new WHERE name = :old"
+                    ),
+                    params,
+                )
+    except Exception:
+        log.exception("rename-name failed for %r -> %r; rolled back", old, new)
+        raise HTTPException(status_code=500, detail="rename failed; no changes committed")
 
     log.info(
         "rename-name %r -> %r: snapshot_logs=%d attendance_logs=%d employees=%d "

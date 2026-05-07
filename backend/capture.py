@@ -53,8 +53,10 @@ from urllib.parse import urlparse
 
 import requests
 
+from sqlalchemy import text
+
 from app.config import CAPTURE_INTERVAL_SECONDS
-from app.db import connect
+from app.db import session_scope
 from app.services import logs as logs_service
 from app.services import snapshots
 from app.services.camera import CameraClient
@@ -382,24 +384,28 @@ def _seed_seen_ids(camera_id: Optional[str]) -> tuple[deque[str], set[str]]:
     safety net; this is just an optimization to keep startup quiet."""
     seen_ids: deque[str] = deque(maxlen=SEEN_SNAP_IDS_MAX)
     seen_set: set[str] = set()
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=SEEN_REWARM_HOURS)).isoformat()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=SEEN_REWARM_HOURS)
     try:
-        with connect() as conn:
+        with session_scope() as session:
             if camera_id:
-                rows = conn.execute(
-                    "SELECT image_path FROM snapshot_logs "
-                    "WHERE timestamp >= ? AND camera_id = ? "
-                    "ORDER BY id DESC LIMIT ?",
-                    (cutoff, camera_id, SEEN_SNAP_IDS_MAX),
-                ).fetchall()
+                rows = session.execute(
+                    text(
+                        "SELECT image_path FROM snapshot_logs "
+                        "WHERE timestamp >= :cutoff AND camera_id = :camera_id "
+                        "ORDER BY id DESC LIMIT :limit"
+                    ),
+                    {"cutoff": cutoff, "camera_id": camera_id, "limit": SEEN_SNAP_IDS_MAX},
+                ).mappings().all()
                 expected_prefix = f"ingest_{camera_id}_"
             else:
-                rows = conn.execute(
-                    "SELECT image_path FROM snapshot_logs "
-                    "WHERE timestamp >= ? AND camera_id IS NULL "
-                    "ORDER BY id DESC LIMIT ?",
-                    (cutoff, SEEN_SNAP_IDS_MAX),
-                ).fetchall()
+                rows = session.execute(
+                    text(
+                        "SELECT image_path FROM snapshot_logs "
+                        "WHERE timestamp >= :cutoff AND camera_id IS NULL "
+                        "ORDER BY id DESC LIMIT :limit"
+                    ),
+                    {"cutoff": cutoff, "limit": SEEN_SNAP_IDS_MAX},
+                ).mappings().all()
                 expected_prefix = "ingest_"
     except Exception:
         log.exception("seed_seen_ids: DB read failed; starting with empty cache")

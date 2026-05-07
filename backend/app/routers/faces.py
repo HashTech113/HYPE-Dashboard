@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import text
 
 from ..config import DEFAULT_HISTORY_START, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
-from ..db import connect
+from ..db import session_scope
 from ..dependencies import require_admin_or_hr
 from ..schemas.faces import FaceHistoryItem, FaceHistoryResponse
 
@@ -41,6 +42,14 @@ def _build_image_url(row: dict) -> Optional[str]:
     return f"data:image/jpeg;base64,{data}" if data else None
 
 
+def _ts_to_str(value: Any) -> str:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.isoformat()
+    return str(value or "")
+
+
 @router.get("/api/faces/history", response_model=FaceHistoryResponse)
 def face_history(
     start: str = Query(DEFAULT_HISTORY_START),
@@ -54,7 +63,7 @@ def face_history(
     # captures surface; today/yesterday are unaffected. Without this clause
     # pruned rows leak into the dashboard as bare timestamps with no image.
     where_sql = " WHERE image_data IS NOT NULL"
-    where_args: list = []
+    where_params: dict = {}
     if latest is not None:
         effective_limit = latest
         effective_offset = 0
@@ -68,28 +77,31 @@ def face_history(
             )
         effective_limit = limit
         effective_offset = offset
-        where_sql += " AND timestamp >= ? AND timestamp <= ?"
-        where_args = [start_dt.isoformat(), end_dt.isoformat()]
+        where_sql += " AND timestamp >= :start_ts AND timestamp <= :end_ts"
+        where_params = {"start_ts": start_dt, "end_ts": end_dt}
 
-    with connect() as conn:
-        total = conn.execute(
-            f"SELECT COUNT(*) AS c FROM snapshot_logs{where_sql}", where_args
-        ).fetchone()["c"]
+    with session_scope() as session:
+        total = int(session.execute(
+            text(f"SELECT COUNT(*) FROM snapshot_logs{where_sql}"), where_params,
+        ).scalar_one() or 0)
         rows = [
             dict(r)
-            for r in conn.execute(
-                "SELECT id, name, timestamp, image_path, image_data FROM snapshot_logs"
-                f"{where_sql} ORDER BY timestamp DESC, id DESC LIMIT ? OFFSET ?",
-                [*where_args, effective_limit, effective_offset],
-            ).fetchall()
+            for r in session.execute(
+                text(
+                    "SELECT id, name, timestamp, image_path, image_data FROM snapshot_logs"
+                    f"{where_sql} ORDER BY timestamp DESC, id DESC "
+                    "LIMIT :limit OFFSET :offset"
+                ),
+                {**where_params, "limit": effective_limit, "offset": effective_offset},
+            ).mappings().all()
         ]
 
     items = [
         FaceHistoryItem(
             id=row["image_path"],
             name=row["name"],
-            entry=row["timestamp"],
-            exit=row["timestamp"],
+            entry=_ts_to_str(row["timestamp"]),
+            exit=_ts_to_str(row["timestamp"]),
             image_url=_build_image_url(row),
         )
         for row in rows

@@ -1,13 +1,15 @@
 """Employee directory — name/company mapping consumed by routers.
 
-Backed by SQLite (``employees`` table). On first boot an empty table is
-seeded from ``backend/data/employees.json`` so the roster is never
-accidentally blank after a fresh Railway deploy.
+Backed by the ``employees`` table via SQLAlchemy. On first boot, an empty
+table is seeded from ``backend/data/employees.json`` so the roster is
+never accidentally blank after a fresh deploy. Edits go through
+create/update/delete; all writes persist to the configured database
+(PostgreSQL in production, SQLite locally).
 
-Edits go through create/update/delete; all writes persist as long as the
-SQLite file survives (forever locally; until the next deploy on Railway
-without a volume mount — consider Railway volumes or Postgres if long-
-term persistence across redeploys is required).
+The Python attribute on the ORM model is ``employee_code``, mapped to the
+underlying DB column ``employee_id`` so existing API payloads stay
+unchanged. The public ``Employee`` dataclass continues to expose
+``employee_id`` for the same reason.
 """
 
 from __future__ import annotations
@@ -19,7 +21,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-from ..db import connect
+from sqlalchemy import func, inspect, select, text
+
+from ..db import session_scope
+from ..models import Employee as EmployeeModel
 
 log = logging.getLogger(__name__)
 
@@ -43,45 +48,35 @@ class Employee:
     salary_package: str = ""
 
 
-def _row_to_employee(row) -> Employee:
-    keys = row.keys()
+def _model_to_employee(row: EmployeeModel) -> Employee:
     return Employee(
-        id=str(row["id"]),
-        name=str(row["name"]),
-        employee_id=str(row["employee_id"]),
-        company=str(row["company"] or ""),
-        department=str(row["department"] or ""),
-        shift=str(row["shift"] or ""),
-        role=str(row["role"] or "Employee"),
-        dob=str(row["dob"] or "") if "dob" in keys else "",
-        image_url=str(row["image_url"] or "") if "image_url" in keys else "",
-        email=str(row["email"] or "") if "email" in keys else "",
-        mobile=str(row["mobile"] or "") if "mobile" in keys else "",
-        salary_package=str(row["salary_package"] or "") if "salary_package" in keys else "",
+        id=str(row.id),
+        name=str(row.name or ""),
+        employee_id=str(row.employee_code or ""),
+        company=str(row.company or ""),
+        department=str(row.department or ""),
+        shift=str(row.shift or ""),
+        role=str(row.role or "Employee"),
+        dob=str(row.dob or ""),
+        image_url=str(row.image_url or ""),
+        email=str(row.email or ""),
+        mobile=str(row.mobile or ""),
+        salary_package=str(row.salary_package or ""),
     )
 
 
-_SELECT_COLUMNS = (
-    "id, name, employee_id, company, department, shift, role, "
-    "dob, image_url, email, mobile, salary_package"
-)
-
-
 def all_employees() -> list[Employee]:
-    with connect() as conn:
-        rows = conn.execute(
-            f"SELECT {_SELECT_COLUMNS} FROM employees ORDER BY name COLLATE NOCASE"
-        ).fetchall()
-    return [_row_to_employee(r) for r in rows]
+    with session_scope() as session:
+        rows = session.execute(
+            select(EmployeeModel).order_by(func.lower(EmployeeModel.name))
+        ).scalars().all()
+        return [_model_to_employee(r) for r in rows]
 
 
 def get_by_id(employee_id: str) -> Optional[Employee]:
-    with connect() as conn:
-        row = conn.execute(
-            f"SELECT {_SELECT_COLUMNS} FROM employees WHERE id = ?",
-            (employee_id,),
-        ).fetchone()
-    return _row_to_employee(row) if row else None
+    with session_scope() as session:
+        row = session.get(EmployeeModel, employee_id)
+        return _model_to_employee(row) if row else None
 
 
 def create(
@@ -99,21 +94,49 @@ def create(
     mobile: str = "",
     salary_package: str = "",
 ) -> Employee:
-    with connect() as conn:
-        conn.execute(
-            "INSERT INTO employees (id, name, employee_id, company, department, shift, "
-            "role, dob, image_url, email, mobile, salary_package) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (id, name, employee_id, company, department, shift, role, dob, image_url, email, mobile, salary_package),
+    with session_scope() as session:
+        session.add(
+            EmployeeModel(
+                id=id,
+                name=name,
+                employee_code=employee_id,
+                company=company,
+                department=department,
+                shift=shift,
+                role=role,
+                dob=dob,
+                image_url=image_url,
+                email=email,
+                mobile=mobile,
+                salary_package=salary_package,
+            )
         )
-    loaded = get_by_id(id)
-    assert loaded is not None, "created employee should load back"
-    return loaded
+        session.flush()
+        row = session.get(EmployeeModel, id)
+        assert row is not None, "created employee should load back"
+        return _model_to_employee(row)
 
 
 _UPDATABLE_COLUMNS = {
     "name", "employee_id", "company", "department", "shift", "role", "dob", "image_url",
     "email", "mobile", "salary_package",
+}
+
+
+# Map public attribute name -> ORM attribute name. ``employee_id`` is the
+# only one that differs.
+_PUBLIC_TO_MODEL_ATTR = {
+    "name": "name",
+    "employee_id": "employee_code",
+    "company": "company",
+    "department": "department",
+    "shift": "shift",
+    "role": "role",
+    "dob": "dob",
+    "image_url": "image_url",
+    "email": "email",
+    "mobile": "mobile",
+    "salary_package": "salary_package",
 }
 
 
@@ -125,47 +148,46 @@ def update(employee_id: str, patch: dict) -> Optional[Employee]:
     # Always run the rename pass on save so historical log spellings stay
     # aligned with the current canonical employee name — including variant
     # spellings the camera/recognizer may have inserted since the last save
-    # (e.g. "Akhil c v" alongside "Akhil C V"). Wrapped in BEGIN/COMMIT so
-    # the employees row + log rewrites commit together; on any failure,
-    # nothing changes.
-    old_record = get_by_id(employee_id)
-    if old_record is None:
-        return None
-    new_name = patch.get("name")
-    canonical_name = new_name or old_record.name
-    # Snapshot the roster BEFORE the rename so fuzzy-match can tell apart
-    # variants that belong to THIS employee from similar-looking names owned
-    # by someone else.
-    employees_before: list[Employee] = all_employees()
+    # (e.g. "Akhil c v" alongside "Akhil C V"). All writes commit together;
+    # on any failure, nothing changes.
+    with session_scope() as session:
+        row = session.get(EmployeeModel, employee_id)
+        if row is None:
+            return None
 
-    set_clause = ", ".join(f"{k} = ?" for k, _ in fields)
-    values = [v for _, v in fields]
-    with connect() as conn:
-        try:
-            conn.execute("BEGIN")
-            cur = conn.execute(
-                f"UPDATE employees SET {set_clause} WHERE id = ?",
-                [*values, employee_id],
-            )
-            if cur.rowcount == 0:
-                conn.execute("ROLLBACK")
-                return None
-            _rename_employee_name(
-                conn,
-                old_record.name,
-                canonical_name,
-                employee_id=employee_id,
-                employees_before=employees_before,
-            )
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
-    return get_by_id(employee_id)
+        old_name = str(row.name or "")
+        # Snapshot the roster BEFORE the rename so fuzzy-match can tell apart
+        # variants belonging to THIS employee from similar names owned by
+        # someone else.
+        employees_before: list[Employee] = [
+            _model_to_employee(r)
+            for r in session.execute(select(EmployeeModel)).scalars().all()
+        ]
+
+        for public_key, value in fields:
+            setattr(row, _PUBLIC_TO_MODEL_ATTR[public_key], value)
+
+        canonical_name = patch.get("name") or old_name
+        session.flush()
+
+        # Always run the rename pass — even when the name itself isn't
+        # changing, this sweeps up drifted spellings that fuzzy-match to
+        # this employee. Mirrors the legacy behavior (opening + saving an
+        # employee canonicalizes historical variants).
+        _rename_employee_name(
+            session,
+            old_name,
+            canonical_name,
+            employee_id=employee_id,
+            employees_before=employees_before,
+        )
+
+        session.flush()
+        return _model_to_employee(row)
 
 
 def _rename_employee_name(
-    conn,
+    session,
     old_name: str,
     new_name: str,
     *,
@@ -180,10 +202,19 @@ def _rename_employee_name(
     Caller owns the surrounding transaction.
     """
     counts: dict[str, int] = {}
-    for table in ("snapshot_logs", "attendance_logs", "attendance_corrections"):
+    inspector = inspect(session.get_bind())
+    tables = ["snapshot_logs", "attendance_logs", "attendance_report_edits"]
+    # Legacy attendance_corrections is preserved for one release as a safety
+    # net (see app/upgrade.py). Keep names consistent there too if present.
+    if inspector.has_table("attendance_corrections"):
+        tables.append("attendance_corrections")
+
+    for table in tables:
         existing_names = [
-            r["name"]
-            for r in conn.execute(f"SELECT DISTINCT name FROM {table}").fetchall()
+            r[0]
+            for r in session.execute(
+                text(f"SELECT DISTINCT name FROM {table}")
+            ).all()
         ]
         variants: list[str] = []
         for existing in existing_names:
@@ -198,10 +229,11 @@ def _rename_employee_name(
 
         total = 0
         for variant in variants:
-            total += conn.execute(
-                f"UPDATE {table} SET name = ? WHERE name = ?",
-                (new_name, variant),
-            ).rowcount
+            result = session.execute(
+                text(f"UPDATE {table} SET name = :new WHERE name = :old"),
+                {"new": new_name, "old": variant},
+            )
+            total += int(result.rowcount or 0)
         counts[table] = total
         log.info(
             "employee rename: %s rewrote %d rows from %r to %r (variants=%s)",
@@ -211,9 +243,12 @@ def _rename_employee_name(
 
 
 def delete(employee_id: str) -> bool:
-    with connect() as conn:
-        cur = conn.execute("DELETE FROM employees WHERE id = ?", (employee_id,))
-        return cur.rowcount > 0
+    with session_scope() as session:
+        row = session.get(EmployeeModel, employee_id)
+        if row is None:
+            return False
+        session.delete(row)
+        return True
 
 
 def _seed_rows_from_json() -> list[dict]:
@@ -227,35 +262,39 @@ def _seed_rows_from_json() -> list[dict]:
 
 def seed_if_empty() -> int:
     """Populate employees from the bundled JSON if the table is empty."""
-    with connect() as conn:
-        count = conn.execute("SELECT COUNT(*) AS c FROM employees").fetchone()["c"]
-        if count > 0:
+    with session_scope() as session:
+        count = session.execute(select(func.count()).select_from(EmployeeModel)).scalar_one()
+        if int(count or 0) > 0:
             return 0
         seed = _seed_rows_from_json()
         for row in seed:
             try:
-                conn.execute(
-                    "INSERT OR IGNORE INTO employees (id, name, employee_id, company, "
-                    "department, shift, role, dob, image_url, email, mobile, salary_package) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        str(row["id"]),
-                        str(row["name"]),
-                        str(row.get("employeeId") or row["id"]),
-                        str(row.get("company") or ""),
-                        str(row.get("department") or ""),
-                        str(row.get("shift") or ""),
-                        str(row.get("role") or "Employee"),
-                        str(row.get("dob") or ""),
-                        str(row.get("imageUrl") or ""),
-                        str(row.get("email") or ""),
-                        str(row.get("mobile") or ""),
-                        str(row.get("salaryPackage") or ""),
-                    ),
+                emp_id = str(row["id"])
+                # Guard against partially-populated DBs where a stray row has
+                # the same id but the table-level count was 0 due to a race —
+                # in practice this never happens during seeding, but it's
+                # cheap to be defensive.
+                if session.get(EmployeeModel, emp_id) is not None:
+                    continue
+                session.add(
+                    EmployeeModel(
+                        id=emp_id,
+                        name=str(row["name"]),
+                        employee_code=str(row.get("employeeId") or row["id"]),
+                        company=str(row.get("company") or ""),
+                        department=str(row.get("department") or ""),
+                        shift=str(row.get("shift") or ""),
+                        role=str(row.get("role") or "Employee"),
+                        dob=str(row.get("dob") or ""),
+                        image_url=str(row.get("imageUrl") or ""),
+                        email=str(row.get("email") or ""),
+                        mobile=str(row.get("mobile") or ""),
+                        salary_package=str(row.get("salaryPackage") or ""),
+                    )
                 )
             except KeyError as e:
                 log.warning("Skipping malformed seed row (missing %s): %s", e, row)
-    return len(seed)
+        return len(seed)
 
 
 def _normalize(value: str) -> str:
