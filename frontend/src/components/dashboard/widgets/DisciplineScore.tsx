@@ -1,8 +1,13 @@
 import { useMemo } from "react";
-import { Award } from "lucide-react";
+import { Award, Trophy } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDashboardData } from "@/contexts/DashboardDataContext";
-import { buildDisciplineByTeam, type DisciplineStatus } from "@/lib/dashboardData";
+import {
+  buildDisciplineByTeam,
+  buildTopEmployeesByScore,
+  type DisciplineStatus,
+} from "@/lib/dashboardData";
+import { getCurrentCompany, getCurrentRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const STATUS_STYLES: Record<DisciplineStatus, { badge: string; bar: string; label: string }> = {
@@ -16,6 +21,13 @@ const STATUS_STYLES: Record<DisciplineStatus, { badge: string; bar: string; labe
 export function DisciplineScore() {
   const { attendance } = useDashboardData();
   const rows = useMemo(() => buildDisciplineByTeam(attendance), [attendance]);
+  const isHr = getCurrentRole() === "hr";
+  const hrCompany = isHr ? getCurrentCompany() : null;
+  const topEmployees = useMemo(
+    () => (isHr ? buildTopEmployeesByScore(attendance, 5) : []),
+    [attendance, isHr],
+  );
+  const titleSuffix = hrCompany ? ` ${hrCompany.toUpperCase()}` : "";
 
   return (
     <Card className="flex h-full flex-col">
@@ -24,7 +36,9 @@ export function DisciplineScore() {
           <Award className="h-5 w-5" />
         </div>
         <div>
-          <CardTitle className="text-base font-semibold">Discipline Score by Team</CardTitle>
+          <CardTitle className="text-base font-semibold">
+            Discipline Score by Team{titleSuffix}
+          </CardTitle>
           <p className="text-xs text-muted-foreground">Last 30 days</p>
         </div>
       </CardHeader>
@@ -65,6 +79,56 @@ export function DisciplineScore() {
               </div>
             );
           })}
+
+            {isHr && topEmployees.length > 0 && (
+              <div className="mt-2 border-t border-slate-200 pt-3">
+                <div className="mb-2 flex items-center gap-1.5">
+                  <Trophy className="h-3.5 w-3.5 text-amber-500" />
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    Top 5 Employees
+                  </p>
+                </div>
+                <ol className="space-y-4">
+                  {topEmployees.map((emp, idx) => {
+                    const style = STATUS_STYLES[emp.status];
+                    return (
+                      <li
+                        key={`${emp.company}::${emp.name}`}
+                        className="space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-700">
+                              {idx + 1}
+                            </span>
+                            <span className="truncate text-sm font-medium text-foreground">
+                              {emp.name}
+                            </span>
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition-colors",
+                                style.badge,
+                              )}
+                            >
+                              {style.label}
+                            </span>
+                          </div>
+                          <span className="text-sm font-semibold tabular-nums text-foreground">
+                            {emp.score}
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                          <div
+                            className={cn("h-full rounded-full transition-all duration-1000", style.bar)}
+                            style={{ width: `${Math.max(0, Math.min(100, emp.score))}%` }}
+                          />
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            )}
           </div>
         )}
       </CardContent>
