@@ -123,6 +123,27 @@ function isValidMobile(value: string): boolean {
   return digits.length >= 10 && digits.length <= 12;
 }
 
+/** Default initial value for the Mobile Number input — pre-fills "+91 " so
+ * the user only types the local number and never has to figure out the
+ * country code. Existing rows show whatever's stored; only blank values
+ * get the prefix. */
+const MOBILE_PLACEHOLDER_PREFIX = "+91 ";
+function initialMobileValue(stored: string | undefined): string {
+  return stored && stored.trim() ? stored : MOBILE_PLACEHOLDER_PREFIX;
+}
+
+/** What to actually persist when the user submits. If they left the field
+ * as just the "+91 " prefix (or any value with fewer than 3 raw digits —
+ * i.e. only a country code), treat it as "no mobile entered" so the row
+ * is saved as an empty string instead of a bogus "+91" entry. */
+function mobileValueForSave(value: string): string {
+  const trimmed = (value || "").trim();
+  if (!trimmed) return "";
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length < 3) return "";
+  return trimmed;
+}
+
 async function getCroppedDataUrl(src: string, crop: Area): Promise<string> {
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
@@ -173,7 +194,7 @@ export function EmployeeForm({
     dob: normalizeDob(employee.dob),
     shift: normalizeShift(employee.shift),
     email: employee.email ?? "",
-    mobile: employee.mobile ?? "",
+    mobile: initialMobileValue(employee.mobile),
     salaryPackage: employee.salaryPackage ?? "",
     company: employee.company || scopedCompany || employee.company,
   });
@@ -219,7 +240,7 @@ export function EmployeeForm({
       dob: normalizeDob(employee.dob),
       shift: normalizeShift(employee.shift),
       email: employee.email ?? "",
-      mobile: employee.mobile ?? "",
+      mobile: initialMobileValue(employee.mobile),
       salaryPackage: employee.salaryPackage ?? "",
       company: employee.company || scopedCompany || employee.company,
     });
@@ -257,8 +278,11 @@ export function EmployeeForm({
       window.alert("Please enter a valid Email ID (e.g., name@example.com).");
       return;
     }
-    const trimmedMobile = (draft.mobile ?? "").trim();
-    if (trimmedMobile && !isValidMobile(trimmedMobile)) {
+    // mobileValueForSave returns "" when the user left the field as just
+    // the "+91 " prefix (no real subscriber digits) — that way blank
+    // mobiles round-trip as empty strings, not as the bogus "+91".
+    const mobileForSave = mobileValueForSave(draft.mobile ?? "");
+    if (mobileForSave && !isValidMobile(mobileForSave)) {
       window.alert("Please enter a valid Mobile Number (10-digit local or with country code).");
       return;
     }
@@ -267,7 +291,7 @@ export function EmployeeForm({
       dob: normalizedDob,
       shift: normalizeShift(draft.shift),
       email: trimmedEmail,
-      mobile: trimmedMobile,
+      mobile: mobileForSave,
     });
   };
 
@@ -356,8 +380,14 @@ export function EmployeeForm({
             inputMode="tel"
             autoComplete="tel"
             value={draft.mobile ?? ""}
-            placeholder="+91 98765 43210"
-            onChange={(e) =>
+            placeholder="+91"
+            // Don't reformat on every keystroke — that breaks backspace
+            // (the country-code inference treated the digit being deleted
+            // as part of the prefix and produced garbled "+9 19876…"
+            // strings). Format once on blur instead, so editing in the
+            // middle of the value works naturally.
+            onChange={(e) => setDraft({ ...draft, mobile: e.target.value })}
+            onBlur={(e) =>
               setDraft({ ...draft, mobile: formatMobileInput(e.target.value) })
             }
           />

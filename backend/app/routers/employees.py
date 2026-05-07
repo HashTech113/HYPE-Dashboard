@@ -1,17 +1,46 @@
-"""Employee directory CRUD."""
+"""Employee directory CRUD.
+
+Authorization model:
+* Admin can read/create/update/delete every employee record.
+* HR can read every employee but write only within their own ``company``.
+  Cross-company writes (HR creating/editing/deleting an employee whose
+  ``company`` doesn't match their own) get a 403 — same shape as the rest
+  of the app's HR scoping.
+"""
 
 from __future__ import annotations
 
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from ..dependencies import require_admin, require_admin_or_hr
+from ..dependencies import require_admin_or_hr
 from ..services import employees as employees_service
+from ..services.auth import User
 
 router = APIRouter(tags=["employees"])
+
+
+def _ensure_can_write(user: User, company: str) -> None:
+    """Admins are unrestricted. HR can only write rows whose company
+    matches their own. Empty/missing company is treated as out-of-scope
+    for HR (admin-only), since seed/legacy rows without a company can't
+    safely be assigned to a single HR's bucket."""
+    if user.role == "admin":
+        return
+    if user.role != "hr":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role",
+        )
+    target = (company or "").strip().lower()
+    own = (user.company or "").strip().lower()
+    if not target or not own or target != own:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="HR can only modify employees in their own company",
+        )
 
 
 class EmployeeOut(BaseModel):
@@ -92,9 +121,12 @@ def list_employees() -> EmployeeListResponse:
     "/api/employees",
     response_model=EmployeeOut,
     status_code=201,
-    dependencies=[Depends(require_admin)],
 )
-def create_employee(payload: EmployeeCreate) -> EmployeeOut:
+def create_employee(
+    payload: EmployeeCreate,
+    user: User = Depends(require_admin_or_hr),
+) -> EmployeeOut:
+    _ensure_can_write(user, payload.company)
     new_id = payload.id or f"emp-{uuid.uuid4().hex[:10]}"
     if employees_service.get_by_id(new_id):
         raise HTTPException(status_code=409, detail=f"employee id already exists: {new_id}")
@@ -118,9 +150,22 @@ def create_employee(payload: EmployeeCreate) -> EmployeeOut:
 @router.put(
     "/api/employees/{employee_id}",
     response_model=EmployeeOut,
-    dependencies=[Depends(require_admin)],
 )
-def update_employee(employee_id: str, payload: EmployeeUpdate) -> EmployeeOut:
+def update_employee(
+    employee_id: str,
+    payload: EmployeeUpdate,
+    user: User = Depends(require_admin_or_hr),
+) -> EmployeeOut:
+    existing = employees_service.get_by_id(employee_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"employee not found: {employee_id}")
+    # HR may only edit rows in their own company. Check both the existing
+    # row and the patched company (if provided) so HR can't move an employee
+    # out of their own bucket.
+    _ensure_can_write(user, existing.company)
+    if payload.company is not None and payload.company != existing.company:
+        _ensure_can_write(user, payload.company)
+
     patch = payload.model_dump(exclude_none=True)
     # Map camelCase input → snake_case DB columns
     if "employeeId" in patch:
@@ -135,8 +180,15 @@ def update_employee(employee_id: str, payload: EmployeeUpdate) -> EmployeeOut:
     return _serialize(updated)
 
 
-@router.delete("/api/employees/{employee_id}", dependencies=[Depends(require_admin)])
-def delete_employee(employee_id: str) -> dict:
+@router.delete("/api/employees/{employee_id}")
+def delete_employee(
+    employee_id: str,
+    user: User = Depends(require_admin_or_hr),
+) -> dict:
+    existing = employees_service.get_by_id(employee_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"employee not found: {employee_id}")
+    _ensure_can_write(user, existing.company)
     ok = employees_service.delete(employee_id)
     if not ok:
         raise HTTPException(status_code=404, detail=f"employee not found: {employee_id}")

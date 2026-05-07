@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Pencil, Plus, Trash2, Users } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CheckCircle2, Pencil, Plus, Trash2, Users } from "lucide-react";
 
 import { type Employee } from "@/api/dashboardApi";
 import { useEmployees } from "@/contexts/EmployeesContext";
@@ -45,6 +45,23 @@ export function EditEmployeesPanel() {
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(null);
 
+  // Transient inline success banner. Auto-clears after a few seconds so
+  // the user gets visible "saved!" confirmation without an interruptive
+  // window.alert dialog they have to click through.
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showSuccess = (message: string) => {
+    setSuccessMessage(message);
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    successTimerRef.current = setTimeout(() => setSuccessMessage(null), 3000);
+  };
+  useEffect(
+    () => () => {
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    },
+    [],
+  );
+
   const companyOptions = useMemo(() => {
     const fromData = Array.from(new Set(employees.map((e) => e.company)));
     return Array.from(new Set([...COMPANY_OPTIONS, ...fromData]));
@@ -79,6 +96,16 @@ export function EditEmployeesPanel() {
 
   return (
     <div className="flex flex-col gap-4">
+      {successMessage ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-medium text-emerald-700"
+        >
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          <span>{successMessage}</span>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
           <Users className="h-5 w-5 text-primary" />
@@ -91,7 +118,13 @@ export function EditEmployeesPanel() {
               Add Employee
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-lg">
+          <DialogContent
+            className="max-w-lg"
+            // Don't grab focus into the first input on open — that
+            // auto-selects the Name field which the user finds noisy.
+            // The user can still tab/click into any field manually.
+            onOpenAutoFocus={(event) => event.preventDefault()}
+          >
             <DialogHeader>
               <DialogTitle>Add New Employee</DialogTitle>
             </DialogHeader>
@@ -102,8 +135,9 @@ export function EditEmployeesPanel() {
               onCancel={() => setAddDialogOpen(false)}
               onSave={async (created) => {
                 try {
-                  await addEmployee({ ...created, id: created.id || `emp-${Date.now()}` });
+                  const saved = await addEmployee({ ...created, id: created.id || `emp-${Date.now()}` });
                   setAddDialogOpen(false);
+                  showSuccess(`${saved.name} added successfully.`);
                 } catch (error) {
                   window.alert(
                     `Failed to save employee: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -206,7 +240,10 @@ export function EditEmployeesPanel() {
       </Table>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent
+          className="max-w-lg"
+          onOpenAutoFocus={(event) => event.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>Edit Employee</DialogTitle>
           </DialogHeader>
@@ -221,9 +258,10 @@ export function EditEmployeesPanel() {
                   // If the backend rejects the write (e.g. 422 / 500), the
                   // user gets an alert and the dialog stays open with their
                   // edits intact — they're not silently lost.
-                  await updateEmployee(updated.id, updated);
+                  const saved = await updateEmployee(updated.id, updated);
                   setEditDialogOpen(false);
                   setEditingEmployee(null);
+                  showSuccess(`${saved.name} updated successfully.`);
                 } catch (error) {
                   window.alert(
                     `Failed to save changes: ${error instanceof Error ? error.message : "unknown error"}`,
@@ -257,6 +295,7 @@ export function EditEmployeesPanel() {
                 setEmployeeToDelete(null);
                 try {
                   await deleteEmployee(target.id);
+                  showSuccess(`${target.name} deleted successfully.`);
                 } catch (error) {
                   window.alert(
                     `Failed to delete employee: ${error instanceof Error ? error.message : "unknown error"}`,
