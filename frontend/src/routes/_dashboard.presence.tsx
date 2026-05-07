@@ -782,9 +782,9 @@ function PresencePage() {
         contentClassName="flex min-h-0 flex-1 flex-col gap-2.5 p-3"
         inlineActions
         actions={
-          <div className="ml-[5rem] flex flex-1 flex-wrap items-center gap-3 sm:ml-[6rem]">
-            <div className="flex items-center gap-2">
-              <Search className="h-5 w-5 text-primary" />
+          <div className="flex w-full flex-1 flex-wrap items-center gap-2 sm:ml-[5rem] sm:gap-3 md:ml-[6rem]">
+            <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-initial">
+              <Search className="h-5 w-5 shrink-0 text-primary" />
               <span className="whitespace-nowrap text-sm font-semibold text-sky-900">
                 Employees
               </span>
@@ -794,11 +794,11 @@ function PresencePage() {
                 options={employeeFilterOptions}
                 clearValue="none"
                 placeholder="Select employee"
-                className="h-9 w-[155px] border-sky-200 focus-visible:ring-sky-300 sm:w-[170px] md:w-[180px]"
+                className="h-9 min-w-0 flex-1 border-sky-200 focus-visible:ring-sky-300 sm:w-[170px] sm:flex-initial md:w-[180px]"
               />
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
               <span className="whitespace-nowrap text-sm font-semibold text-emerald-900">
                 Choose Date
               </span>
@@ -811,14 +811,14 @@ function PresencePage() {
                     setCalendarMonth(new Date(year, month - 1, 1));
                   }
                 }}
-                className="w-[230px]"
+                className="min-w-0 flex-1 sm:w-[230px] sm:flex-initial"
               />
             </div>
 
             <Button
               size="sm"
               variant="outline"
-              className="ml-auto h-9 gap-1.5 px-4"
+              className="h-9 gap-1.5 px-4 sm:ml-auto"
               onClick={() => loadAttendance({ manual: true })}
               disabled={refreshing}
               title="Refresh attendance data"
@@ -864,9 +864,9 @@ function PresencePage() {
                     (avatar + 3 left-column fields + 8 right-column fields) on
                     smaller viewports. */}
                 <div className="mt-2 grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1 xl:grid-cols-[minmax(260px,0.95fr)_minmax(0,1fr)]">
-                  <div className="grid min-h-0 grid-rows-[auto_repeat(3,auto)] gap-1.5 xl:grid-rows-[1.7fr_repeat(3,minmax(0,1fr))]">
+                  <div className="grid min-h-0 grid-cols-1 grid-rows-[auto_repeat(3,auto)] gap-1.5 xl:grid-rows-[1.7fr_repeat(3,minmax(0,1fr))]">
                     <div className="flex min-h-0 items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2.5">
-                      <Avatar className="h-32 w-32 border border-slate-200 bg-slate-100">
+                      <Avatar className="h-24 w-24 border border-slate-200 bg-slate-100 sm:h-32 sm:w-32">
                         {selectedEmployeeData?.imageUrl ? (
                           <AvatarImage
                             src={selectedEmployeeData.imageUrl}
@@ -891,7 +891,7 @@ function PresencePage() {
                     <DetailField tone="violet" label="Employee ID" value={selectedEmployeeData?.employeeId ?? ""} />
                   </div>
 
-                  <div className="grid min-h-0 grid-rows-[repeat(8,auto)] gap-1.5 xl:grid-rows-[repeat(8,minmax(0,1fr))]">
+                  <div className="grid min-h-0 grid-cols-1 grid-rows-[repeat(8,auto)] gap-1.5 sm:grid-cols-2 sm:grid-rows-[repeat(4,auto)] xl:grid-cols-1 xl:grid-rows-[repeat(8,minmax(0,1fr))]">
                     <DetailField
                       tone={
                         selectedDayIsSunday

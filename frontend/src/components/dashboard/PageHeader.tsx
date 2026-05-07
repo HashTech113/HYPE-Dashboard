@@ -28,8 +28,10 @@ export function PageHeader({
         {inlineActions && actions ? (
           // flex-1 lets the inline actions container fill the title row, so
           // children using ``ml-auto`` (e.g., a Refresh button) can push to
-          // the far-right edge.
-          <div className="flex flex-1 items-center gap-2">{actions}</div>
+          // the far-right edge. flex-wrap keeps mobile layouts from squashing
+          // multi-control headers — children flow onto a second row when the
+          // viewport is too narrow to fit them inline.
+          <div className="flex flex-1 flex-wrap items-center gap-2">{actions}</div>
         ) : null}
       </div>
       {!inlineActions && actions && (
