@@ -852,7 +852,11 @@ function PresencePage() {
 
           {(
             <div className="grid min-h-0 flex-1 items-stretch gap-3 2xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-              <section className="flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+              {/* Mobile order swap: when stacked (below 2xl), calendar shows
+                  first so the operator can pick a date before the details
+                  panel below it updates. From 2xl up the original side-by-side
+                  layout stands — Employee Details on the left, calendar right. */}
+              <section className="order-2 flex h-full min-h-0 flex-col rounded-xl border border-slate-200 bg-slate-50/70 p-3 2xl:order-1">
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-bold uppercase tracking-[0.18em] text-slate-700">Employee Details</p>
                   <p className="text-sm font-medium text-slate-500">
@@ -990,7 +994,7 @@ function PresencePage() {
                 </div>
               </section>
 
-              <section className="flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100/70 p-3 shadow-sm">
+              <section className="order-1 flex h-full min-h-0 min-w-0 w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-slate-100/70 p-3 shadow-sm 2xl:order-2">
                 <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
                   <div className="justify-self-start">
                     <h3 className="text-2xl font-semibold leading-none tracking-tight text-slate-900">{monthLabel}</h3>

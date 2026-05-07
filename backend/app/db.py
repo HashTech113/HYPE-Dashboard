@@ -24,7 +24,18 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
     timestamp TEXT NOT NULL,
     image_path TEXT NOT NULL UNIQUE,
     image_data TEXT,
-    camera_id TEXT
+    camera_id TEXT,
+    -- Multi-source attendance: 'local_camera' for capture.py / face recognition
+    -- rows, 'external_api' for rows imported from a third-party HR system via
+    -- POST /api/external-attendance/sync. Reports + dashboards merge both
+    -- sources transparently — the column exists for filtering / auditing.
+    source TEXT NOT NULL DEFAULT 'local_camera',
+    -- Vendor-side event id from the external system; used to dedup imports.
+    -- NULL for local_camera rows.
+    external_event_id TEXT,
+    -- Normalized to one of: IN, OUT, BREAK_OUT, BREAK_IN. NULL for camera
+    -- rows (which are just "presence ticks", not typed punches).
+    event_type TEXT
 );
 
 CREATE TABLE IF NOT EXISTS employees (
@@ -96,6 +107,10 @@ CREATE INDEX IF NOT EXISTS idx_snapshot_logs_timestamp ON snapshot_logs (timesta
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_timestamp ON attendance_logs (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_snapshot_logs_name ON snapshot_logs (name);
 CREATE INDEX IF NOT EXISTS idx_attendance_logs_name ON attendance_logs (name);
+-- The source / external_event_id indexes are NOT defined inline because the
+-- columns they reference are added by ALTER TABLE in init_schema below — on
+-- pre-existing DBs the legacy table doesn't have them yet, so creating the
+-- index here would error. They're created post-migration instead.
 CREATE INDEX IF NOT EXISTS idx_employees_name ON employees (name);
 CREATE INDEX IF NOT EXISTS idx_users_username ON users (username);
 """
@@ -147,6 +162,27 @@ def init_schema() -> None:
             conn.execute("ALTER TABLE employees ADD COLUMN mobile TEXT NOT NULL DEFAULT ''")
         if not _column_exists(conn, "employees", "salary_package"):
             conn.execute("ALTER TABLE employees ADD COLUMN salary_package TEXT NOT NULL DEFAULT ''")
+        # Multi-source attendance: existing rows are local_camera by definition,
+        # so the column gets a default and historical rows are tagged correctly.
+        if not _column_exists(conn, "attendance_logs", "source"):
+            conn.execute(
+                "ALTER TABLE attendance_logs ADD COLUMN source TEXT NOT NULL DEFAULT 'local_camera'"
+            )
+        if not _column_exists(conn, "attendance_logs", "external_event_id"):
+            conn.execute("ALTER TABLE attendance_logs ADD COLUMN external_event_id TEXT")
+        if not _column_exists(conn, "attendance_logs", "event_type"):
+            conn.execute("ALTER TABLE attendance_logs ADD COLUMN event_type TEXT")
+        # Indexes that depend on the columns just added must run AFTER the
+        # ALTER TABLEs above. ``IF NOT EXISTS`` keeps re-runs cheap.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_attendance_logs_source "
+            "ON attendance_logs (source)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_logs_external_event_id "
+            "ON attendance_logs (external_event_id) "
+            "WHERE external_event_id IS NOT NULL"
+        )
         # Backfill new attendance_corrections columns on databases created
         # before report-level overrides existed.
         for col, ddl in (

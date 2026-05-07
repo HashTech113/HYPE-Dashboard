@@ -34,6 +34,13 @@ JWT_TTL_SECONDS = int(os.getenv("JWT_TTL_SECONDS", str(60 * 60 * 12)))  # 12h
 # the same value to enable.
 INGEST_API_KEY = os.getenv("INGEST_API_KEY", "")
 
+# External attendance API (third-party HR system). When both URL and key are
+# set, POST /api/external-attendance/sync pulls events from the vendor and
+# merges them into attendance_logs alongside local camera rows. Both values
+# live ONLY in backend/Railway env — they are never sent to the frontend.
+EXTERNAL_ATTENDANCE_API_URL = os.getenv("EXTERNAL_ATTENDANCE_API_URL", "").rstrip("/")
+EXTERNAL_ATTENDANCE_API_KEY = os.getenv("EXTERNAL_ATTENDANCE_API_KEY", "")
+
 # Seed defaults — the first boot creates one admin + one HR per company so the
 # system is usable out of the box. Operators are expected to rotate these
 # immediately via /api/auth/change-password (or by setting these env vars).

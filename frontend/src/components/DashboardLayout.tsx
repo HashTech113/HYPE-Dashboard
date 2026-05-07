@@ -24,7 +24,6 @@ import {
   type AuthRole,
 } from "@/lib/auth";
 import { cn } from "@/lib/utils";
-import hypeLogo from "@/images/HYPE_logo.png";
 
 const INGEST_POLL_MS = 10_000;
 
@@ -357,14 +356,6 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
           >
             <Menu className="h-5 w-5" />
           </button>
-
-          {sidebarExpanded ? (
-            <img
-              src={hypeLogo}
-              alt="HYPE logo"
-              className="ml-1 hidden h-23 w-23 object-contain md:block"
-            />
-          ) : null}
 
           <p className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-base font-semibold tracking-wide text-[#3f9382] sm:text-lg md:text-2xl lg:text-3xl xl:text-4xl">
             ᴍᴏᴠᴇᴍᴇɴᴛ ɪɴᴛᴇʟʟɪɢᴇɴᴄᴇ ᴘʟᴀᴛꜰᴏʀᴍ

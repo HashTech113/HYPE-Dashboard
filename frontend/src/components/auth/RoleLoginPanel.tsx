@@ -65,16 +65,6 @@ export function RoleLoginPanel({ role, redirect }: RoleLoginPanelProps) {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f3f4f6] px-4 py-10">
-      {/* Soft gradient backdrop blobs to echo the dashboard sidebar palette. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -top-32 -left-32 h-[420px] w-[420px] rounded-full bg-gradient-to-br from-[#69baa7] via-[#4aa590] to-[#2f8f7b] opacity-40 blur-3xl"
-      />
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute -bottom-40 -right-32 h-[460px] w-[460px] rounded-full bg-gradient-to-tr from-[#2f8f7b] via-[#4aa590] to-[#69baa7] opacity-30 blur-3xl"
-      />
-
       <div
         key={role}
         className="animate-auth-from-right relative z-10 grid w-full max-w-5xl overflow-hidden rounded-[28px] bg-white/70 shadow-[0_30px_60px_rgba(12,70,56,0.18)] backdrop-blur-xl md:grid-cols-2"

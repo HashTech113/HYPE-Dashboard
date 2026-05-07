@@ -71,6 +71,51 @@ def record_capture(
         return False
 
 
+def record_external_event(
+    *,
+    name: str,
+    timestamp_iso: str,
+    external_event_id: str,
+    event_type: str,
+) -> bool:
+    """Insert one event from the external attendance API into ``attendance_logs``.
+
+    External events have no image, so nothing lands in ``snapshot_logs`` (which
+    powers Live Captures). The row is tagged ``source='external_api'`` and the
+    vendor-side id is stored in ``external_event_id`` — a partial unique index
+    on that column makes re-syncs idempotent.
+
+    ``image_path`` still has to be unique-non-null per the table schema; we
+    derive a synthetic value (``external_<id>``) so the existing constraint
+    keeps working for both sources without an extra migration.
+
+    Returns True if a new row was inserted, False if the event was already
+    imported (duplicate ``external_event_id``)."""
+    if _is_recognized(name):
+        from . import employees as employees_service
+        matched = employees_service.match(name)
+        if matched and matched.name != name:
+            name = matched.name
+
+    image_path = f"external_{external_event_id}"
+    try:
+        with connect() as conn:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO attendance_logs "
+                "(name, timestamp, image_path, image_data, camera_id, source, "
+                "external_event_id, event_type) "
+                "VALUES (?, ?, ?, NULL, NULL, 'external_api', ?, ?)",
+                (name, timestamp_iso, image_path, external_event_id, event_type),
+            )
+            return cur.rowcount > 0
+    except sqlite3.DatabaseError as e:
+        log.warning(
+            "Failed to record external event id=%s name=%s: %s",
+            external_event_id, name, e,
+        )
+        return False
+
+
 def fetch_snapshot_logs(*, limit: Optional[int], offset: int, name: Optional[str]) -> list[dict]:
     return _fetch("snapshot_logs", limit=limit, offset=offset, name=name)
 
