@@ -75,13 +75,23 @@ def _classify(
 
     If exit_local is None we still classify entry-side lateness; early-exit
     fields are zero because there is no exit to compare against.
+
+    Late grace handling: entries arriving within ``shift.late_grace_min`` of
+    shift start are "on time" — status is Present and late_minutes/seconds
+    are reported as 0 (so dashboards / reports that test ``late_minutes>0``
+    don't paint within-grace arrivals as late). Once the entry crosses the
+    grace cutoff (e.g. 09:45 with a 09:30 shift + 15 min grace) we count
+    lateness from THAT cutoff, so the reported value answers "how late after
+    the grace window?" rather than "how late since shift start?".
     """
     shift_start = entry_local.replace(
         hour=shift.start.hour, minute=shift.start.minute, second=0, microsecond=0
     )
-    late_seconds = max(0, int((entry_local - shift_start).total_seconds()))
+    raw_late_seconds = max(0, int((entry_local - shift_start).total_seconds()))
+    grace_seconds = max(0, shift.late_grace_min) * 60
+    late_seconds = max(0, raw_late_seconds - grace_seconds)
     late_min = late_seconds // 60
-    is_late = late_seconds > shift.late_grace_min * 60
+    is_late = late_seconds > 0
 
     if exit_local is None:
         return ("Late" if is_late else "Present", late_min, 0, late_seconds, 0)
@@ -89,9 +99,11 @@ def _classify(
     shift_end = entry_local.replace(
         hour=shift.end.hour, minute=shift.end.minute, second=0, microsecond=0
     )
-    early_exit_seconds = max(0, int((shift_end - exit_local).total_seconds()))
+    raw_early_exit_seconds = max(0, int((shift_end - exit_local).total_seconds()))
+    early_grace_seconds = max(0, shift.early_exit_grace_min) * 60
+    early_exit_seconds = max(0, raw_early_exit_seconds - early_grace_seconds)
     early_min = early_exit_seconds // 60
-    is_early = early_exit_seconds > shift.early_exit_grace_min * 60
+    is_early = early_exit_seconds > 0
 
     if is_late:
         status = "Late"
