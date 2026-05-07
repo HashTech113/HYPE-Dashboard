@@ -66,7 +66,7 @@ class AttendanceLog(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "source IN ('local_camera','external_api')",
+            "source IN ('local_camera','external_api','manual')",
             name="ck_attendance_source",
         ),
         # event_type may be NULL for camera presence ticks (which aren't typed

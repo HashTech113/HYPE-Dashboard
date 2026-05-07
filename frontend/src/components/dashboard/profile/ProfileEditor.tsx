@@ -78,12 +78,8 @@ type ProfileCardProps = {
 
 export function ProfileCard({ profile, onEdit, onChangePassword, subtitle }: ProfileCardProps) {
   return (
-    <div className="relative w-full max-w-xl">
-      <div
-        aria-hidden="true"
-        className="absolute -top-px left-12 right-12 h-[3px] rounded-full bg-gradient-to-r from-transparent via-[#4aa590] to-transparent"
-      />
-      <div className="neu-surface flex flex-col items-center gap-5 rounded-3xl px-8 py-10 sm:px-10">
+    <div className="w-full max-w-xl">
+      <div className="neu-surface flex flex-col items-center gap-5 rounded-2xl border border-slate-200 px-8 py-10 sm:px-10">
         <ProfileAvatar
           name={profile.displayName}
           avatarUrl={profile.avatarUrl}

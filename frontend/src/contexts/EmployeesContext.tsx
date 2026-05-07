@@ -15,9 +15,13 @@ type EmployeesContextValue = {
   loading: boolean;
   /** Company the current user is scoped to, or null for admins (full access). */
   scopedCompany: string | null;
-  updateEmployee: (id: string, patch: Partial<Employee>) => void;
-  addEmployee: (employee: Employee) => void;
-  deleteEmployee: (id: string) => void;
+  /** Async; resolves with the saved record from the server (or rejects on
+   * API failure). The optimistic UI update happens immediately; the
+   * resolved value is the canonical post-save state and is also written
+   * into local state, so callers don't need to do their own refetch. */
+  updateEmployee: (id: string, patch: Partial<Employee>) => Promise<Employee>;
+  addEmployee: (employee: Employee) => Promise<Employee>;
+  deleteEmployee: (id: string) => Promise<void>;
   resetToDefaults: () => Promise<void>;
 };
 
@@ -67,8 +71,11 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const updateEmployee = useCallback((id: string, patch: Partial<Employee>) => {
-    // Optimistic UI update; rollback on failure.
+  const updateEmployee = useCallback(async (id: string, patch: Partial<Employee>): Promise<Employee> => {
+    // Optimistic UI update; rollback on failure. Returning a promise so
+    // callers (the edit dialog) can await the canonical server response
+    // before closing — that way a silent backend failure surfaces as a
+    // visible error instead of looking like a successful save.
     let rollback: Employee[] | null = null;
     setEmployees((prev) => {
       rollback = prev;
@@ -76,24 +83,28 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       writeToStorage(next);
       return next;
     });
-    updateEmployeeRemote(id, patch)
-      .then((saved) => {
-        setEmployees((prev) => {
-          const next = prev.map((e) => (e.id === id ? { ...e, ...saved } : e));
-          writeToStorage(next);
-          return next;
-        });
-      })
-      .catch((error) => {
-        console.error("updateEmployee failed, rolling back", error);
-        if (rollback) {
-          setEmployees(rollback);
-          writeToStorage(rollback);
-        }
+    try {
+      const saved = await updateEmployeeRemote(id, patch);
+      setEmployees((prev) => {
+        // Replace local row with the canonical server record. Spreading
+        // ``saved`` last guarantees salaryPackage / company / etc. always
+        // reflect what's actually in PostgreSQL, not the in-flight patch.
+        const next = prev.map((e) => (e.id === id ? { ...e, ...saved } : e));
+        writeToStorage(next);
+        return next;
       });
+      return saved;
+    } catch (error) {
+      console.error("updateEmployee failed, rolling back", error);
+      if (rollback) {
+        setEmployees(rollback);
+        writeToStorage(rollback);
+      }
+      throw error;
+    }
   }, []);
 
-  const addEmployee = useCallback((employee: Employee) => {
+  const addEmployee = useCallback(async (employee: Employee): Promise<Employee> => {
     let rollback: Employee[] | null = null;
     setEmployees((prev) => {
       rollback = prev;
@@ -101,25 +112,26 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       writeToStorage(next);
       return next;
     });
-    createEmployeeRemote(employee)
-      .then((saved) => {
+    try {
+      const saved = await createEmployeeRemote(employee);
+      setEmployees((prev) => {
         // Backend may have assigned a new id — reconcile.
-        setEmployees((prev) => {
-          const next = prev.map((e) => (e.id === employee.id ? saved : e));
-          writeToStorage(next);
-          return next;
-        });
-      })
-      .catch((error) => {
-        console.error("addEmployee failed, rolling back", error);
-        if (rollback) {
-          setEmployees(rollback);
-          writeToStorage(rollback);
-        }
+        const next = prev.map((e) => (e.id === employee.id ? saved : e));
+        writeToStorage(next);
+        return next;
       });
+      return saved;
+    } catch (error) {
+      console.error("addEmployee failed, rolling back", error);
+      if (rollback) {
+        setEmployees(rollback);
+        writeToStorage(rollback);
+      }
+      throw error;
+    }
   }, []);
 
-  const deleteEmployee = useCallback((id: string) => {
+  const deleteEmployee = useCallback(async (id: string): Promise<void> => {
     let rollback: Employee[] | null = null;
     setEmployees((prev) => {
       rollback = prev;
@@ -127,13 +139,16 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
       writeToStorage(next);
       return next;
     });
-    deleteEmployeeRemote(id).catch((error) => {
+    try {
+      await deleteEmployeeRemote(id);
+    } catch (error) {
       console.error("deleteEmployee failed, rolling back", error);
       if (rollback) {
         setEmployees(rollback);
         writeToStorage(rollback);
       }
-    });
+      throw error;
+    }
   }, []);
 
   const resetToDefaults = useCallback(async () => {

@@ -100,9 +100,15 @@ export function EditEmployeesPanel() {
               saveLabel="Save Employee"
               showCancel
               onCancel={() => setAddDialogOpen(false)}
-              onSave={(created) => {
-                addEmployee({ ...created, id: created.id || `emp-${Date.now()}` });
-                setAddDialogOpen(false);
+              onSave={async (created) => {
+                try {
+                  await addEmployee({ ...created, id: created.id || `emp-${Date.now()}` });
+                  setAddDialogOpen(false);
+                } catch (error) {
+                  window.alert(
+                    `Failed to save employee: ${error instanceof Error ? error.message : "unknown error"}`,
+                  );
+                }
               }}
             />
           </DialogContent>
@@ -209,10 +215,20 @@ export function EditEmployeesPanel() {
               employee={editingEmployee}
               showCancel
               onCancel={() => setEditDialogOpen(false)}
-              onSave={(updated) => {
-                updateEmployee(updated.id, updated);
-                setEditDialogOpen(false);
-                setEditingEmployee(null);
+              onSave={async (updated) => {
+                try {
+                  // Await the canonical server response before closing.
+                  // If the backend rejects the write (e.g. 422 / 500), the
+                  // user gets an alert and the dialog stays open with their
+                  // edits intact — they're not silently lost.
+                  await updateEmployee(updated.id, updated);
+                  setEditDialogOpen(false);
+                  setEditingEmployee(null);
+                } catch (error) {
+                  window.alert(
+                    `Failed to save changes: ${error instanceof Error ? error.message : "unknown error"}`,
+                  );
+                }
               }}
             />
           ) : null}
@@ -235,10 +251,17 @@ export function EditEmployeesPanel() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => {
+              onClick={async () => {
                 if (!employeeToDelete) return;
-                deleteEmployee(employeeToDelete.id);
+                const target = employeeToDelete;
                 setEmployeeToDelete(null);
+                try {
+                  await deleteEmployee(target.id);
+                } catch (error) {
+                  window.alert(
+                    `Failed to delete employee: ${error instanceof Error ? error.message : "unknown error"}`,
+                  );
+                }
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >

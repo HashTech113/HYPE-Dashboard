@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ._base import Base
@@ -28,7 +28,13 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     password_hash: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Free-text ``company`` is the legacy denormalized column; ``company_id``
+    # is the canonical FK to ``companies.id``. Both stay in sync via the
+    # service layer for one release; a follow-up commit will drop the string.
     company: Mapped[str] = mapped_column(String(128), nullable=False, default="", server_default="")
+    company_id: Mapped[Optional[int]] = mapped_column(
+        Integer, ForeignKey("companies.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
     display_name: Mapped[str] = mapped_column(String(128), nullable=False, default="", server_default="")
     avatar_url: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")

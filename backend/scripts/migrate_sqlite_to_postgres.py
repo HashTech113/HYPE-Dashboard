@@ -291,6 +291,58 @@ def _short_row(row: dict) -> dict:
 # ---- Per-table migrations --------------------------------------------------
 
 
+def _populate_lookup_tables(
+    sqlite_conn: sqlite3.Connection,
+    pg_session: Session,
+) -> dict[str, int]:
+    """Scan distinct ``company`` / ``department`` / ``shift`` strings in
+    the source SQLite and ``get_or_create`` matching rows in the
+    destination Postgres lookup tables. Returns ``{table: rows_created}``.
+    """
+    from app.services.lookups import (
+        get_or_create_company_id,
+        get_or_create_department_id,
+        get_or_create_shift_id,
+    )
+
+    def _distinct_strings(table: str, column: str) -> list[str]:
+        # Defensive PRAGMA check — older SQLite DBs may not have these columns.
+        info = {r["name"] for r in sqlite_conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in info:
+            return []
+        rows = sqlite_conn.execute(
+            f"SELECT DISTINCT {column} FROM {table} "
+            f"WHERE {column} IS NOT NULL AND {column} != ''"
+        ).fetchall()
+        return [str(r[0]) for r in rows]
+
+    counts: dict[str, int] = {"companies": 0, "departments": 0, "shifts": 0}
+
+    def _seed(table: str, names: list[str], helper) -> int:
+        if not names:
+            return 0
+        before = pg_session.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
+        for name in names:
+            helper(pg_session, name)
+        after = pg_session.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar_one()
+        return int(after) - int(before)
+
+    company_names = sorted({*_distinct_strings("users", "company"), *_distinct_strings("employees", "company")})
+    counts["companies"] = _seed("companies", company_names, get_or_create_company_id)
+    dept_names = sorted(set(_distinct_strings("employees", "department")))
+    counts["departments"] = _seed("departments", dept_names, get_or_create_department_id)
+    shift_names = sorted(set(_distinct_strings("employees", "shift")))
+    counts["shifts"] = _seed("shifts", shift_names, get_or_create_shift_id)
+    return counts
+
+
+def _build_lookup_id_map(pg_session: Session, table: str) -> dict[str, int]:
+    """Map ``lower(name) -> id`` from a lookup table. Used to set the FK
+    columns on users/employees during migration."""
+    rows = pg_session.execute(text(f"SELECT id, name FROM {table}")).all()
+    return {str(name).strip().lower(): int(rid) for rid, name in rows if name}
+
+
 def _migrate_users(
     sqlite_conn: sqlite3.Connection,
     pg_session: Session,
@@ -298,6 +350,7 @@ def _migrate_users(
     on_conflict: str,
     batch_size: int,
     limit: Optional[int],
+    company_id_map: dict[str, int],
 ) -> TableReport:
     rep = TableReport("users")
     rep.source = sqlite_conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -311,12 +364,14 @@ def _migrate_users(
         if limit is not None and n >= limit:
             break
         n += 1
+        company = str(row["company"] or "")
         batch.append({
             "id": str(row["id"]),
             "username": str(row["username"]),
             "password_hash": str(row["password_hash"]),
             "role": str(row["role"]),
-            "company": str(row["company"] or ""),
+            "company": company,
+            "company_id": company_id_map.get(company.strip().lower()) if company else None,
             "display_name": str(row["display_name"] or ""),
             "avatar_url": str(row["avatar_url"] or ""),
             "is_active": bool(row["is_active"]),
@@ -336,6 +391,9 @@ def _migrate_employees(
     on_conflict: str,
     batch_size: int,
     limit: Optional[int],
+    company_id_map: dict[str, int],
+    department_id_map: dict[str, int],
+    shift_id_map: dict[str, int],
 ) -> TableReport:
     rep = TableReport("employees")
     rep.source = sqlite_conn.execute("SELECT COUNT(*) FROM employees").fetchone()[0]
@@ -349,14 +407,20 @@ def _migrate_employees(
         if limit is not None and n >= limit:
             break
         n += 1
+        company = str(row["company"] or "")
+        department = str(row["department"] or "")
+        shift = str(row["shift"] or "")
         batch.append({
             "id": str(row["id"]),
             "name": str(row["name"] or ""),
             # DB column kept as ``employee_id`` (Python attr ``employee_code``).
             "employee_id": str(row["employee_id"] or ""),
-            "company": str(row["company"] or ""),
-            "department": str(row["department"] or ""),
-            "shift": str(row["shift"] or ""),
+            "company": company,
+            "company_id": company_id_map.get(company.strip().lower()) if company else None,
+            "department": department,
+            "department_id": department_id_map.get(department.strip().lower()) if department else None,
+            "shift": shift,
+            "shift_id": shift_id_map.get(shift.strip().lower()) if shift else None,
             "role": str(row["role"] or "Employee"),
             "dob": str(row["dob"] or ""),
             "image_url": str(row["image_url"] or ""),
@@ -791,6 +855,24 @@ def main() -> int:
         big_txn = pg_session.begin()
 
     try:
+        # Populate the company / department / shift lookup tables first so
+        # the FK columns on users + employees can be set during their
+        # respective migrations.
+        company_id_map: dict[str, int] = {}
+        department_id_map: dict[str, int] = {}
+        shift_id_map: dict[str, int] = {}
+        if not args.dry_run:
+            if not args.rollback_on_error:
+                pg_session.begin()
+            lookup_counts = _populate_lookup_tables(sqlite_conn, pg_session)
+            log.info("lookup tables populated counts=%s", lookup_counts)
+            pg_session.flush()
+            company_id_map = _build_lookup_id_map(pg_session, "companies")
+            department_id_map = _build_lookup_id_map(pg_session, "departments")
+            shift_id_map = _build_lookup_id_map(pg_session, "shifts")
+            if not args.rollback_on_error:
+                pg_session.commit()
+
         # Build name->id maps after employees migration for use by logs.
         employee_by_lower: dict[str, str] = {}
         employee_by_norm: dict[str, str] = {}
@@ -805,11 +887,15 @@ def main() -> int:
                 rep = _migrate_users(
                     sqlite_conn, pg_session,
                     on_conflict=args.on_conflict, batch_size=args.batch_size, limit=args.limit,
+                    company_id_map=company_id_map,
                 )
             elif table == "employees":
                 rep = _migrate_employees(
                     sqlite_conn, pg_session,
                     on_conflict=args.on_conflict, batch_size=args.batch_size, limit=args.limit,
+                    company_id_map=company_id_map,
+                    department_id_map=department_id_map,
+                    shift_id_map=shift_id_map,
                 )
                 # Refresh the lookup maps now that employees are inserted.
                 pg_session.flush()

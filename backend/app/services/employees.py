@@ -25,6 +25,11 @@ from sqlalchemy import func, inspect, select, text
 
 from ..db import session_scope
 from ..models import Employee as EmployeeModel
+from .lookups import (
+    get_or_create_company_id,
+    get_or_create_department_id,
+    get_or_create_shift_id,
+)
 
 log = logging.getLogger(__name__)
 
@@ -95,14 +100,24 @@ def create(
     salary_package: str = "",
 ) -> Employee:
     with session_scope() as session:
+        # Lookup-or-create the FK targets so the normalized columns stay
+        # consistent with the legacy denormalized strings.
+        company_id = get_or_create_company_id(session, company) if company else None
+        department_id = (
+            get_or_create_department_id(session, department) if department else None
+        )
+        shift_id = get_or_create_shift_id(session, shift) if shift else None
         session.add(
             EmployeeModel(
                 id=id,
                 name=name,
                 employee_code=employee_id,
                 company=company,
+                company_id=company_id,
                 department=department,
+                department_id=department_id,
                 shift=shift,
+                shift_id=shift_id,
                 role=role,
                 dob=dob,
                 image_url=image_url,
@@ -166,6 +181,22 @@ def update(employee_id: str, patch: dict) -> Optional[Employee]:
 
         for public_key, value in fields:
             setattr(row, _PUBLIC_TO_MODEL_ATTR[public_key], value)
+
+        # Sync the lookup-table FKs whenever the matching denormalized
+        # string is updated (or set for the first time on legacy rows).
+        # Empty strings clear the FK; non-empty strings get-or-create.
+        if "company" in dict(fields):
+            row.company_id = (
+                get_or_create_company_id(session, row.company) if row.company else None
+            )
+        if "department" in dict(fields):
+            row.department_id = (
+                get_or_create_department_id(session, row.department) if row.department else None
+            )
+        if "shift" in dict(fields):
+            row.shift_id = (
+                get_or_create_shift_id(session, row.shift) if row.shift else None
+            )
 
         canonical_name = patch.get("name") or old_name
         session.flush()
@@ -276,14 +307,20 @@ def seed_if_empty() -> int:
                 # cheap to be defensive.
                 if session.get(EmployeeModel, emp_id) is not None:
                     continue
+                company_str = str(row.get("company") or "")
+                department_str = str(row.get("department") or "")
+                shift_str = str(row.get("shift") or "")
                 session.add(
                     EmployeeModel(
                         id=emp_id,
                         name=str(row["name"]),
                         employee_code=str(row.get("employeeId") or row["id"]),
-                        company=str(row.get("company") or ""),
-                        department=str(row.get("department") or ""),
-                        shift=str(row.get("shift") or ""),
+                        company=company_str,
+                        company_id=get_or_create_company_id(session, company_str) if company_str else None,
+                        department=department_str,
+                        department_id=get_or_create_department_id(session, department_str) if department_str else None,
+                        shift=shift_str,
+                        shift_id=get_or_create_shift_id(session, shift_str) if shift_str else None,
                         role=str(row.get("role") or "Employee"),
                         dob=str(row.get("dob") or ""),
                         image_url=str(row.get("imageUrl") or ""),

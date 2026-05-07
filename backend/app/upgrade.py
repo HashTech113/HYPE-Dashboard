@@ -41,6 +41,11 @@ from sqlalchemy import inspect, select, text
 
 from .db import session_scope
 from .models import AttendanceReportEdit, Employee
+from .services.lookups import (
+    get_or_create_company_id,
+    get_or_create_department_id,
+    get_or_create_shift_id,
+)
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +57,25 @@ log = logging.getLogger(__name__)
 _NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("attendance_logs", "employee_id", "VARCHAR(64)"),
     ("snapshot_logs", "employee_id", "VARCHAR(64)"),
+    # users.email: new optional column on the User model (nullable VARCHAR
+    # with a UNIQUE index when populated). The unique index is created on
+    # fresh DBs by metadata.create_all but cannot be safely added to a
+    # populated legacy table that may already have NULLs in the column —
+    # we add the column itself here; the application treats email as
+    # optional and any later UNIQUE-add would be a follow-up migration.
+    ("users", "email", "VARCHAR(255)"),
+    # Lookup-table FKs introduced by the normalization pass. The string
+    # columns (users.company, employees.company / department / shift)
+    # remain as transitional compat shims for one release; service writes
+    # keep both in sync. A follow-up commit will drop the strings.
+    ("users", "company_id", "INTEGER"),
+    ("employees", "company_id", "INTEGER"),
+    ("employees", "department_id", "INTEGER"),
+    ("employees", "shift_id", "INTEGER"),
+    # employees.is_active: NOT NULL with DEFAULT TRUE so existing rows are
+    # all marked active without a separate UPDATE pass. ``DEFAULT TRUE`` is
+    # accepted on both PostgreSQL (boolean literal) and SQLite (parsed as 1).
+    ("employees", "is_active", "BOOLEAN NOT NULL DEFAULT TRUE"),
 )
 
 
@@ -171,6 +195,93 @@ def _copy_legacy_corrections(session) -> int:
     return inserted
 
 
+def _populate_lookup_tables(session) -> dict[str, int]:
+    """Create rows in ``companies`` / ``departments`` / ``shifts`` for every
+    distinct non-empty value currently stored in the legacy string columns
+    on ``users`` and ``employees``. ``get_or_create_*`` is idempotent so
+    re-running this is safe.
+
+    Returns ``{table: rows_created_this_run}`` for logging.
+    """
+    inspector = inspect(session.get_bind())
+    counts: dict[str, int] = {"companies": 0, "departments": 0, "shifts": 0}
+
+    def _distinct(table: str, column: str) -> list[str]:
+        if not inspector.has_table(table):
+            return []
+        cols = {c["name"] for c in inspector.get_columns(table)}
+        if column not in cols:
+            return []
+        return [
+            r[0]
+            for r in session.execute(
+                text(
+                    f"SELECT DISTINCT {column} FROM {table} "
+                    f"WHERE {column} IS NOT NULL AND {column} != ''"
+                )
+            ).all()
+        ]
+
+    # Track existing ids before insert so we can count *newly created* rows
+    # (rather than total rows) for the log line.
+    def _seed(model_table: str, names: list[str], helper) -> int:
+        if not names:
+            return 0
+        before = session.execute(
+            text(f"SELECT COUNT(*) FROM {model_table}")
+        ).scalar_one()
+        for name in names:
+            helper(session, name)
+        after = session.execute(
+            text(f"SELECT COUNT(*) FROM {model_table}")
+        ).scalar_one()
+        return int(after) - int(before)
+
+    company_names = sorted({*_distinct("users", "company"), *_distinct("employees", "company")})
+    counts["companies"] = _seed("companies", company_names, get_or_create_company_id)
+
+    dept_names = sorted(set(_distinct("employees", "department")))
+    counts["departments"] = _seed("departments", dept_names, get_or_create_department_id)
+
+    shift_names = sorted(set(_distinct("employees", "shift")))
+    counts["shifts"] = _seed("shifts", shift_names, get_or_create_shift_id)
+
+    return counts
+
+
+def _backfill_lookup_fks(session) -> dict[str, int]:
+    """Set ``company_id`` / ``department_id`` / ``shift_id`` on existing
+    ``users`` and ``employees`` rows by joining the legacy string column to
+    the lookup table on lower(name). Only touches rows where the FK is
+    NULL, so re-runs are idempotent."""
+    inspector = inspect(session.get_bind())
+    counts: dict[str, int] = {}
+
+    def _backfill(table: str, str_col: str, fk_col: str, lookup_table: str) -> int:
+        if not inspector.has_table(table) or not inspector.has_table(lookup_table):
+            return 0
+        cols = {c["name"] for c in inspector.get_columns(table)}
+        if fk_col not in cols or str_col not in cols:
+            return 0
+        result = session.execute(
+            text(
+                f"UPDATE {table} SET {fk_col} = ("
+                f"  SELECT l.id FROM {lookup_table} l "
+                f"  WHERE lower(l.name) = lower({table}.{str_col}) LIMIT 1"
+                ") "
+                f"WHERE {fk_col} IS NULL "
+                f"  AND {str_col} IS NOT NULL AND {str_col} != ''"
+            )
+        )
+        return int(result.rowcount or 0)
+
+    counts["users.company_id"] = _backfill("users", "company", "company_id", "companies")
+    counts["employees.company_id"] = _backfill("employees", "company", "company_id", "companies")
+    counts["employees.department_id"] = _backfill("employees", "department", "department_id", "departments")
+    counts["employees.shift_id"] = _backfill("employees", "shift", "shift_id", "shifts")
+    return counts
+
+
 def _backfill_employee_ids(session) -> dict[str, int]:
     """Populate ``employee_id`` on log + edit tables for rows where it's
     NULL but the denormalized ``name`` resolves to a known employee.
@@ -237,7 +348,29 @@ def run() -> None:
     except Exception:
         log.exception("upgrade: legacy correction copy failed; continuing")
 
-    # Step 3 — backfill employee_id FKs (idempotent; UPDATE only touches NULLs).
+    # Step 3 — populate the company / department / shift lookup tables from
+    # the distinct values currently stored as legacy strings on users +
+    # employees. Idempotent (get_or_create skips existing rows).
+    try:
+        with session_scope() as session:
+            counts = _populate_lookup_tables(session)
+        if any(counts.values()):
+            log.info("upgrade: lookup tables populated counts=%s", counts)
+    except Exception:
+        log.exception("upgrade: lookup table population failed; continuing")
+
+    # Step 4 — backfill the new FK columns (users.company_id,
+    # employees.company_id / department_id / shift_id) by joining the legacy
+    # string column to the lookup table.
+    try:
+        with session_scope() as session:
+            counts = _backfill_lookup_fks(session)
+        if any(counts.values()):
+            log.info("upgrade: lookup FK backfill counts=%s", counts)
+    except Exception:
+        log.exception("upgrade: lookup FK backfill failed; continuing")
+
+    # Step 5 — backfill employee_id FKs (idempotent; UPDATE only touches NULLs).
     try:
         with session_scope() as session:
             counts = _backfill_employee_ids(session)

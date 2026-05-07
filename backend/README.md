@@ -3,20 +3,20 @@
 FastAPI service that:
 
 - Polls the camera's real-time AI event API (`POST /API/AI/processAlarm/Get`) — see [../API/processAlarm_get.md](../API/processAlarm_get.md)
-- POSTs each new face capture to `/api/ingest`, which stores it in SQLite (name, timestamp, `image_data` base64)
+- POSTs each new face capture to `/api/ingest`, which stores it in the database (name, timestamp, `image_data` base64)
 - Serves attendance summaries, snapshot logs, and the employee roster to the React dashboard
 
-**SQLite is the single source of truth.** Captures are stored inline as base64 in `snapshot_logs.image_data` / `attendance_logs.image_data`. There is no filesystem snapshot store any more — the backend does not read or write JPEGs on disk.
+**The database is the single source of truth.** Local dev uses SQLite by default; production uses PostgreSQL via `DATABASE_URL`. Captures are stored inline as base64 in `snapshot_logs.image_data` / `attendance_logs.image_data`. There is no filesystem snapshot store any more — the backend does not read or write JPEGs on disk.
 
 ## Overall workflow
 
 1. `start.sh` starts the FastAPI app (`uvicorn`) and background workers (`capture.py`, `backfill_from_camera.py`, and optional replay sync loops).
 2. `capture.py` polls the camera endpoint `POST /API/AI/processAlarm/Get` every few seconds.
 3. For each detected face event, `capture.py` sends a payload to `POST /api/ingest`.
-4. `/api/ingest` normalizes timestamp + image identity and writes to SQLite:
+4. `/api/ingest` normalizes timestamp + image identity and writes to the database:
    - every event goes to `snapshot_logs`
    - recognized names (not `Unknown`) are also written to `attendance_logs`
-5. Dashboard/read APIs fetch from SQLite:
+5. Dashboard/read APIs fetch from the database:
    - `/api/snapshots` for raw capture stream
    - `/api/attendance*` for attendance summaries
    - `/api/health`, `/api/faces/history`, `/api/employees` for monitoring/history/roster
@@ -25,32 +25,39 @@ FastAPI service that:
 
 ## Layout
 
-```
+```text
 backend/
 ├── app/
 │   ├── __init__.py
-│   ├── config.py             ← env + paths
-│   ├── main.py               ← FastAPI factory (create_app)
-│   ├── db.py                 ← sqlite connection + schema
+│   ├── config.py                    ← env/default settings
+│   ├── db.py                        ← SQLAlchemy engine/session (SQLite or PostgreSQL)
+│   ├── dependencies.py              ← auth/API-key dependency guards
+│   ├── main.py                      ← FastAPI app factory + router wiring
+│   ├── upgrade.py                   ← startup migrations/backfills
+│   ├── models/                      ← ORM models (users, employees, cameras, logs, lookups)
 │   ├── routers/
-│   │   ├── health.py         ← GET /api/health
-│   │   ├── faces.py          ← GET /api/faces/history
-│   │   ├── attendance.py     ← GET /api/attendance/daily, /range, /config
-│   │   ├── logs.py           ← GET /api/attendance, /api/snapshots
-│   │   ├── employees.py      ← CRUD on /api/employees
-│   │   └── ingest.py         ← POST /api/ingest
-│   ├── services/
-│   │   ├── camera.py         ← CameraClient (login + processAlarm/Get)
-│   │   ├── snapshots.py      ← shared name/timestamp helpers (no I/O)
-│   │   ├── attendance.py     ← pure shift/attendance logic
-│   │   ├── employees.py      ← DB CRUD + seed-if-empty
-│   │   └── logs.py           ← DB reads/writes for snapshot_logs & attendance_logs
-│   └── schemas/              ← pydantic response models
-├── capture.py                ← polls camera, POSTs each face to INGEST_API_URL
+│   │   ├── auth.py                  ← /api/auth/*
+│   │   ├── health.py                ← /api/health
+│   │   ├── faces.py                 ← /api/faces/history
+│   │   ├── attendance.py            ← /api/attendance/config|daily|range
+│   │   ├── logs.py                  ← /api/attendance + /api/snapshots
+│   │   ├── corrections.py           ← /api/attendance/corrections
+│   │   ├── employees.py             ← /api/employees CRUD
+│   │   ├── cameras.py               ← /api/cameras CRUD/check/stream
+│   │   ├── ingest.py                ← /api/ingest + /api/ingest/last-seen
+│   │   ├── external_attendance.py   ← /api/external-attendance/sync
+│   │   └── admin.py                 ← /api/admin/* utilities
+│   ├── schemas/                     ← pydantic request/response models
+│   └── services/                    ← business logic, camera I/O, cleanup, crypto, lookups
+├── scripts/
+│   └── migrate_sqlite_to_postgres.py ← one-shot SQLite → PostgreSQL migration utility
+├── capture.py                       ← camera poller, posts detections to ingest endpoint(s)
+├── backfill_from_camera.py          ← camera-history backfill runner
+├── replay_to_railway.py             ← periodic replay sync to remote ingest
 ├── data/
-│   └── employees.json        ← first-boot seed for the employees table
-├── database.db               ← SQLite store (gitignored)
-├── start.sh                  ← launches capture + uvicorn
+│   └── employees.json               ← first-boot employee seed
+├── database.db                      ← local SQLite DB (dev fallback)
+├── start.sh                         ← supervisor for API + workers
 └── requirements.txt
 ```
 
@@ -71,7 +78,7 @@ pip install -r requirements.txt
 bash backend/start.sh
 ```
 
-`start.sh` defaults `INGEST_API_URL` to `http://localhost:8000/api/ingest` and starts uvicorn + capture.py together.
+`start.sh` supervises `uvicorn`, `capture.py`, `backfill_from_camera.py`, and optional replay sync loops. If not set, `INGEST_API_URL` defaults to the production Railway ingest URL.
 
 ### Two terminals (manual)
 
@@ -80,18 +87,31 @@ bash backend/start.sh
 cd backend && source .venv/bin/activate && uvicorn app.main:app --reload --port 8000
 
 # terminal 2 — capture
-cd backend && source .venv/bin/activate \
-  && INGEST_API_URL=http://localhost:8000/api/ingest python capture.py
+cd backend && source .venv/bin/activate && python capture.py
 ```
 
-`capture.py` refuses to start if `INGEST_API_URL` is unset — there are no more implicit fallbacks. Use a comma-separated list to fan out to multiple targets:
+`capture.py` always writes to the local DB through `/api/ingest` when running with the API. Set `INGEST_API_URL` only for optional remote replication (comma-separated targets):
 
 ```bash
-INGEST_API_URL=http://localhost:8000/api/ingest,https://hype-dashboard-production-8938.up.railway.app/api/ingest \
+INGEST_API_URL=https://hype-dashboard-production-8938.up.railway.app/api/ingest \
   python capture.py
 ```
 
 ## Endpoints
+
+- `GET /api/health`
+- `POST /api/auth/login`, `GET /api/auth/me`, `POST /api/auth/change-password`, `PUT /api/auth/profile`
+- `GET/POST/PUT/DELETE /api/employees`
+- `GET /api/faces/history`
+- `GET /api/attendance/config`, `GET /api/attendance/daily`, `GET /api/attendance/range`
+- `GET /api/attendance`, `GET /api/snapshots`
+- `GET/POST/DELETE /api/attendance/corrections`
+- `POST /api/ingest`, `GET /api/ingest/last-seen`
+- `GET/POST/PUT/DELETE /api/cameras...` (+ check/stream-token/stream)
+- `POST /api/external-attendance/sync` (admin)
+- `POST/DELETE /api/admin/...` (rename/discover/prune/backfill/correction helpers)
+
+Example:
 
 ### `GET /api/health`
 
@@ -99,42 +119,30 @@ INGEST_API_URL=http://localhost:8000/api/ingest,https://hype-dashboard-productio
 { "status": "ok", "snapshot_count": 1801 }
 ```
 
-Both fields read from SQLite.
-
-### `GET /api/faces/history?latest=5`
-
-Paginated list of detections from `snapshot_logs`, newest first. `image_url` is always a `data:image/jpeg;base64,...` URL.
-
-### `GET /api/attendance/daily?date=YYYY-MM-DD`
-
-One record per recognised person seen on the local day, with entry/exit times and Late / Early Exit / Present / Absent status. Sourced from `attendance_logs`.
-
-### `GET /api/attendance/range?start=YYYY-MM-DD&end=YYYY-MM-DD&name=...`
-
-Same shape, across a date range. Optional `name` filter.
-
-### `GET /api/attendance?start=...&end=...`
-
-Per-day summary view (the dashboard's main table). Sourced from `attendance_logs`.
-
-### `GET /api/snapshots?limit=50&offset=0`
-
-Paginated log of every capture (recognised + Unknown). Sourced from `snapshot_logs`.
-
-### CRUD `/api/employees`
-
-`GET / POST / PUT /{id} / DELETE /{id}` — first boot seeds from `data/employees.json` **only when the table is empty**. After that the DB is the source of truth and edits persist through the API.
+Data is served from the configured DB backend (SQLite locally, PostgreSQL in production).
 
 ## Environment variables
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CAMERA_HOST` | `000.000.000.000` | Camera IP / hostname |
+| `DATABASE_URL` | *(unset)* | Production DB URL (PostgreSQL) |
+| `DATABASE_PATH` | `backend/database.db` | Local SQLite file path (fallback when `DATABASE_URL` is empty) |
+| `APP_ENV` | `development` | `production` blocks SQLite fallback |
+| `JWT_SECRET` | `dev-only-change-me-in-production` | JWT signing secret |
+| `JWT_TTL_SECONDS` | `43200` | Access token lifetime (12h) |
+| `SEED_ADMIN_USERNAME` | `admin` | First-boot admin username seed |
+| `SEED_ADMIN_PASSWORD` | `admin@123` | First-boot admin password seed |
+| `INGEST_API_KEY` | *(empty)* | Required `X-API-Key` for `POST /api/ingest` |
+| `CAMERA_HOST` | `172.18.10.12` | Camera IP / hostname |
 | `CAMERA_USER` | `admin` | Login username |
-| `CAMERA_PASS` | (set in code) | Login password |
+| `CAMERA_PASS` | *(empty)* | Login password (must be set in env) |
+| `CAMERA_MAC` | *(empty)* | Optional MAC pin for camera rediscovery |
+| `CAMERA_DISCOVERY_SUBNETS` | derived from `CAMERA_HOST` | Comma-separated `/24` prefixes to scan |
 | `CAPTURE_INTERVAL_SECONDS` | `5` | Seconds between `processAlarm/Get` polls |
 | `REQUEST_TIMEOUT_SECONDS` | `30` | HTTP timeout for camera calls |
-| `INGEST_API_URL` | **required for capture.py** | Comma-separated ingest target(s) |
+| `INGEST_API_URL` | *(unset)* | Optional comma-separated remote ingest target(s) for replication |
+| `REMOTE_SYNC_URLS` | Railway ingest URL | replay sync target(s) in `start.sh` |
+| `REMOTE_SYNC_INTERVAL` | `300` | Seconds between replay sync passes |
 | `DEFAULT_HISTORY_START` | `2026-04-15` | Fallback `start` for `/api/faces/history` |
 | `DEFAULT_PAGE_LIMIT` | `50` | Default `limit` for list endpoints |
 | `MAX_PAGE_LIMIT` | `500` | Max `limit` / `latest` |
@@ -143,20 +151,28 @@ Paginated log of every capture (recognised + Unknown). Sourced from `snapshot_lo
 | `LATE_GRACE_MIN` | `15` | Minutes of grace before a late arrival |
 | `EARLY_EXIT_GRACE_MIN` | `5` | Minutes of grace before an early exit |
 | `LOCAL_TZ_OFFSET_MIN` | `330` | Local timezone offset from UTC |
+| `BREAK_GAP_THRESHOLD_MIN` | `30` | Minimum gap treated as break duration |
+| `EXTERNAL_ATTENDANCE_API_URL` | *(unset)* | External attendance API base URL |
+| `EXTERNAL_ATTENDANCE_API_KEY` | *(unset)* | External attendance API auth key |
 | `ALLOWED_ORIGINS` | *(unset)* | Extra CORS origins, comma-separated |
 
 ## Deploying to Railway
 
-Railway's container filesystem is ephemeral, so pair the deploy with a **persistent volume** mounted at `/app/backend`. Without a volume, `database.db` is reset on every redeploy and you will see the "data keeps changing" symptom that this refactor set out to fix.
+Use Railway Postgres and set `DATABASE_URL`. In production mode the backend refuses SQLite fallback when `DATABASE_URL` is missing.
 
 Required Railway env vars:
+- `DATABASE_URL` (from Railway Postgres plugin)
+- `JWT_SECRET` (strong random value)
+- `INGEST_API_KEY` (shared with capture/replay producers)
+- `CAMERA_PASS` (if this deploy talks directly to the camera)
 - `INGEST_API_URL` (only if you run `capture.py` inside the same service — otherwise the LAN machine running capture posts directly to Railway's `/api/ingest`)
 - `ALLOWED_ORIGINS` if your frontend runs on a host not already in the regex allowlist
 
 Checklist for a clean deploy:
-1. Railway → service → **Volumes** → add a volume at `/app/backend` (or wherever `database.db` lives).
-2. Verify `GET /api/health` returns `snapshot_count > 0` after the first ingest.
-3. Point the LAN capture machine at Railway: `INGEST_API_URL=https://<your-service>.up.railway.app/api/ingest`.
+1. Attach Railway Postgres and confirm `DATABASE_URL` is present.
+2. (Optional one-time migration) run `python -m scripts.migrate_sqlite_to_postgres --database-url '<postgres-url>'`.
+3. Verify `GET /api/health` returns `status: ok`.
+4. Point the LAN capture machine at Railway: `INGEST_API_URL=https://<your-service>.up.railway.app/api/ingest`.
 
 ## Troubleshooting
 
@@ -165,7 +181,7 @@ Checklist for a clean deploy:
 | `Camera HTTP error 401` | Credentials + Digest auth | Update `CAMERA_USER` / `CAMERA_PASS`. |
 | `Poll returned 0 faces` forever | Stand in front of the camera | This endpoint is a real-time alarm buffer, not a history query. |
 | `No image data for SnapId=...` | The `keys=[...]` in the warning | Firmware uses a different image field. Extend `IMAGE_FIELDS` in [app/services/snapshots.py](app/services/snapshots.py). |
-| Empty attendance on Railway after redeploy | `GET /api/health` `snapshot_count` | DB was reset because the Railway service has no persistent volume. |
+| API fails to boot on Railway with DB config error | Service logs on startup | `DATABASE_URL` is missing/invalid while running in production mode. Attach Postgres and set `DATABASE_URL`. |
 | Frontend fetch blocked by CORS | Browser devtools network tab | Add origin to `ALLOWED_ORIGINS` env var or to the regex in [app/main.py](app/main.py). |
 
 ## Frontend wiring

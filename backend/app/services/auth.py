@@ -26,6 +26,7 @@ from sqlalchemy import select
 from ..config import JWT_ALGORITHM, JWT_SECRET, JWT_TTL_SECONDS, SEED_ADMIN_PASSWORD, SEED_ADMIN_USERNAME
 from ..db import session_scope
 from ..models import User as UserModel
+from .lookups import get_or_create_company_id
 
 log = logging.getLogger(__name__)
 
@@ -178,6 +179,7 @@ def seed_users_if_empty() -> None:
         def _insert(username: str, password: str, role: str, company: str, display_name: str) -> None:
             if username in existing:
                 return
+            company_id = get_or_create_company_id(session, company) if company else None
             session.add(
                 UserModel(
                     id=f"usr-{uuid.uuid4().hex[:10]}",
@@ -185,6 +187,7 @@ def seed_users_if_empty() -> None:
                     password_hash=hash_password(password),
                     role=role,
                     company=company,
+                    company_id=company_id,
                     display_name=display_name,
                     avatar_url="",
                     is_active=True,
