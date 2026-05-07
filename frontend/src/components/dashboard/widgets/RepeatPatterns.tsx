@@ -25,7 +25,7 @@ export function RepeatPatterns() {
 
   return (
     <Card className="flex h-full flex-col">
-      <CardHeader className="flex flex-row items-center gap-2 pb-2">
+      <CardHeader className="flex flex-row items-center gap-2 pb-2 pl-3">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
           <Repeat className="h-5 w-5" />
         </div>
@@ -35,7 +35,7 @@ export function RepeatPatterns() {
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-1 flex-col">
+      <CardContent className="flex flex-1 flex-col pl-3">
         {rows.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">No repeat patterns.</p>
         ) : (

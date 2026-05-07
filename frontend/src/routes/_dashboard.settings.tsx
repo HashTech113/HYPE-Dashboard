@@ -33,7 +33,11 @@ function SettingsPage() {
     <div
       role="tablist"
       aria-label="Settings sections"
-      className="mx-auto flex -translate-x-16 flex-wrap items-center gap-2"
+      // Mobile: full-width column of stacked tabs so the long labels never
+      // collide with the page title. From sm+ they line up horizontally and
+      // optically center under the header, with the desktop-only nudge that
+      // keeps them visually balanced against the section icon + title.
+      className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-center md:mx-auto md:-translate-x-16"
     >
       {TABS.map((tab) => {
         const Icon = tab.icon;
@@ -46,7 +50,7 @@ function SettingsPage() {
             aria-selected={selected}
             onClick={() => setActive(tab.id)}
             className={cn(
-              "flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-colors",
+              "flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-colors sm:w-auto sm:justify-start",
               selected
                 ? "border-[#3f9382] bg-[#eef7f4] text-[#2f8f7b]"
                 : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:text-slate-800",

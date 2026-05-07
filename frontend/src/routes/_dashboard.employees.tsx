@@ -140,51 +140,53 @@ function EmployeesPage() {
         }
       >
       <Card className="flex min-h-0 flex-1 flex-col">
-        <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
-          {/* Filter row */}
-          <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 pb-3">
-            <Search className="h-5 w-5 text-primary" />
+        <CardContent className="flex min-h-0 flex-1 flex-col gap-3 px-0 pt-4">
+          {/* Filter row — stacks vertically on phones so each label/select
+              pair occupies its own full-width row and all selects line up at
+              the same right edge. From sm+ it returns to a flex-wrap row. */}
+          <div className="flex flex-col gap-2 border-b border-slate-200 pb-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <Search className="hidden h-5 w-5 text-primary sm:block" />
 
-            <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-sm font-semibold text-sky-900">Employees</span>
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <span className="w-[120px] shrink-0 whitespace-nowrap text-sm font-semibold text-sky-900 sm:w-auto">Employees</span>
               <SearchableSelect
                 value={selectedEmployee}
                 onValueChange={setSelectedEmployee}
                 options={employeeFilterOptions}
                 clearValue="all"
                 placeholder="All Employees"
-                className="h-9 w-[160px] border-sky-200 focus-visible:ring-sky-300"
+                className="h-9 min-w-0 flex-1 border-sky-200 focus-visible:ring-sky-300 sm:w-[160px] sm:flex-initial"
               />
             </div>
 
             {!isCompanyScoped ? (
-              <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">Companies</span>
+              <div className="flex w-full items-center gap-2 sm:w-auto">
+                <span className="w-[120px] shrink-0 whitespace-nowrap text-sm font-semibold text-[#393E2E] sm:w-auto">Companies</span>
                 <SearchableSelect
                   value={selectedCompany}
                   onValueChange={setSelectedCompany}
                   options={companyFilterOptions}
                   clearValue="all"
                   placeholder="All Companies"
-                  className="h-9 w-[150px] border-indigo-200 focus-visible:ring-indigo-300"
+                  className="h-9 min-w-0 flex-1 border-indigo-200 focus-visible:ring-indigo-300 sm:w-[150px] sm:flex-initial"
                 />
               </div>
             ) : null}
 
-            <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-sm font-semibold text-emerald-900">Employee Roles</span>
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <span className="w-[120px] shrink-0 whitespace-nowrap text-sm font-semibold text-emerald-900 sm:w-auto">Employee Roles</span>
               <SearchableSelect
                 value={selectedDepartment}
                 onValueChange={setSelectedDepartment}
                 options={departmentFilterOptions}
                 clearValue="all"
                 placeholder="All Employee Roles"
-                className="h-9 w-[180px] border-emerald-200 focus-visible:ring-emerald-300"
+                className="h-9 min-w-0 flex-1 border-emerald-200 focus-visible:ring-emerald-300 sm:w-[180px] sm:flex-initial"
               />
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-sm font-semibold text-amber-900">Role</span>
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <span className="w-[120px] shrink-0 whitespace-nowrap text-sm font-semibold text-amber-900 sm:w-auto">Role</span>
               <SearchableSelect
                 value={selectedRole}
                 onValueChange={(value) => {
@@ -201,11 +203,11 @@ function EmployeesPage() {
                 options={roleFilterOptions}
                 clearValue="all"
                 placeholder="All Roles"
-                className="h-9 w-[140px] border-amber-200 focus-visible:ring-amber-300"
+                className="h-9 min-w-0 flex-1 border-amber-200 focus-visible:ring-amber-300 sm:w-[140px] sm:flex-initial"
               />
             </div>
 
-            <div className="ml-auto flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5">
+            <div className="flex items-center gap-2 self-start rounded-lg border border-slate-200 bg-white px-3 py-1.5 sm:ml-auto sm:self-auto">
               <Users className="h-4 w-4 text-primary" />
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Total Employees:

@@ -1,6 +1,6 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
-import { Calendar, Search, ChevronLeft, ChevronRight, Image as ImageIcon, RefreshCw } from "lucide-react";
+import { Calendar, Search, ChevronLeft, ChevronRight, Image as ImageIcon, RefreshCw, UserCircle2 } from "lucide-react";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { mockPresenceHistory, type PresenceRecord } from "@/data/mockPresence";
 import { mockHolidayCalendar } from "@/data/mockHolidayCalendar";
@@ -875,14 +875,23 @@ function PresencePage() {
                           />
                         ) : null}
                         <AvatarFallback className="text-2xl font-semibold text-slate-600">
-                          {selectedEmployeeData
-                            ? selectedEmployeeData.name
-                                .split(/\s+/)
-                                .filter(Boolean)
-                                .slice(0, 2)
-                                .map((part) => part[0]?.toUpperCase() ?? "")
-                                .join("")
-                            : ""}
+                          {selectedEmployeeData ? (
+                            selectedEmployeeData.name
+                              .split(/\s+/)
+                              .filter(Boolean)
+                              .slice(0, 2)
+                              .map((part) => part[0]?.toUpperCase() ?? "")
+                              .join("")
+                          ) : (
+                            // No employee selected — show a generic profile
+                            // glyph so the avatar slot reads as "person" at a
+                            // glance instead of an empty circle.
+                            <UserCircle2
+                              className="h-full w-full text-slate-300"
+                              strokeWidth={1.25}
+                              aria-hidden="true"
+                            />
+                          )}
                         </AvatarFallback>
                       </Avatar>
                     </div>
@@ -1101,15 +1110,21 @@ function PresencePage() {
                     same color cues. */}
                 {/* Two centered rows with fixed metric order for quick month
                     scanning. */}
-                <div className="mt-3 flex flex-col items-center gap-1 text-xs text-slate-900">
-                  <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 whitespace-nowrap">
+                {/* Two fixed rows, each a no-wrap flex line so the stats stay
+                    on a single row even on narrow phones. justify-between
+                    spreads them across the full row width (typographically
+                    "justified"). Mobile shrinks the text + gap so the longest
+                    row ("Total Working Days … Company Leaves") still fits in
+                    a single line; sm+ goes back to the original centered look. */}
+                <div className="mt-3 flex flex-col items-stretch gap-1 text-[11px] text-slate-900 sm:items-center sm:text-xs">
+                  <div className="flex w-full items-center justify-between gap-x-1.5 whitespace-nowrap sm:flex-wrap sm:justify-center sm:gap-x-2 sm:gap-y-1">
                     <SummaryStat label="Total Working Days" value={totalWorkingDays} numberClass="text-slate-700" />
                     <SummaryDivider />
                     <SummaryStat label="Sundays" value={monthlySummary.sundays} numberClass="text-orange-600" />
                     <SummaryDivider />
                     <SummaryStat label="Company Leaves" value={monthlySummary.companyLeaves} numberClass="text-blue-600" />
                   </div>
-                  <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 whitespace-nowrap">
+                  <div className="flex w-full items-center justify-between gap-x-1.5 whitespace-nowrap sm:flex-wrap sm:justify-center sm:gap-x-2 sm:gap-y-1">
                     <SummaryStat label="Present" value={monthlySummary.present} numberClass="text-emerald-600" />
                     <SummaryDivider />
                     <SummaryStat label="WFH" value={monthlySummary.wfh} numberClass="text-violet-600" />

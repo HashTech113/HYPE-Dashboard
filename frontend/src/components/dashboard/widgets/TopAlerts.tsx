@@ -29,7 +29,7 @@ export function TopAlerts() {
 
   return (
     <Card className="flex h-full flex-col">
-      <CardHeader className="flex flex-row items-center gap-2 pb-2">
+      <CardHeader className="flex flex-row items-center gap-2 pb-2 pl-3">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 text-rose-600">
           <AlertTriangle className="h-5 w-5" />
         </div>
@@ -39,7 +39,7 @@ export function TopAlerts() {
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-1 flex-col gap-2.5">
+      <CardContent className="flex flex-1 flex-col gap-2.5 pl-3">
         {alerts.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
             No anomalies. Nice and quiet.

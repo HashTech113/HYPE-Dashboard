@@ -19,7 +19,13 @@ export function PageHeader({
 }: PageHeaderProps) {
   return (
     <div className="sticky top-0 z-20 flex flex-col gap-1 bg-transparent pb-2 sm:flex-row sm:items-center sm:justify-between">
-      <div className={inlineActions ? "flex w-full flex-1 flex-wrap items-center gap-3" : undefined}>
+      <div
+        className={
+          inlineActions
+            ? "flex w-full flex-1 flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center"
+            : undefined
+        }
+      >
         <h1 className="flex items-center gap-2 text-2xl font-extrabold tracking-tight text-foreground">
           {icon}
           <span>{title}</span>

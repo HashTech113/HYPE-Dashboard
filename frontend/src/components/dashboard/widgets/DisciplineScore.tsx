@@ -31,7 +31,7 @@ export function DisciplineScore() {
 
   return (
     <Card className="flex h-full flex-col">
-      <CardHeader className="flex flex-row items-center gap-2 pb-5">
+      <CardHeader className="flex flex-row items-center gap-2 pb-5 pl-3">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Award className="h-5 w-5" />
         </div>
@@ -49,7 +49,7 @@ export function DisciplineScore() {
         <p className="ml-auto text-xs text-muted-foreground">Last 30 days</p>
       </CardHeader>
 
-      <CardContent className="flex min-h-0 flex-1 flex-col">
+      <CardContent className="flex min-h-0 flex-1 flex-col pl-3">
         {rows.length === 0 && topEmployees.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">No team data yet.</p>
         ) : (

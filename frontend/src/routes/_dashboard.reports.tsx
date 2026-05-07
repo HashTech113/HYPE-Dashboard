@@ -359,13 +359,16 @@ function ReportsPage() {
         }
       >
         <Card className="flex min-h-0 flex-1 flex-col">
-          <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-4">
+          <CardContent className="flex min-h-0 flex-1 flex-col gap-3 px-0 pt-4">
             <div className="flex flex-col gap-3 border-b border-slate-200 pb-3 md:flex-row md:items-center md:justify-between">
-              <div className="flex flex-wrap items-center gap-3">
-                <Search className="h-5 w-5 text-primary" />
+              {/* Mobile: each filter group is its own full-width row with a
+                  fixed-width label, so all controls (selects + date pickers)
+                  line up at the same right edge. From sm+ they reflow inline. */}
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+                <Search className="hidden h-5 w-5 text-primary sm:block" />
 
-                <div className="flex items-center gap-2">
-                  <span className="whitespace-nowrap text-sm font-semibold text-sky-900">
+                <div className="flex w-full items-center gap-2 sm:w-auto">
+                  <span className="w-[100px] shrink-0 whitespace-nowrap text-sm font-semibold text-sky-900 sm:w-auto">
                     Employees
                   </span>
                   <SearchableSelect
@@ -374,7 +377,7 @@ function ReportsPage() {
                     options={employeeFilterOptions}
                     clearValue="all"
                     placeholder="All Employees"
-                    className="h-9 w-[140px] border-sky-200 focus-visible:ring-sky-300 sm:w-[150px] md:w-[160px]"
+                    className="h-9 min-w-0 flex-1 border-sky-200 focus-visible:ring-sky-300 sm:w-[150px] sm:flex-initial md:w-[160px]"
                   />
                 </div>
 
@@ -382,8 +385,8 @@ function ReportsPage() {
                     company already, so showing it (or its locked badge) is
                     redundant. The data filter still uses scopedCompany. */}
                 {!isCompanyScoped ? (
-                  <div className="flex items-center gap-2">
-                    <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">
+                  <div className="flex w-full items-center gap-2 sm:w-auto">
+                    <span className="w-[100px] shrink-0 whitespace-nowrap text-sm font-semibold text-[#393E2E] sm:w-auto">
                       Company
                     </span>
                     <SearchableSelect
@@ -392,24 +395,27 @@ function ReportsPage() {
                       options={companyFilterOptions}
                       clearValue="all"
                       placeholder="All Companies"
-                      className="h-9 w-[125px] border-indigo-200 focus-visible:ring-indigo-300 sm:w-[135px] md:w-[145px]"
+                      className="h-9 min-w-0 flex-1 border-indigo-200 focus-visible:ring-indigo-300 sm:w-[135px] sm:flex-initial md:w-[145px]"
                     />
                   </div>
                 ) : null}
 
-                <div className="flex flex-wrap items-center gap-2">
+                {/* Date Range — label gets its own row on mobile, then two
+                    full-width date pickers stack underneath so they don't
+                    overflow narrow viewports. From sm+ everything goes inline. */}
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
                   <span className="whitespace-nowrap text-sm font-semibold text-emerald-900">
                     Date Range
                   </span>
                   <DatePicker
                     value={startDate}
                     onChange={setStartDate}
-                    className="w-[215px]"
+                    className="w-full sm:w-[215px]"
                   />
                   <DatePicker
                     value={endDate}
                     onChange={setEndDate}
-                    className="w-[215px]"
+                    className="w-full sm:w-[215px]"
                   />
                 </div>
 
@@ -421,7 +427,7 @@ function ReportsPage() {
                     type="button"
                     size="sm"
                     variant="ghost"
-                    className="h-9 px-3 text-xs"
+                    className="h-9 self-start px-3 text-xs sm:self-auto"
                     onClick={() => {
                       setSelectedEmployee("all");
                       // HR users stay locked to their company.

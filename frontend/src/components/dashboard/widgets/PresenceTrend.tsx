@@ -26,7 +26,7 @@ export function PresenceTrend() {
 
   return (
     <Card className="dashboard-chart flex h-full flex-col">
-      <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2">
+      <CardHeader className="flex flex-row items-start justify-between gap-3 pb-2 pl-3">
         <div className="flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <LineIcon className="h-5 w-5" />
@@ -89,7 +89,7 @@ export function PresenceTrend() {
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-1 flex-col gap-3">
+      <CardContent className="flex flex-1 flex-col gap-3 pl-3">
         <div className="flex items-baseline gap-3">
           <span className="text-3xl font-semibold tabular-nums">{series.currentAvg}%</span>
           <span className="text-xs text-muted-foreground">avg attendance</span>
