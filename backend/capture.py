@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
 import signal
 import sys
 import threading
@@ -62,9 +63,15 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("capture")
 
 RECONNECT_BACKOFF_SECONDS = 5.0
-INGEST_TIMEOUT_SECONDS = 30.0
-INGEST_RETRY_BACKOFF = 2.0
-INGEST_RETRY_MAX = 3
+# (connect, read) — short connect (fail-fast on dead host / DNS) + bounded
+# read so a stalled SSL handshake or half-closed socket can never park the
+# sync worker for more than INGEST_TIMEOUT_SECONDS[1] per attempt.
+# A previous incident saw capture.py wedge for >70 minutes on a single
+# CLOSE_WAIT socket because the old single-int timeout didn't enforce a
+# read deadline cleanly.
+INGEST_TIMEOUT_SECONDS: tuple[float, float] = (5.0, 15.0)
+INGEST_RETRY_BACKOFF = 1.0
+INGEST_RETRY_MAX = 2
 SEEN_SNAP_IDS_MAX = 2000
 # How far back to seed seen_ids from the local DB at startup. Anything
 # older has aged out of the camera's live alarm buffer anyway.
@@ -72,6 +79,15 @@ SEEN_REWARM_HOURS = 1
 # Per-worker minimum poll interval. Caps CPU at "1 frame/sec/camera"
 # regardless of how aggressively CAPTURE_INTERVAL_SECONDS is tuned.
 MIN_POLL_INTERVAL_SECONDS = 1.0
+# Bounded queue between camera workers and the remote sync worker. If
+# remote sync stalls long enough to fill this, oldest payloads are
+# dropped (with a warning) — replay_to_railway.py covers them later from
+# the local DB, which is the durable source of truth.
+SYNC_QUEUE_MAXSIZE = 2000
+# Heartbeat thread cadence + thresholds.
+HEARTBEAT_INTERVAL_SECONDS = 60.0
+NO_EVENT_WARN_SECONDS = 600.0   # 10 min: no faces seen — investigate camera/coverage
+NO_POLL_WARN_SECONDS = 180.0    # 3 min: poll loop hasn't completed — likely stuck
 
 _LOCALHOST_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
 
@@ -104,6 +120,180 @@ def _resolve_remote_targets() -> list[str]:
 
 REMOTE_TARGETS = _resolve_remote_targets()
 INGEST_API_KEY = os.getenv("INGEST_API_KEY", "").strip()
+
+
+# ---- background sync queue + liveness state ---------------------------------
+#
+# All remote sync work happens off the camera-worker threads via this queue.
+# Camera workers ONLY enqueue; a single dedicated sync thread drains it. That
+# way a hung POST (e.g. SSL handshake stall, half-closed socket) can never
+# block frame processing or local DB writes.
+#
+# The local DB write happens BEFORE enqueueing, so even if we drop or fail
+# remote sync we never lose data — replay_to_railway.py replays from the
+# local DB on a separate loop.
+
+_SYNC_QUEUE: "queue.Queue[dict]" = queue.Queue(maxsize=SYNC_QUEUE_MAXSIZE)
+_SYNC_STATS = {"queued_total": 0, "ok": 0, "fail": 0, "dropped": 0}
+_SYNC_STATS_LOCK = threading.Lock()
+
+# Per-worker liveness state, keyed by client.label. Read by the heartbeat
+# thread, written by camera workers via ``_record_heartbeat``. Times are
+# ``time.monotonic()`` floats so wall-clock drift / NTP jumps can't mislead
+# the warning logic.
+_HEARTBEAT_LOCK = threading.Lock()
+_HEARTBEAT_STATE: dict[str, dict] = {}
+
+
+def _enqueue_remote(payload: dict) -> None:
+    """Non-blocking handoff to the sync thread. Drops oldest on overflow.
+
+    Never raises. Dropped events are surfaced periodically via a warning
+    log; the local DB still has them, so replay covers the gap."""
+    if not REMOTE_TARGETS:
+        return
+    try:
+        _SYNC_QUEUE.put_nowait(payload)
+        with _SYNC_STATS_LOCK:
+            _SYNC_STATS["queued_total"] += 1
+    except queue.Full:
+        # Bump the dropped counter and warn periodically. Fast path: bail
+        # without holding the lock past the increment.
+        with _SYNC_STATS_LOCK:
+            _SYNC_STATS["dropped"] += 1
+            count = _SYNC_STATS["dropped"]
+        # Log once per 50 drops so we don't spam during a long outage.
+        if count == 1 or count % 50 == 0:
+            log.warning(
+                "remote sync queue full (size=%d, max=%d) — dropped %d events "
+                "total; replay_to_railway.py will backfill from local DB.",
+                _SYNC_QUEUE.qsize(), SYNC_QUEUE_MAXSIZE, count,
+            )
+
+
+def _sync_worker(stop: dict) -> None:
+    """Background thread: drain ``_SYNC_QUEUE`` and POST to remotes.
+
+    Failures here NEVER touch capture: the queue isolates camera workers
+    from network state. Each iteration is wrapped in try/except so a single
+    malformed payload or transient exception can't kill the thread."""
+    log.info("sync-worker thread started; targets=%s", REMOTE_TARGETS or "(none)")
+    session = requests.Session()
+    while not stop["flag"]:
+        try:
+            payload = _SYNC_QUEUE.get(timeout=1.0)
+        except queue.Empty:
+            continue
+        try:
+            ok, fail = _replicate_remote(session, payload)
+            with _SYNC_STATS_LOCK:
+                _SYNC_STATS["ok"] += ok
+                _SYNC_STATS["fail"] += fail
+        except Exception:
+            # Catch-all: a bug in _replicate_remote or a JSON-encode failure
+            # must not take the sync thread down. Log and keep draining.
+            log.exception("sync-worker: unexpected error replicating event; continuing")
+            with _SYNC_STATS_LOCK:
+                _SYNC_STATS["fail"] += 1
+        finally:
+            try:
+                _SYNC_QUEUE.task_done()
+            except ValueError:
+                pass
+    log.info("sync-worker thread exiting")
+
+
+def _record_heartbeat(label: str, *, faces: int = 0, polled: bool = False) -> None:
+    """Camera workers call this after every poll cycle. ``polled=True`` means
+    ``client.fetch_alarms()`` returned (success or empty list). ``faces`` is
+    how many events that poll yielded."""
+    now = time.monotonic()
+    with _HEARTBEAT_LOCK:
+        s = _HEARTBEAT_STATE.setdefault(
+            label,
+            {
+                "last_poll_ts": None,
+                "last_event_ts": None,
+                "polls_completed": 0,
+                "events_processed": 0,
+            },
+        )
+        if polled:
+            s["last_poll_ts"] = now
+            s["polls_completed"] += 1
+        if faces > 0:
+            s["last_event_ts"] = now
+            s["events_processed"] += faces
+
+
+def _heartbeat_thread(stop: dict, expected_workers: list[str]) -> None:
+    """Logs a periodic liveness line for every worker + an aggregate sync
+    queue line. Warns when a worker has stopped polling or stopped seeing
+    events for longer than the configured thresholds.
+
+    Runs independently of the camera workers and the sync worker, so even
+    if one of them deadlocks this still ticks and surfaces the symptom."""
+    log.info(
+        "heartbeat thread started (interval=%.0fs, no_event_warn=%.0fs, no_poll_warn=%.0fs)",
+        HEARTBEAT_INTERVAL_SECONDS, NO_EVENT_WARN_SECONDS, NO_POLL_WARN_SECONDS,
+    )
+    started = time.monotonic()
+    while not stop["flag"]:
+        now = time.monotonic()
+        with _HEARTBEAT_LOCK:
+            snapshot = {k: dict(v) for k, v in _HEARTBEAT_STATE.items()}
+        for label in expected_workers:
+            s = snapshot.get(label) or {}
+            polls = int(s.get("polls_completed") or 0)
+            events = int(s.get("events_processed") or 0)
+            last_poll = s.get("last_poll_ts")
+            last_event = s.get("last_event_ts")
+            poll_age = (now - last_poll) if last_poll else (now - started)
+            event_age = (now - last_event) if last_event else (now - started)
+            log.info(
+                "[%s] heartbeat polls=%d events=%d poll_age=%.0fs event_age=%.0fs",
+                label, polls, events, poll_age, event_age,
+            )
+            # Only warn after the worker has had a fair chance to start polling.
+            if last_poll is None and (now - started) > NO_POLL_WARN_SECONDS:
+                log.warning(
+                    "[%s] no successful poll since startup (%.0fs ago) — worker may "
+                    "be stuck on login or DNS",
+                    label, now - started,
+                )
+            elif last_poll is not None and poll_age > NO_POLL_WARN_SECONDS:
+                log.warning(
+                    "[%s] no successful poll for %.0fs — worker likely stuck "
+                    "(camera unreachable / SSL hang / blocked syscall)",
+                    label, poll_age,
+                )
+            # Idle warning: only meaningful once we've been running a while
+            # AND the worker IS polling successfully (so we know the camera
+            # link is alive but no faces are being seen).
+            if (
+                last_poll is not None
+                and event_age > NO_EVENT_WARN_SECONDS
+                and (now - started) > NO_EVENT_WARN_SECONDS
+            ):
+                log.warning(
+                    "[%s] no face events for %.0fs — verify camera coverage / "
+                    "that people are walking past it",
+                    label, event_age,
+                )
+        with _SYNC_STATS_LOCK:
+            stats = dict(_SYNC_STATS)
+        log.info(
+            "sync-queue depth=%d total_queued=%d ok=%d fail=%d dropped=%d",
+            _SYNC_QUEUE.qsize(),
+            stats["queued_total"], stats["ok"], stats["fail"], stats["dropped"],
+        )
+        # Sleep with stop polling so shutdown is responsive.
+        slept = 0.0
+        while slept < HEARTBEAT_INTERVAL_SECONDS and not stop["flag"]:
+            chunk = min(0.5, HEARTBEAT_INTERVAL_SECONDS - slept)
+            time.sleep(chunk)
+            slept += chunk
+    log.info("heartbeat thread exiting")
 
 
 # ---- camera event extraction -----------------------------------------------
@@ -232,20 +422,25 @@ def _process_event(
     item: dict,
     *,
     client: CameraClient,
-    session: requests.Session,
     seen_ids: deque[str],
     seen_set: set[str],
-) -> tuple[str, int, int]:
-    """Insert one camera event into the local DB and replicate to remotes.
-    Returns (status, replicated_ok, replicated_fail) where status is one
-    of ``queued``, ``duplicate``, ``skipped``."""
+) -> str:
+    """Insert one camera event into the local DB and hand off to the sync
+    queue. Returns status — one of ``queued``, ``duplicate``, ``skipped``.
+
+    Network sync is decoupled: ``_enqueue_remote`` is non-blocking, so a
+    stalled remote target can never delay the camera worker that called us.
+    The local DB write happens BEFORE the enqueue, so any payload that
+    drops out of the queue (overflow / sync-thread failure) is still
+    durably recorded locally and will be picked up by replay_to_railway.py.
+    """
     snap_id = _extract_snap_id(item)
     if snap_id and snap_id in seen_set:
-        return "duplicate", 0, 0
+        return "duplicate"
 
     image_b64 = _extract_image_b64(item)
     if not image_b64:
-        return "skipped", 0, 0
+        return "skipped"
 
     name = _extract_name(item)
     ts_iso = _extract_timestamp(item).isoformat()
@@ -267,7 +462,7 @@ def _process_event(
             "untouched so the next poll retries",
             client.label, snap_id,
         )
-        return "skipped", 0, 0
+        return "skipped"
 
     if stored:
         log.debug("[%s] event queued (DB) snap_id=%s name=%s", client.label, snap_id, name)
@@ -275,7 +470,10 @@ def _process_event(
     else:
         status = "duplicate"
 
-    ok, fail = _replicate_remote(session, {
+    # Non-blocking — never blocks on the network. Failures here are silent
+    # because the local DB row above is the durable record; replay covers
+    # anything the sync thread drops or fails to deliver.
+    _enqueue_remote({
         "name": name,
         "timestamp": ts_iso,
         "image_base64": image_b64,
@@ -289,21 +487,28 @@ def _process_event(
         seen_ids.append(snap_id)
         seen_set.add(snap_id)
 
-    return status, ok, fail
+    return status
 
 
 def _worker_loop(client: CameraClient, stop: dict) -> None:
     """Long-running poll loop for a single camera. Runs until ``stop['flag']``
-    is set by the signal handler."""
+    is set by the signal handler.
+
+    Remote sync runs on a separate thread; this loop only touches the camera
+    HTTP API and the local DB, plus a non-blocking enqueue. Every successful
+    poll cycle (faces or empty) records a heartbeat so an external observer
+    (the heartbeat thread) can tell whether the worker is healthy."""
     log.info(
         "[%s] worker starting (id=%s, location=%s)",
         client.label, client.camera_id or "(legacy)", client.camera_location or "—",
     )
-    session = requests.Session()
     seen_ids, seen_set = _seed_seen_ids(client.camera_id or None)
     log.info("[%s] seeded seen_ids cache with %d recent snap_ids", client.label, len(seen_set))
 
     poll_interval = max(MIN_POLL_INTERVAL_SECONDS, CAPTURE_INTERVAL_SECONDS)
+    # Pre-register so the heartbeat thread sees this label even before the
+    # first poll completes — useful for "stuck on login" warnings.
+    _record_heartbeat(client.label)
 
     while not stop["flag"]:
         try:
@@ -327,26 +532,33 @@ def _worker_loop(client: CameraClient, stop: dict) -> None:
 
         n_faces = len(faces)
         queued = duplicate = skipped = 0
-        replicated_ok = replicated_fail = 0
         for item in faces:
-            status, ok, fail = _process_event(
-                item, client=client, session=session, seen_ids=seen_ids, seen_set=seen_set,
-            )
+            try:
+                status = _process_event(
+                    item, client=client, seen_ids=seen_ids, seen_set=seen_set,
+                )
+            except Exception:
+                # Defensive: a bug in extraction / enqueue must not crash the
+                # poll loop. Local DB writes inside _process_event already
+                # have their own try/except.
+                log.exception("[%s] _process_event crashed; skipping item", client.label)
+                skipped += 1
+                continue
             if status == "queued":
                 queued += 1
             elif status == "duplicate":
                 duplicate += 1
             else:
                 skipped += 1
-            replicated_ok += ok
-            replicated_fail += fail
+
+        # Record heartbeat AFTER processing so faces is the count we actually
+        # tried to handle, not the count fetched.
+        _record_heartbeat(client.label, faces=queued, polled=True)
 
         if n_faces:
             log.info(
-                "[%s] poll faces=%d queued=%d duplicate=%d skipped=%d "
-                "remote_ok=%d remote_fail=%d",
-                client.label, n_faces, queued, duplicate, skipped,
-                replicated_ok, replicated_fail,
+                "[%s] poll faces=%d queued=%d duplicate=%d skipped=%d sync_qsize=%d",
+                client.label, n_faces, queued, duplicate, skipped, _SYNC_QUEUE.qsize(),
             )
 
         # `time.sleep` is interruptible by signals on Linux/macOS; capped so
@@ -436,23 +648,52 @@ def run() -> int:
 
 
 def _run_workers(clients: list[CameraClient], stop: dict) -> int:
-    threads: list[threading.Thread] = []
+    worker_threads: list[threading.Thread] = []
+    expected_labels = [c.label for c in clients]
+
+    # Auxiliary threads start FIRST so the heartbeat is logging from the
+    # very first second — even if a camera-worker stalls on initial login,
+    # the heartbeat will surface the symptom.
+    aux_threads: list[threading.Thread] = []
+    if REMOTE_TARGETS:
+        sync_t = threading.Thread(
+            target=_sync_worker, args=(stop,), daemon=True, name="sync-worker",
+        )
+        sync_t.start()
+        aux_threads.append(sync_t)
+    else:
+        log.info("sync-worker not started (no REMOTE_TARGETS configured)")
+
+    hb_t = threading.Thread(
+        target=_heartbeat_thread,
+        args=(stop, expected_labels),
+        daemon=True,
+        name="heartbeat",
+    )
+    hb_t.start()
+    aux_threads.append(hb_t)
+
     for client in clients:
         name = f"capture-{client.camera_id or 'legacy'}"
         t = threading.Thread(target=_worker_loop, args=(client, stop), daemon=True, name=name)
         t.start()
-        threads.append(t)
+        worker_threads.append(t)
 
     # Park the main thread until shutdown. We poll instead of join() so the
     # signal handler can trip stop['flag'] without first having to wake one
-    # specific thread.
+    # specific thread. Aux threads are not part of the liveness check —
+    # capture is "alive" as long as at least one camera worker is alive;
+    # the heartbeat / sync threads exiting unexpectedly is logged but
+    # doesn't terminate the process.
     try:
-        while not stop["flag"] and any(t.is_alive() for t in threads):
+        while not stop["flag"] and any(t.is_alive() for t in worker_threads):
             time.sleep(0.5)
     finally:
         stop["flag"] = True
-        for t in threads:
+        for t in worker_threads:
             t.join(timeout=RECONNECT_BACKOFF_SECONDS + 1.0)
+        for t in aux_threads:
+            t.join(timeout=2.0)
 
     log.info("Capture loop exited")
     return 0
