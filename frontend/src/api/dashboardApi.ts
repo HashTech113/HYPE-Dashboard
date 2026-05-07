@@ -35,6 +35,7 @@ export type Employee = {
    * EmployeeForm always sends a string (possibly empty). */
   email?: string;
   mobile?: string;
+  salaryPackage?: string;
 };
 
 export type PresenceRecord = {

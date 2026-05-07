@@ -85,6 +85,44 @@ function formatDobInput(raw: string): string {
   return `${dd}-${mm}-${yyyy}`;
 }
 
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(value: string): boolean {
+  return EMAIL_PATTERN.test(value.trim());
+}
+
+/** Accept any leading "+", then strip non-digits. Keep at most 12 digits
+ * (country code 1–3 + 10-digit number). Auto-format as "+91 XXXXX XXXXX"
+ * for the common Indian case; otherwise insert a space after the country
+ * code and a space halfway through the subscriber digits. */
+function formatMobileInput(raw: string): string {
+  const trimmed = (raw || "").trim();
+  if (!trimmed) return "";
+  const digitsOnly = trimmed.replace(/\D/g, "").slice(0, 12);
+  if (!digitsOnly) return "";
+
+  // Default to +91 if the user typed only the 10-digit local number.
+  if (digitsOnly.length <= 10) {
+    const first = digitsOnly.slice(0, 5);
+    const second = digitsOnly.slice(5, 10);
+    if (digitsOnly.length <= 5) return `+91 ${first}`;
+    return `+91 ${first} ${second}`;
+  }
+
+  const countryLen = digitsOnly.length - 10;
+  const country = digitsOnly.slice(0, countryLen);
+  const local = digitsOnly.slice(countryLen);
+  const first = local.slice(0, 5);
+  const second = local.slice(5, 10);
+  return `+${country} ${first}${second ? ` ${second}` : ""}`;
+}
+
+function isValidMobile(value: string): boolean {
+  const digits = (value || "").replace(/\D/g, "");
+  // Allow 10-digit (local) up to 12-digit (country code + 10) phone numbers.
+  return digits.length >= 10 && digits.length <= 12;
+}
+
 async function getCroppedDataUrl(src: string, crop: Area): Promise<string> {
   const image = await new Promise<HTMLImageElement>((resolve, reject) => {
     const img = new Image();
@@ -136,6 +174,7 @@ export function EmployeeForm({
     shift: normalizeShift(employee.shift),
     email: employee.email ?? "",
     mobile: employee.mobile ?? "",
+    salaryPackage: employee.salaryPackage ?? "",
     company: employee.company || scopedCompany || employee.company,
   });
   const [cropSource, setCropSource] = useState<string | null>(null);
@@ -181,6 +220,7 @@ export function EmployeeForm({
       shift: normalizeShift(employee.shift),
       email: employee.email ?? "",
       mobile: employee.mobile ?? "",
+      salaryPackage: employee.salaryPackage ?? "",
       company: employee.company || scopedCompany || employee.company,
     });
   }, [employee, scopedCompany]);
@@ -212,7 +252,23 @@ export function EmployeeForm({
       window.alert("Shift Timing is invalid — pick a start and end time, with end after start.");
       return;
     }
-    onSave({ ...draft, dob: normalizedDob, shift: normalizeShift(draft.shift) });
+    const trimmedEmail = (draft.email ?? "").trim();
+    if (trimmedEmail && !isValidEmail(trimmedEmail)) {
+      window.alert("Please enter a valid Email ID (e.g., name@example.com).");
+      return;
+    }
+    const trimmedMobile = (draft.mobile ?? "").trim();
+    if (trimmedMobile && !isValidMobile(trimmedMobile)) {
+      window.alert("Please enter a valid Mobile Number (10-digit local or with country code).");
+      return;
+    }
+    onSave({
+      ...draft,
+      dob: normalizedDob,
+      shift: normalizeShift(draft.shift),
+      email: trimmedEmail,
+      mobile: trimmedMobile,
+    });
   };
 
   const handleImageFileChange = (file: File | null) => {
@@ -286,6 +342,8 @@ export function EmployeeForm({
           <Label>Email ID</Label>
           <Input
             type="email"
+            inputMode="email"
+            autoComplete="email"
             value={draft.email ?? ""}
             placeholder="name@example.com"
             onChange={(e) => setDraft({ ...draft, email: e.target.value })}
@@ -295,9 +353,13 @@ export function EmployeeForm({
           <Label>Mobile Number</Label>
           <Input
             type="tel"
+            inputMode="tel"
+            autoComplete="tel"
             value={draft.mobile ?? ""}
             placeholder="+91 98765 43210"
-            onChange={(e) => setDraft({ ...draft, mobile: e.target.value })}
+            onChange={(e) =>
+              setDraft({ ...draft, mobile: formatMobileInput(e.target.value) })
+            }
           />
         </div>
         <div className="space-y-2">
@@ -322,8 +384,12 @@ export function EmployeeForm({
           )}
         </div>
         <div className="space-y-2">
-          <Label>Department</Label>
-          <Input value={draft.department} onChange={(e) => setDraft({ ...draft, department: e.target.value })} />
+          <Label>Employee Role</Label>
+          <Input
+            value={draft.department}
+            placeholder="e.g., Software Engineer"
+            onChange={(e) => setDraft({ ...draft, department: e.target.value })}
+          />
         </div>
         <div className="space-y-2">
           <Label>Date of Birth</Label>
@@ -336,19 +402,12 @@ export function EmployeeForm({
           />
         </div>
         <div className="space-y-2">
-          <Label>Role</Label>
-          <Select
-            value={draft.role}
-            onValueChange={(value) => setDraft({ ...draft, role: value as Employee["role"] })}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Employee">Employee</SelectItem>
-              <SelectItem value="Admin">Admin</SelectItem>
-            </SelectContent>
-          </Select>
+          <Label>Salary Package</Label>
+          <Input
+            value={draft.salaryPackage ?? ""}
+            placeholder="e.g., 50000"
+            onChange={(e) => setDraft({ ...draft, salaryPackage: e.target.value })}
+          />
         </div>
         <div className="col-span-2 space-y-2">
           <Label>Shift Timing</Label>

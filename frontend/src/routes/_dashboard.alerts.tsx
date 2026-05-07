@@ -13,7 +13,7 @@ import { getCurrentRole } from "@/lib/auth";
 export const Route = createFileRoute("/_dashboard/alerts")({
   beforeLoad: () => {
     if (getCurrentRole() !== "admin") {
-      throw redirect({ to: "/" });
+      throw redirect({ to: "/home" });
     }
   },
   component: AlertsPage,

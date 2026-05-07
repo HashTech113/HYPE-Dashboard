@@ -26,6 +26,7 @@ class EmployeeOut(BaseModel):
     imageUrl: str = ""
     email: str = ""
     mobile: str = ""
+    salaryPackage: str = ""
 
 
 class EmployeeListResponse(BaseModel):
@@ -44,6 +45,7 @@ class EmployeeCreate(BaseModel):
     imageUrl: str = ""
     email: str = ""
     mobile: str = ""
+    salaryPackage: str = ""
 
 
 class EmployeeUpdate(BaseModel):
@@ -57,6 +59,7 @@ class EmployeeUpdate(BaseModel):
     imageUrl: Optional[str] = None
     email: Optional[str] = None
     mobile: Optional[str] = None
+    salaryPackage: Optional[str] = None
 
 
 def _serialize(emp) -> EmployeeOut:
@@ -72,6 +75,7 @@ def _serialize(emp) -> EmployeeOut:
         imageUrl=emp.image_url,
         email=emp.email,
         mobile=emp.mobile,
+        salaryPackage=emp.salary_package,
     )
 
 
@@ -106,6 +110,7 @@ def create_employee(payload: EmployeeCreate) -> EmployeeOut:
         image_url=payload.imageUrl,
         email=payload.email,
         mobile=payload.mobile,
+        salary_package=payload.salaryPackage,
     )
     return _serialize(created)
 
@@ -122,6 +127,8 @@ def update_employee(employee_id: str, payload: EmployeeUpdate) -> EmployeeOut:
         patch["employee_id"] = patch.pop("employeeId")
     if "imageUrl" in patch:
         patch["image_url"] = patch.pop("imageUrl")
+    if "salaryPackage" in patch:
+        patch["salary_package"] = patch.pop("salaryPackage")
     updated = employees_service.update(employee_id, patch)
     if updated is None:
         raise HTTPException(status_code=404, detail=f"employee not found: {employee_id}")

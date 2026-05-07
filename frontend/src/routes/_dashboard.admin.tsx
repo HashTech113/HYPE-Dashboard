@@ -14,7 +14,7 @@ import { getCurrentRole } from "@/lib/auth";
 export const Route = createFileRoute("/_dashboard/admin")({
   beforeLoad: () => {
     if (getCurrentRole() !== "admin") {
-      throw redirect({ to: "/" });
+      throw redirect({ to: "/home" });
     }
   },
   component: AdminManagementPage,

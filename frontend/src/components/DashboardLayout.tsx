@@ -47,7 +47,7 @@ type NavItem = {
 };
 
 const navItems: NavItem[] = [
-  { label: "Dashboard", to: "/", icon: LayoutDashboard },
+  { label: "Dashboard", to: "/home", icon: LayoutDashboard },
   { label: "Attendance History", to: "/presence", icon: Clock },
   { label: "Reports", to: "/reports", icon: FileText },
   { label: "Live Captures", to: "/requests", icon: MessageSquare, roles: ["admin"] },

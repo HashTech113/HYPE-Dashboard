@@ -33,10 +33,13 @@ export function RoleLoginPanel({ role, redirect }: RoleLoginPanelProps) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // If already signed in, bounce straight to the dashboard.
+  // Only auto-bounce when a `redirect` is present (i.e., user was sent here
+  // by an auth-gated route). Direct visits to /login/admin or /login/hr keep
+  // showing the form even with a cached token, so the app always starts at
+  // the login page each session.
   useEffect(() => {
-    if (isAuthenticated()) {
-      void navigate({ to: redirect ?? "/" });
+    if (redirect && isAuthenticated()) {
+      void navigate({ to: redirect });
     }
   }, [navigate, redirect]);
 
@@ -49,7 +52,7 @@ export function RoleLoginPanel({ role, redirect }: RoleLoginPanelProps) {
       const result = await signIn(role, username, password);
       if (result) {
         router.invalidate();
-        await navigate({ to: redirect ?? "/" });
+        await navigate({ to: redirect ?? "/home" });
       } else {
         setError("Invalid username or password");
       }

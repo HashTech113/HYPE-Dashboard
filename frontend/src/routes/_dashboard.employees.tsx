@@ -105,7 +105,7 @@ function EmployeesPage() {
   );
   const departmentFilterOptions = useMemo(
     () => [
-      { value: "all", label: "All Departments" },
+      { value: "all", label: "All Employee Roles" },
       ...departmentOptions.map((department) => ({ value: department, label: department })),
     ],
     [departmentOptions],
@@ -172,14 +172,14 @@ function EmployeesPage() {
             ) : null}
 
             <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-sm font-semibold text-emerald-900">Departments</span>
+              <span className="whitespace-nowrap text-sm font-semibold text-emerald-900">Employee Roles</span>
               <SearchableSelect
                 value={selectedDepartment}
                 onValueChange={setSelectedDepartment}
                 options={departmentFilterOptions}
                 clearValue="all"
-                placeholder="All Departments"
-                className="h-9 w-[160px] border-emerald-200 focus-visible:ring-emerald-300"
+                placeholder="All Employee Roles"
+                className="h-9 w-[180px] border-emerald-200 focus-visible:ring-emerald-300"
               />
             </div>
 
@@ -225,7 +225,7 @@ function EmployeesPage() {
                   <TableHead className="w-[220px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Employee Name</TableHead>
                   <TableHead className="w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Company</TableHead>
                   <TableHead className="w-[140px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-slate-700 last:border-r-0">Employee ID</TableHead>
-                  <TableHead className="w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-emerald-700 last:border-r-0">Department</TableHead>
+                  <TableHead className="w-[160px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-emerald-700 last:border-r-0">Employee Role</TableHead>
                   <TableHead className="w-[150px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Shift</TableHead>
                 </TableRow>
               </TableHeader>

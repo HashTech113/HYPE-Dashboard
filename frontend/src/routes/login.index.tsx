@@ -40,10 +40,13 @@ function RoleSelectionPage() {
   const navigate = useNavigate();
   const { redirect } = Route.useSearch();
 
-  // If already signed in, bounce straight to the dashboard.
+  // Only auto-bounce when a `redirect` is present — that signals the user was
+  // sent here by an auth-gated route and should land back there post-login.
+  // Direct visits to /login always show the role chooser, even with a cached
+  // token, so the app reliably starts on the login page each session.
   useEffect(() => {
-    if (isAuthenticated()) {
-      void navigate({ to: redirect ?? "/" });
+    if (redirect && isAuthenticated()) {
+      void navigate({ to: redirect });
     }
   }, [navigate, redirect]);
 

@@ -28,7 +28,7 @@ import {
 export const Route = createFileRoute("/_dashboard/requests")({
   beforeLoad: () => {
     if (getCurrentRole() !== "admin") {
-      throw redirect({ to: "/" });
+      throw redirect({ to: "/home" });
     }
   },
   component: LiveCapturesPage,

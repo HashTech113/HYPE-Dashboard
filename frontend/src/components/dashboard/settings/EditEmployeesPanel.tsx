@@ -74,6 +74,7 @@ export function EditEmployeesPanel() {
     dob: "1990-01-01",
     email: "",
     mobile: "",
+    salaryPackage: "",
   };
 
   return (
@@ -131,7 +132,7 @@ export function EditEmployeesPanel() {
             <TableHead className="w-[220px] text-sky-700">Employee</TableHead>
             <TableHead className="w-[120px]">ID</TableHead>
             {!isCompanyScoped ? <TableHead className="w-[160px] text-indigo-700">Company</TableHead> : null}
-            <TableHead className="w-[160px] text-emerald-700">Department</TableHead>
+            <TableHead className="w-[160px] text-emerald-700">Employee Role</TableHead>
             <TableHead className="w-[150px] text-amber-700">Shift</TableHead>
             <TableHead className="w-[120px] text-right">Actions</TableHead>
           </TableRow>

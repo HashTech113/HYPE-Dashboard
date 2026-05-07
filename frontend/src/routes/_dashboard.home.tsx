@@ -8,14 +8,16 @@ import { DisciplineScore } from "@/components/dashboard/widgets/DisciplineScore"
 import { TopAlerts } from "@/components/dashboard/widgets/TopAlerts";
 import { RepeatPatterns } from "@/components/dashboard/widgets/RepeatPatterns";
 import { WhereToAct } from "@/components/dashboard/widgets/WhereToAct";
+import { getCurrentRole } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/_dashboard/")({
+export const Route = createFileRoute("/_dashboard/home")({
   component: DashboardPage,
 });
 
 function DashboardPage() {
   const { loading, error, lastUpdated, refresh } = useDashboardData();
+  const isAdmin = getCurrentRole() === "admin";
 
   const stampLabel =
     lastUpdated !== null
@@ -76,10 +78,13 @@ function DashboardPage() {
             <TopAlerts />
             <RepeatPatterns />
           </div>
-          {/* Row 3 */}
-          <div className="grid grid-cols-1 gap-4">
-            <WhereToAct />
-          </div>
+          {/* Row 3 — admin-only; HR sees company-scoped data and doesn't get
+              the cross-team triage panel. */}
+          {isAdmin && (
+            <div className="grid grid-cols-1 gap-4">
+              <WhereToAct />
+            </div>
+          )}
         </div>
       </SectionShell>
     </div>
