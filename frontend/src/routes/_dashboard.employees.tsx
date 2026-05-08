@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { Download, Search, Settings as SettingsIcon, Users } from "lucide-react";
-import { type Employee } from "@/api/dashboardApi";
 import { useEmployees } from "@/contexts/EmployeesContext";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
@@ -11,20 +10,7 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@
 import { COMPANY_OPTIONS } from "@/components/dashboard/EmployeeForm";
 import { formatShiftTo12Hour } from "@/components/dashboard/ShiftTimingPicker";
 
-type RoleFilter = "all" | Employee["role"];
-
-type EmployeesSearch = {
-  role?: RoleFilter;
-};
-
 export const Route = createFileRoute("/_dashboard/employees")({
-  validateSearch: (search: Record<string, unknown>): EmployeesSearch => {
-    const role = search.role;
-    if (role === "Admin" || role === "Employee" || role === "all") {
-      return { role };
-    }
-    return {};
-  },
   component: EmployeesPage,
 });
 
@@ -33,17 +19,10 @@ function EmployeesPage() {
   // HR users see only their own company's roster, so the Company filter and
   // Company column are redundant — hide both.
   const isCompanyScoped = scopedCompany !== null;
-  const navigate = Route.useNavigate();
-  const { role: roleFromSearch } = Route.useSearch();
 
   const [selectedCompany, setSelectedCompany] = useState<string>("all");
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all");
   const [selectedEmployee, setSelectedEmployee] = useState<string>("all");
-  const [selectedRole, setSelectedRole] = useState<RoleFilter>(roleFromSearch ?? "all");
-
-  useEffect(() => {
-    setSelectedRole(roleFromSearch ?? "all");
-  }, [roleFromSearch]);
 
   const companyOptions = useMemo(() => {
     const fromData = Array.from(new Set(employees.map((employee) => employee.company)));
@@ -80,12 +59,11 @@ function EmployeesPage() {
 
   const filtered = useMemo(() => {
     return employeesForSelectedCompany.filter((employee) => {
-      if (selectedRole !== "all" && employee.role !== selectedRole) return false;
       if (selectedEmployee !== "all" && employee.employeeId !== selectedEmployee) return false;
       if (selectedDepartment !== "all" && (employee.department ?? "").trim() !== selectedDepartment) return false;
       return true;
     });
-  }, [employeesForSelectedCompany, selectedEmployee, selectedRole, selectedDepartment]);
+  }, [employeesForSelectedCompany, selectedEmployee, selectedDepartment]);
   const employeeFilterOptions = useMemo(
     () => [
       { value: "all", label: "All Employees" },
@@ -109,14 +87,6 @@ function EmployeesPage() {
       ...departmentOptions.map((department) => ({ value: department, label: department })),
     ],
     [departmentOptions],
-  );
-  const roleFilterOptions = useMemo(
-    () => [
-      { value: "all", label: "All Roles" },
-      { value: "Admin", label: "Admin" },
-      { value: "Employee", label: "Employee" },
-    ],
-    [],
   );
 
   return (
@@ -182,28 +152,6 @@ function EmployeesPage() {
                 clearValue="all"
                 placeholder="All Employee Roles"
                 className="h-9 min-w-0 flex-1 border-emerald-200 focus-visible:ring-emerald-300 sm:w-[180px] sm:flex-initial"
-              />
-            </div>
-
-            <div className="flex w-full items-center gap-2 sm:w-auto">
-              <span className="w-[120px] shrink-0 whitespace-nowrap text-sm font-semibold text-amber-900 sm:w-auto">Role</span>
-              <SearchableSelect
-                value={selectedRole}
-                onValueChange={(value) => {
-                  const next = value as RoleFilter;
-                  setSelectedRole(next);
-                  navigate({
-                    search: (prev) => ({
-                      ...prev,
-                      role: next === "all" ? undefined : next,
-                    }),
-                    replace: true,
-                  });
-                }}
-                options={roleFilterOptions}
-                clearValue="all"
-                placeholder="All Roles"
-                className="h-9 min-w-0 flex-1 border-amber-200 focus-visible:ring-amber-300 sm:w-[140px] sm:flex-initial"
               />
             </div>
 
