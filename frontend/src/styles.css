@@ -296,6 +296,43 @@
   }
 }
 
+/* Flip card — used by the Discipline Score widget to swap between
+   per-team scores (front) and a live carousel of recognized snapshots
+   (back). The front face is in normal flow so it dictates the card's
+   height; the back face is absolutely positioned so it never grows
+   the card beyond the front face's natural size. */
+.flip-card {
+  perspective: 1500px;
+  height: 100%;
+}
+
+.flip-card-inner {
+  position: relative;
+  height: 100%;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  transition: transform 0.7s cubic-bezier(0.4, 0.2, 0.2, 1);
+}
+
+.flip-card-inner.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.flip-card-face {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.flip-card-front {
+  height: 100%;
+}
+
+.flip-card-back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+}
+
 /* Global shadow kill-switch — nullifies Tailwind shadow utilities
    (shadow, shadow-sm, shadow-md, shadow-xl, shadow-[arbitrary], etc.)
    so existing className strings don't have to be edited individually. */

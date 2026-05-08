@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ export const Route = createFileRoute("/_dashboard/home")({
 function DashboardPage() {
   const { loading, error, lastUpdated, refresh } = useDashboardData();
   const isAdmin = getCurrentRole() === "admin";
+  const [liveSnapshots, setLiveSnapshots] = useState(false);
 
   const stampLabel =
     lastUpdated !== null
@@ -33,16 +35,28 @@ function DashboardPage() {
         className="animate-fade-in-up"
         actions={
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span
-              className="flex h-9 items-center gap-1.5 rounded-md border border-slate-200 px-4 text-xs font-semibold text-emerald-700"
-              title="Live — auto-refreshing"
+            <button
+              type="button"
+              onClick={() => setLiveSnapshots((prev) => !prev)}
+              aria-pressed={liveSnapshots}
+              className={cn(
+                "flex h-9 items-center gap-1.5 rounded-md border px-4 text-xs font-semibold transition-colors",
+                liveSnapshots
+                  ? "border-emerald-500 bg-emerald-50 text-emerald-800"
+                  : "border-slate-200 text-emerald-700 hover:bg-emerald-50",
+              )}
+              title={
+                liveSnapshots
+                  ? "Live snapshots on — click to return to discipline scores"
+                  : "Show live recognized snapshots"
+              }
             >
               <span className="relative flex h-2 w-2">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
               </span>
               Live
-            </span>
+            </button>
             {stampLabel && <span>{stampLabel}</span>}
             <Button
               type="button"
@@ -71,7 +85,7 @@ function DashboardPage() {
           {/* Row 1 */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <PresenceTrend />
-            <DisciplineScore />
+            <DisciplineScore flipped={liveSnapshots} />
           </div>
           {/* Row 2 */}
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
