@@ -39,7 +39,10 @@ type DashboardDataContextValue = {
 const DashboardDataContext = createContext<DashboardDataContextValue | null>(null);
 
 const POLL_INTERVAL_MS = 30_000;
-const ATTENDANCE_LOOKBACK_DAYS = 30;
+// Covers Presence Trend's 8-week weekly window (4 current + 4 previous)
+// plus a buffer week, so the previous-period average is computed from
+// real data instead of empty buckets.
+const ATTENDANCE_LOOKBACK_DAYS = 63;
 
 function formatYmd(d: Date): string {
   const mm = String(d.getMonth() + 1).padStart(2, "0");

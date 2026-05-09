@@ -173,6 +173,13 @@ function LiveSnapshotsCard({ active }: { active: boolean }) {
   const [index, setIndex] = useState(0);
   const aliveRef = useRef(true);
 
+  // HR users must only see captures of their own company's employees
+  // (admins still see every team). The snapshot row already carries a
+  // server-resolved `company`, so a client-side filter is enough — no
+  // unrecognized faces leak through because their company resolves to null.
+  const isHr = getCurrentRole() === "hr";
+  const hrCompany = isHr ? getCurrentCompany() : null;
+
   // Poll the snapshot feed only while flipped — no background traffic
   // when the operator is looking at scores.
   useEffect(() => {
@@ -184,7 +191,10 @@ function LiveSnapshotsCard({ active }: { active: boolean }) {
       try {
         const data = await getSnapshotLogs({ limit: SNAPSHOT_LIMIT });
         if (cancelled || !aliveRef.current) return;
-        setItems(data.items);
+        const next = hrCompany
+          ? data.items.filter((it) => it.company === hrCompany)
+          : data.items;
+        setItems(next);
         setError(null);
       } catch (err) {
         if (cancelled || !aliveRef.current) return;
@@ -203,7 +213,7 @@ function LiveSnapshotsCard({ active }: { active: boolean }) {
       aliveRef.current = false;
       window.clearInterval(handle);
     };
-  }, [active]);
+  }, [active, hrCompany]);
 
   // Auto-advance carousel while flipped
   useEffect(() => {
