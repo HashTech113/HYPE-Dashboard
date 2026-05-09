@@ -13,6 +13,7 @@ on both SQLite and PostgreSQL.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date as date_cls, datetime, timezone
 from typing import Any, Optional
 
@@ -51,14 +52,29 @@ def _parse_iso(value: Any) -> Optional[datetime]:
     return dt.astimezone(timezone.utc)
 
 
+_TZ_SUFFIX_RE = re.compile(r"(Z|[+-]\d{2}:?\d{2})$")
+
+
 def _ts_to_str(value: Any) -> str:
     """Format a row's timestamp column for output. The ORM may return either
-    a string (SQLite) or a datetime (Postgres) — normalize to ISO string."""
+    a string (SQLite via raw ``text()``) or a datetime (Postgres) — normalize
+    to a UTC-tagged ISO string. Frontends parse the result with
+    ``new Date()``, which interprets timezone-naive strings as *local* time
+    — so we must always emit a ``Z`` / ``+00:00`` marker, otherwise IST
+    browsers render UTC times shifted by 5:30 hours."""
     if isinstance(value, datetime):
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
         return value.isoformat()
-    return str(value or "")
+    if not value:
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    s = s.replace(" ", "T", 1)
+    if not _TZ_SUFFIX_RE.search(s):
+        s += "+00:00"
+    return s
 
 
 def record_capture(

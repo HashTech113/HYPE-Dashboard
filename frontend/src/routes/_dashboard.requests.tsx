@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
-import { formatDateDash, formatTime12 } from "@/lib/dateFormat";
+import { formatDateDash, formatTime12, parseTimestamp } from "@/lib/dateFormat";
 import {
   Table,
   TableBody,
@@ -37,8 +37,8 @@ export const Route = createFileRoute("/_dashboard/requests")({
 const POLL_INTERVAL_MS = 5_000;
 
 function snapshotLocalDateKey(isoTimestamp: string): string {
-  const d = new Date(isoTimestamp);
-  if (Number.isNaN(d.getTime())) return "";
+  const d = parseTimestamp(isoTimestamp);
+  if (!d) return "";
   const month = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${d.getFullYear()}-${month}-${day}`;
@@ -203,12 +203,13 @@ function LiveCapturesPage() {
     const header = ["S/N", "Employee Name", "Company", "Date", "Time"];
     const rows = filteredSnapshots.map((item, index) => {
       const emp = findEmployeeForName(employees, item.name);
+      const captureDate = parseTimestamp(item.timestamp);
       return [
         String(index + 1),
         item.name,
         item.company ?? emp?.company ?? "—",
-        formatDateDash(item.timestamp),
-        formatTime12(item.timestamp),
+        formatDateDash(captureDate),
+        formatTime12(captureDate),
       ];
     });
     downloadCsv(
@@ -360,6 +361,7 @@ function SnapshotTable({
           items.map((item, index) => {
             const emp = findEmployeeForName(employees, item.name);
             const company = item.company ?? emp?.company ?? "—";
+            const captureDate = parseTimestamp(item.timestamp);
             return (
               <TableRow key={item.id} className="transition-colors hover:bg-slate-50/60">
                 <TableCell className="border-r border-slate-200 py-2 align-middle text-slate-500 last:border-r-0">
@@ -380,10 +382,10 @@ function SnapshotTable({
                   />
                 </TableCell>
                 <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-emerald-700 last:border-r-0">
-                  {formatDateDash(item.timestamp)}
+                  {formatDateDash(captureDate)}
                 </TableCell>
                 <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-sky-700 last:border-r-0">
-                  {formatTime12(item.timestamp)}
+                  {formatTime12(captureDate)}
                 </TableCell>
               </TableRow>
             );

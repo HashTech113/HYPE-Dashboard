@@ -9,23 +9,8 @@ import {
 } from "@/lib/dashboardData";
 import { getCurrentCompany, getCurrentRole } from "@/lib/auth";
 import { getSnapshotLogs, type SnapshotLogItem } from "@/api/dashboardApi";
-import { formatTime12 } from "@/lib/dateFormat";
+import { formatTime12, parseTimestamp } from "@/lib/dateFormat";
 import { cn } from "@/lib/utils";
-
-// Backend stores capture times as UTC. With SQLite the column comes back
-// as a naive string (no Z / +00:00), which `new Date()` then parses as
-// *local* time — making a 5:56 UTC capture render as 5:56 AM in IST
-// instead of the correct 11:26 AM. Normalize unaware strings to UTC.
-function parseSnapshotInstant(input: string | null | undefined): Date | null {
-  if (!input) return null;
-  let s = String(input).trim();
-  if (!s) return null;
-  s = s.replace(" ", "T");
-  const hasTz = /Z$|[+-]\d{2}:?\d{2}$/.test(s);
-  if (!hasTz) s = `${s}Z`;
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
 
 const STATUS_STYLES: Record<DisciplineStatus, { badge: string; bar: string; label: string }> = {
   Outstanding: { badge: "bg-green-50 text-green-700", bar: "bg-green-500", label: "Outstanding" },
@@ -284,7 +269,7 @@ function SnapshotCarousel({
   total: number;
 }) {
   const time = useMemo(() => {
-    const d = parseSnapshotInstant(current.timestamp);
+    const d = parseTimestamp(current.timestamp);
     return d ? formatTime12(d) : "";
   }, [current.timestamp]);
 
