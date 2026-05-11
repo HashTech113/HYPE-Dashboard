@@ -9,7 +9,7 @@ import {
 } from "@/lib/dashboardData";
 import { getCurrentCompany, getCurrentRole } from "@/lib/auth";
 import { getSnapshotLogs, type SnapshotLogItem } from "@/api/dashboardApi";
-import { formatTime12, parseTimestamp } from "@/lib/dateFormat";
+import { formatDateDash, formatTime12, parseTimestamp } from "@/lib/dateFormat";
 import { cn } from "@/lib/utils";
 
 const STATUS_STYLES: Record<DisciplineStatus, { badge: string; bar: string; label: string }> = {
@@ -278,9 +278,12 @@ function SnapshotCarousel({
   current: SnapshotLogItem;
   total: number;
 }) {
-  const time = useMemo(() => {
+  const { date, time } = useMemo(() => {
     const d = parseTimestamp(current.timestamp);
-    return d ? formatTime12(d) : "";
+    return {
+      date: d ? formatDateDash(d) : "",
+      time: d ? formatTime12(d) : "",
+    };
   }, [current.timestamp]);
 
   return (
@@ -304,9 +307,10 @@ function SnapshotCarousel({
               </div>
             )}
           </div>
-          {time && (
-            <div className="shrink-0 text-[11px] font-medium tabular-nums text-emerald-100">
-              {time}
+          {(date || time) && (
+            <div className="flex shrink-0 flex-col items-end text-[11px] font-medium tabular-nums leading-tight text-emerald-100">
+              {date && <span>{date}</span>}
+              {time && <span>{time}</span>}
             </div>
           )}
         </div>

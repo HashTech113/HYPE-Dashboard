@@ -15,6 +15,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginIndexRouteImport } from './routes/login.index'
 import { Route as LoginHrRouteImport } from './routes/login.hr'
 import { Route as LoginAdminRouteImport } from './routes/login.admin'
+import { Route as DashboardUnknownFacesRouteImport } from './routes/_dashboard.unknown-faces'
 import { Route as DashboardSettingsRouteImport } from './routes/_dashboard.settings'
 import { Route as DashboardRequestsRouteImport } from './routes/_dashboard.requests'
 import { Route as DashboardReportsRouteImport } from './routes/_dashboard.reports'
@@ -55,6 +56,11 @@ const LoginAdminRoute = LoginAdminRouteImport.update({
   id: '/admin',
   path: '/admin',
   getParentRoute: () => LoginRoute,
+} as any)
+const DashboardUnknownFacesRoute = DashboardUnknownFacesRouteImport.update({
+  id: '/unknown-faces',
+  path: '/unknown-faces',
+  getParentRoute: () => DashboardRoute,
 } as any)
 const DashboardSettingsRoute = DashboardSettingsRouteImport.update({
   id: '/settings',
@@ -124,6 +130,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof DashboardReportsRoute
   '/requests': typeof DashboardRequestsRoute
   '/settings': typeof DashboardSettingsRoute
+  '/unknown-faces': typeof DashboardUnknownFacesRoute
   '/login/admin': typeof LoginAdminRoute
   '/login/hr': typeof LoginHrRoute
   '/login/': typeof LoginIndexRoute
@@ -140,6 +147,7 @@ export interface FileRoutesByTo {
   '/reports': typeof DashboardReportsRoute
   '/requests': typeof DashboardRequestsRoute
   '/settings': typeof DashboardSettingsRoute
+  '/unknown-faces': typeof DashboardUnknownFacesRoute
   '/login/admin': typeof LoginAdminRoute
   '/login/hr': typeof LoginHrRoute
   '/login': typeof LoginIndexRoute
@@ -160,6 +168,7 @@ export interface FileRoutesById {
   '/_dashboard/reports': typeof DashboardReportsRoute
   '/_dashboard/requests': typeof DashboardRequestsRoute
   '/_dashboard/settings': typeof DashboardSettingsRoute
+  '/_dashboard/unknown-faces': typeof DashboardUnknownFacesRoute
   '/login/admin': typeof LoginAdminRoute
   '/login/hr': typeof LoginHrRoute
   '/login/': typeof LoginIndexRoute
@@ -180,6 +189,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/requests'
     | '/settings'
+    | '/unknown-faces'
     | '/login/admin'
     | '/login/hr'
     | '/login/'
@@ -196,6 +206,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/requests'
     | '/settings'
+    | '/unknown-faces'
     | '/login/admin'
     | '/login/hr'
     | '/login'
@@ -215,6 +226,7 @@ export interface FileRouteTypes {
     | '/_dashboard/reports'
     | '/_dashboard/requests'
     | '/_dashboard/settings'
+    | '/_dashboard/unknown-faces'
     | '/login/admin'
     | '/login/hr'
     | '/login/'
@@ -271,6 +283,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/login/admin'
       preLoaderRoute: typeof LoginAdminRouteImport
       parentRoute: typeof LoginRoute
+    }
+    '/_dashboard/unknown-faces': {
+      id: '/_dashboard/unknown-faces'
+      path: '/unknown-faces'
+      fullPath: '/unknown-faces'
+      preLoaderRoute: typeof DashboardUnknownFacesRouteImport
+      parentRoute: typeof DashboardRoute
     }
     '/_dashboard/settings': {
       id: '/_dashboard/settings'
@@ -375,6 +394,7 @@ interface DashboardRouteChildren {
   DashboardReportsRoute: typeof DashboardReportsRoute
   DashboardRequestsRoute: typeof DashboardRequestsRoute
   DashboardSettingsRoute: typeof DashboardSettingsRoute
+  DashboardUnknownFacesRoute: typeof DashboardUnknownFacesRoute
 }
 
 const DashboardRouteChildren: DashboardRouteChildren = {
@@ -387,6 +407,7 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardReportsRoute: DashboardReportsRoute,
   DashboardRequestsRoute: DashboardRequestsRoute,
   DashboardSettingsRoute: DashboardSettingsRoute,
+  DashboardUnknownFacesRoute: DashboardUnknownFacesRoute,
 }
 
 const DashboardRouteWithChildren = DashboardRoute._addFileChildren(

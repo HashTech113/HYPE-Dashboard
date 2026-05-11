@@ -33,29 +33,6 @@ export const Route = createFileRoute("/_dashboard/reports")({
 
 const POLL_INTERVAL_MS = 5_000;
 
-// Mirrors Attendance History / Live Captures so Reports renders identical values.
-function formatDurationSeconds(totalSeconds: number): string {
-  if (!totalSeconds || totalSeconds <= 0) return "On Time";
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
-  if (minutes > 0) return `${minutes}m ${seconds}s`;
-  return `${seconds}s`;
-}
-
-function lateEntryCell(item: AttendanceSummaryItem): string {
-  if (!item.entry_time) return "—";
-  const seconds = item.late_entry_seconds ?? item.late_entry_minutes * 60;
-  return formatDurationSeconds(seconds);
-}
-
-function earlyExitCell(item: AttendanceSummaryItem): string {
-  if (!item.exit_time) return "—";
-  const seconds = item.early_exit_seconds ?? item.early_exit_minutes * 60;
-  return formatDurationSeconds(seconds);
-}
-
 function ImageCell({
   url,
   archived,
@@ -273,10 +250,9 @@ function ReportsPage() {
       "Company",
       "Date",
       "Entry Time",
-      "Late Entry Time",
       "Exit Time",
-      "Early Exit Time",
-      "Total Hours",
+      "Total Break",
+      "Total Working Hours",
     ];
     const rows = filteredItems.map((item) => {
       const emp = findEmployeeForName(employees, item.name);
@@ -285,10 +261,9 @@ function ReportsPage() {
         item.company ?? emp?.company ?? "—",
         formatDateKeyDash(item.date),
         formatClock12(item.entry_time),
-        lateEntryCell(item),
-        formatClock12(item.exit_time),
-        earlyExitCell(item),
-        item.total_hours,
+        item.missing_checkout ? "Missing checkout" : formatClock12(item.exit_time),
+        item.total_break_time ?? "—",
+        item.total_working_hours ?? item.total_hours,
       ];
     });
     const tag = [startDate || "all", endDate || "all"].join("_to_");
@@ -472,7 +447,7 @@ function ReportTable({
   loading: boolean;
 }) {
   return (
-    <Table className="min-w-[960px]">
+    <Table className="min-w-[900px]">
       <TableHeader>
         <TableRow className="bg-slate-50/60 hover:bg-slate-50/80">
           <TableHead className="w-[170px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Employee Name</TableHead>
@@ -480,17 +455,16 @@ function ReportTable({
           <TableHead className="w-[95px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-emerald-700 last:border-r-0">Date</TableHead>
           <TableHead className="w-[80px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Entry Image</TableHead>
           <TableHead className="w-[95px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Entry Time</TableHead>
-          <TableHead className="w-[110px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Late Entry</TableHead>
           <TableHead className="w-[80px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-rose-700 last:border-r-0">Exit Image</TableHead>
-          <TableHead className="w-[95px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-rose-700 last:border-r-0">Exit Time</TableHead>
-          <TableHead className="w-[110px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Early Exit</TableHead>
-          <TableHead className="w-[90px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Total Hours</TableHead>
+          <TableHead className="w-[110px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-rose-700 last:border-r-0">Exit Time</TableHead>
+          <TableHead className="w-[100px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Total Break</TableHead>
+          <TableHead className="w-[110px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Total Working Hours</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {items.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={10} className="py-10 text-center text-muted-foreground">
+            <TableCell colSpan={9} className="py-10 text-center text-muted-foreground">
               {loading ? "Loading report…" : "No attendance records match the current filters."}
             </TableCell>
           </TableRow>
@@ -498,8 +472,6 @@ function ReportTable({
           items.map((item) => {
             const emp = findEmployeeForName(employees, item.name);
             const company = item.company ?? emp?.company ?? "—";
-            const isLate = (item.late_entry_minutes ?? 0) > 0;
-            const isEarly = (item.early_exit_minutes ?? 0) > 0;
             return (
               <TableRow key={item.id} className="transition-colors hover:bg-slate-50/60">
                 <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
@@ -539,14 +511,6 @@ function ReportTable({
                 <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-sky-700 last:border-r-0">
                   {formatClock12(item.entry_time)}
                 </TableCell>
-                <TableCell
-                  className={cn(
-                    "whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold last:border-r-0",
-                    isLate ? "text-amber-700" : "text-emerald-700",
-                  )}
-                >
-                  {lateEntryCell(item)}
-                </TableCell>
                 <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
                   <ImageCell
                     url={item.exit_image_url}
@@ -565,16 +529,11 @@ function ReportTable({
                     formatClock12(item.exit_time)
                   )}
                 </TableCell>
-                <TableCell
-                  className={cn(
-                    "whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold last:border-r-0",
-                    isEarly ? "text-amber-700" : "text-emerald-700",
-                  )}
-                >
-                  {earlyExitCell(item)}
+                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold text-amber-700 last:border-r-0">
+                  {item.total_break_time ?? "—"}
                 </TableCell>
                 <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold text-indigo-700 last:border-r-0">
-                  {item.total_hours}
+                  {item.total_working_hours ?? item.total_hours}
                 </TableCell>
               </TableRow>
             );

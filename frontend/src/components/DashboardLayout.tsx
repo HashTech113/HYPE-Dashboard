@@ -6,7 +6,7 @@ import {
   MessageSquare,
   Settings,
   Users,
-  UserCog,
+  UserX,
   FileText,
   Menu,
   LogOut,
@@ -53,7 +53,7 @@ const navItems: NavItem[] = [
   { label: "Employee Management", to: "/employees", icon: Users },
   { label: "Add Camera", to: "/cameras", icon: CameraIcon, roles: ["admin"] },
   { label: "Live Cameras", to: "/cameras/live", icon: Video, roles: ["admin"] },
-  { label: "Admin Management", to: "/admin", icon: UserCog, roles: ["admin"] },
+  { label: "Unknown Faces", to: "/unknown-faces", icon: UserX, roles: ["admin"] },
   { label: "Settings", to: "/settings", icon: Settings },
 ];
 

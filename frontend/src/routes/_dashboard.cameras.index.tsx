@@ -32,6 +32,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import {
@@ -63,7 +70,23 @@ const CONNECTION_FIELDS = new Set<keyof FormState>([
   "username",
   "password",
   "rtsp_path",
+  "rtsp_url_custom",
 ]);
+
+type CameraBrand = "hikvision" | "cp_plus" | "dahua" | "axis" | "generic";
+
+// Default RTSP path each vendor ships with. Selecting a brand seeds the path
+// for the operator; they can still override it before saving. CP Plus IP
+// cameras run a Dahua-derived firmware, so they share the same default path.
+const BRAND_PRESETS: Record<CameraBrand, { label: string; rtsp_path: string }> = {
+  hikvision: { label: "Hikvision", rtsp_path: "/Streaming/Channels/101" },
+  cp_plus: { label: "CP Plus", rtsp_path: "/cam/realmonitor?channel=1&subtype=0" },
+  dahua: { label: "Dahua", rtsp_path: "/cam/realmonitor?channel=1&subtype=0" },
+  axis: { label: "Axis", rtsp_path: "/axis-media/media.amp" },
+  generic: { label: "Generic / Other", rtsp_path: "/Streaming/Channels/101" },
+};
+
+type ConnectMode = "smart" | "custom";
 
 /** Mask the password and assemble the full RTSP URL preview shown to the
  * operator. Falls back to placeholders for empty fields so the URL is
@@ -76,6 +99,43 @@ function buildRtspUrlDisplay(form: FormState): string {
   return `rtsp://${username}:****@${host}:${port}${path}`;
 }
 
+type ParsedRtsp = {
+  username: string;
+  password: string;
+  ip: string;
+  port: number;
+  rtsp_path: string;
+};
+
+/** Parse a user-supplied RTSP URL into the parts the backend stores.
+ * The backend requires both username and password, so a URL without
+ * `user:password@` is rejected here. */
+function parseRtspUrl(raw: string): { ok: true; parts: ParsedRtsp } | { ok: false; reason: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: false, reason: "RTSP URL is required." };
+  // rtsp://[user[:pass]@]host[:port][/path]
+  const re = /^rtsp:\/\/(?:([^:@/\s]+)(?::([^@\s]*))?@)?([^:/\s]+)(?::(\d+))?(\/[^\s]*)?$/i;
+  const m = trimmed.match(re);
+  if (!m) {
+    return {
+      ok: false,
+      reason: "URL must look like rtsp://user:password@host:554/path",
+    };
+  }
+  const [, username, password, ip, portStr, path] = m;
+  if (!username || !password) {
+    return { ok: false, reason: "RTSP URL must include user:password@ before the host." };
+  }
+  const port = portStr ? Number.parseInt(portStr, 10) : DEFAULT_PORT;
+  if (!Number.isFinite(port) || port < 1 || port > 65535) {
+    return { ok: false, reason: "Port must be between 1 and 65535." };
+  }
+  return {
+    ok: true,
+    parts: { username, password, ip, port, rtsp_path: path || "/" },
+  };
+}
+
 type FormState = {
   name: string;
   location: string;
@@ -84,6 +144,11 @@ type FormState = {
   username: string;
   password: string;
   rtsp_path: string;
+  brand: CameraBrand;
+  // Used only in Custom Connect mode — the operator types the full RTSP URL
+  // (including credentials) and we parse it into ip/port/username/etc on
+  // submit.
+  rtsp_url_custom: string;
 };
 
 const EMPTY_FORM: FormState = {
@@ -94,6 +159,8 @@ const EMPTY_FORM: FormState = {
   username: "",
   password: "",
   rtsp_path: DEFAULT_RTSP_PATH,
+  brand: "hikvision",
+  rtsp_url_custom: "",
 };
 
 function CamerasPage() {
@@ -412,6 +479,7 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
   const [check, setCheck] = useState<CameraCheckResponse | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [mode, setMode] = useState<ConnectMode>("smart");
   const isEdit = camera !== null;
 
   useEffect(() => {
@@ -426,12 +494,17 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
               username: camera.username,
               password: "",
               rtsp_path: camera.rtsp_path,
+              brand: "hikvision",
+              rtsp_url_custom: "",
             }
           : EMPTY_FORM,
       );
       setError(null);
       setCheck(null);
       setShowPassword(false);
+      // Edit always lands on Smart Connect — it carries every field
+      // already; the operator can switch tabs to re-enter as a URL.
+      setMode("smart");
     }
   }, [open, camera]);
 
@@ -445,9 +518,46 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
     }
   };
 
+  // Brand picker seeds the RTSP path so the operator doesn't have to remember
+  // each vendor's URL shape. Switching brand also invalidates the prior test.
+  const updateBrand = (brand: CameraBrand) => {
+    setForm((prev) => ({
+      ...prev,
+      brand,
+      rtsp_path: BRAND_PRESETS[brand].rtsp_path,
+    }));
+    setCheck(null);
+  };
+
+  const switchMode = (next: ConnectMode) => {
+    if (next === mode) return;
+    setMode(next);
+    setError(null);
+    setCheck(null);
+  };
+
   const validate = (): { ok: true; payload: CameraCreatePayload } | { ok: false; reason: string } => {
-    const port = Number.parseInt(form.port, 10);
     if (!form.name.trim()) return { ok: false, reason: "Name is required." };
+    if (!form.location.trim()) return { ok: false, reason: "Location is required." };
+
+    if (mode === "custom") {
+      const parsed = parseRtspUrl(form.rtsp_url_custom);
+      if (!parsed.ok) return { ok: false, reason: parsed.reason };
+      return {
+        ok: true,
+        payload: {
+          name: form.name.trim(),
+          location: form.location.trim(),
+          ip: parsed.parts.ip,
+          port: parsed.parts.port,
+          username: parsed.parts.username,
+          password: parsed.parts.password,
+          rtsp_path: parsed.parts.rtsp_path,
+        },
+      };
+    }
+
+    const port = Number.parseInt(form.port, 10);
     if (!form.ip.trim()) return { ok: false, reason: "IP is required." };
     if (!Number.isFinite(port) || port < 1 || port > 65535) {
       return { ok: false, reason: "Port must be between 1 and 65535." };
@@ -477,7 +587,10 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
       setError(validated.reason);
       return;
     }
-    if (isEdit && !form.password) {
+    // In Smart Connect, edit-mode keeps the saved password on the server —
+    // we need a freshly-typed one to actually run a check. Custom Connect
+    // always carries the password inside the typed URL, so no extra guard.
+    if (mode === "smart" && isEdit && !form.password) {
       setError("To test the connection, re-enter the password (it isn't stored on the client).");
       return;
     }
@@ -525,9 +638,9 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
   };
 
   // Edit mode + no new password = metadata-only update; safe to save without
-  // a re-test. Otherwise (add mode, or edit with password change) we require
-  // a passing connection check before enabling Save.
-  const isMetadataOnlyEdit = isEdit && form.password === "";
+  // a re-test. Custom Connect always carries fresh credentials in the typed
+  // URL, so it never qualifies as metadata-only.
+  const isMetadataOnlyEdit = mode === "smart" && isEdit && form.password === "";
   const saveAllowed = isMetadataOnlyEdit || check?.ok === true;
 
   return (
@@ -538,80 +651,157 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Camera name" required>
-              <Input
-                value={form.name}
-                onChange={(e) => updateField("name")(e.target.value)}
-                placeholder="Reception"
-              />
-            </Field>
-            <Field label="Location" required>
-              <Input
-                value={form.location}
-                onChange={(e) => updateField("location")(e.target.value)}
-                placeholder="Floor 1 - Lobby"
-              />
-            </Field>
-            <Field label="Camera IP" required>
-              <Input
-                value={form.ip}
-                onChange={(e) => updateField("ip")(e.target.value)}
-                placeholder="172.18.10.12"
-              />
-            </Field>
-            <Field label="Port" required>
-              <Input
-                type="number"
-                inputMode="numeric"
-                value={form.port}
-                onChange={(e) => updateField("port")(e.target.value)}
-                placeholder="554"
-              />
-            </Field>
-            <Field label="Username" required>
-              <Input
-                value={form.username}
-                onChange={(e) => updateField("username")(e.target.value)}
-                autoComplete="off"
-              />
-            </Field>
-            <Field
-              label={isEdit ? "Password (leave blank to keep)" : "Password"}
-              required={!isEdit}
-            >
-              <div className="relative">
-                <Input
-                  type={showPassword ? "text" : "password"}
-                  value={form.password}
-                  onChange={(e) => updateField("password")(e.target.value)}
-                  autoComplete="new-password"
-                  className="pr-9"
-                />
-                <button
-                  type="button"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"
-                  onClick={() => setShowPassword((p) => !p)}
-                  tabIndex={-1}
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-            </Field>
-            <Field label="RTSP URL" required className="sm:col-span-2">
-              <Input
-                value={buildRtspUrlDisplay(form)}
-                readOnly
-                aria-readonly="true"
-                tabIndex={-1}
-                className="cursor-default bg-slate-50 font-mono text-xs"
-              />
-              <p className="mt-1 text-[11px] text-slate-500">
-                Auto-generated from IP, port, and credentials.
-              </p>
-            </Field>
+          {/* Two-tab connect mode: Smart wires up host/port/creds and
+              auto-builds the RTSP URL; Custom takes a hand-typed RTSP URL
+              and parses it into the same backend fields on submit. */}
+          <div
+            role="tablist"
+            aria-label="Connection method"
+            className="inline-flex w-full rounded-xl border border-slate-200 bg-slate-50 p-1 text-sm font-medium"
+          >
+            {(["smart", "custom"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                role="tab"
+                aria-selected={mode === m}
+                onClick={() => switchMode(m)}
+                className={cn(
+                  "flex-1 rounded-lg px-3 py-1.5 transition-colors",
+                  mode === m
+                    ? "bg-white text-[#2f8f7b] shadow-sm"
+                    : "text-slate-600 hover:text-slate-900",
+                )}
+              >
+                {m === "smart" ? "Smart Connect" : "Custom Connect"}
+              </button>
+            ))}
           </div>
+
+          {mode === "smart" ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Camera brand" required className="sm:col-span-2">
+                <Select
+                  value={form.brand}
+                  onValueChange={(value) => updateBrand(value as CameraBrand)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a brand" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Object.entries(BRAND_PRESETS).map(([key, { label }]) => (
+                      <SelectItem key={key} value={key}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field label="Camera name" required>
+                <Input
+                  value={form.name}
+                  onChange={(e) => updateField("name")(e.target.value)}
+                  placeholder="Reception"
+                />
+              </Field>
+              <Field label="Location" required>
+                <Input
+                  value={form.location}
+                  onChange={(e) => updateField("location")(e.target.value)}
+                  placeholder="Floor 1 - Lobby"
+                />
+              </Field>
+              <Field label="Camera IP" required>
+                <Input
+                  value={form.ip}
+                  onChange={(e) => updateField("ip")(e.target.value)}
+                  placeholder="172.18.10.12"
+                />
+              </Field>
+              <Field label="Port" required>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  value={form.port}
+                  onChange={(e) => updateField("port")(e.target.value)}
+                  placeholder="554"
+                />
+              </Field>
+              <Field label="Username" required>
+                <Input
+                  value={form.username}
+                  onChange={(e) => updateField("username")(e.target.value)}
+                  autoComplete="off"
+                />
+              </Field>
+              <Field
+                label={isEdit ? "Password (leave blank to keep)" : "Password"}
+                required={!isEdit}
+              >
+                <div className="relative">
+                  <Input
+                    type={showPassword ? "text" : "password"}
+                    value={form.password}
+                    onChange={(e) => updateField("password")(e.target.value)}
+                    autoComplete="new-password"
+                    className="pr-9"
+                  />
+                  <button
+                    type="button"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-slate-400 hover:text-slate-600"
+                    onClick={() => setShowPassword((p) => !p)}
+                    tabIndex={-1}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </Field>
+              <Field label="RTSP URL" required className="sm:col-span-2">
+                <Input
+                  value={buildRtspUrlDisplay(form)}
+                  readOnly
+                  aria-readonly="true"
+                  tabIndex={-1}
+                  className="cursor-default bg-slate-50 font-mono text-xs"
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Auto-generated from IP, port, and credentials.
+                </p>
+              </Field>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="Camera name" required>
+                <Input
+                  value={form.name}
+                  onChange={(e) => updateField("name")(e.target.value)}
+                  placeholder="Reception"
+                />
+              </Field>
+              <Field label="Location" required>
+                <Input
+                  value={form.location}
+                  onChange={(e) => updateField("location")(e.target.value)}
+                  placeholder="Floor 1 - Lobby"
+                />
+              </Field>
+              <Field label="RTSP URL" required className="sm:col-span-2">
+                <Input
+                  value={form.rtsp_url_custom}
+                  onChange={(e) => updateField("rtsp_url_custom")(e.target.value)}
+                  placeholder="rtsp://user:password@172.18.10.12:554/Streaming/Channels/101"
+                  className="font-mono text-xs"
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Paste the full URL including credentials; we'll parse the
+                  host, port, and path on save.
+                </p>
+              </Field>
+            </div>
+          )}
 
           {testing ? (
             <div
