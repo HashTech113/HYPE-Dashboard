@@ -1,15 +1,20 @@
 """POST /api/auth/login + companion endpoints (me, change-password, profile)."""
 
-from __future__ import annotations
+# NOTE: ``from __future__ import annotations`` is intentionally NOT used here.
+# slowapi wraps the rate-limited endpoint and FastAPI's pydantic resolver
+# can't find the request-body class via its forward-ref string when the
+# enclosing function has been decorated, so we keep eagerly-resolved
+# annotations on this file specifically.
 
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ..config import JWT_TTL_SECONDS
 from ..dependencies import get_current_user, require_admin_or_hr
+from ..ratelimit import limiter
 from ..services import auth as auth_service
 from ..services.auth import User
 
@@ -51,7 +56,8 @@ def _user_out(user: User) -> UserOut:
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(payload: LoginRequest) -> LoginResponse:
+@limiter.limit("5/minute")
+def login(request: Request, payload: LoginRequest) -> LoginResponse:
     record = auth_service.get_by_username(payload.username)
     # Same generic message for "no such user" and "wrong password" so the
     # response can't be used to enumerate accounts.
@@ -84,7 +90,9 @@ class ChangePasswordRequest(BaseModel):
 
 
 @router.post("/change-password")
+@limiter.limit("5/minute")
 def change_password(
+    request: Request,
     payload: ChangePasswordRequest,
     user: User = Depends(get_current_user),
 ) -> dict:

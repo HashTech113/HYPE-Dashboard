@@ -14,7 +14,7 @@ from ..config import (
     SHIFT_END,
     SHIFT_START,
 )
-from ..dependencies import require_admin_or_hr
+from ..dependencies import hr_scope, require_admin_or_hr
 from ..schemas.logs import (
     AttendanceSummaryItem,
     AttendanceSummaryResponse,
@@ -23,8 +23,9 @@ from ..schemas.logs import (
 )
 from ..services import employees as employees_service, logs
 from ..services.attendance import ShiftSettings, parse_hhmm
+from ..services.auth import User
 
-router = APIRouter(tags=["logs"], dependencies=[Depends(require_admin_or_hr)])
+router = APIRouter(tags=["logs"])
 
 DEFAULT_SUMMARY_DAYS = 90
 
@@ -60,6 +61,7 @@ def _to_snapshot_item(row: dict, directory: list) -> SnapshotItem:
         company=employees_service.company_for(row["name"], employees=directory),
         timestamp=row["timestamp"],
         image_url=f"data:image/jpeg;base64,{data}" if data else None,
+        camera_id=row.get("camera_id") or "",
     )
 
 
@@ -102,6 +104,7 @@ def list_attendance(
     name: Optional[str] = Query(None, description="Prefix filter, case-insensitive."),
     limit: Optional[int] = Query(None, ge=1, description="Omit for all rows."),
     offset: int = Query(0, ge=0),
+    user: User = Depends(require_admin_or_hr),
 ) -> AttendanceSummaryResponse:
     shift = _default_shift()
     end_date = _parse_date(end, "end") if end else _today_local(shift.tz_offset_min)
@@ -118,9 +121,15 @@ def list_attendance(
         base_url="",
         name_filter=name,
     )
-    window = rows[offset:] if limit is None else rows[offset : offset + limit]
+    # Scope before windowing so HR pagination is consistent with what they
+    # can actually see; admins skip the filter.
     directory = employees_service.all_employees()
-    return AttendanceSummaryResponse(items=[_to_summary_item(r, directory) for r in window])
+    items = [_to_summary_item(r, directory) for r in rows]
+    filter_active, target = hr_scope(user)
+    if filter_active:
+        items = [it for it in items if (it.company or "").strip().lower() == target]
+    window = items[offset:] if limit is None else items[offset : offset + limit]
+    return AttendanceSummaryResponse(items=window)
 
 
 @router.get("/api/snapshots", response_model=SnapshotListResponse)
@@ -128,7 +137,19 @@ def list_snapshots(
     limit: Optional[int] = Query(None, ge=1, description="Omit for all rows."),
     offset: int = Query(0, ge=0),
     name: Optional[str] = Query(None, description="Prefix filter, case-insensitive."),
+    user: User = Depends(require_admin_or_hr),
 ) -> SnapshotListResponse:
-    rows = logs.fetch_snapshot_logs(limit=limit, offset=offset, name=name)
+    # When scoping is active we need the full result set so we can filter
+    # before paginating; admins keep the original DB-level limit/offset
+    # behaviour for performance.
+    filter_active, target = hr_scope(user)
+    if filter_active:
+        rows = logs.fetch_snapshot_logs(limit=None, offset=0, name=name)
+    else:
+        rows = logs.fetch_snapshot_logs(limit=limit, offset=offset, name=name)
     directory = employees_service.all_employees()
-    return SnapshotListResponse(items=[_to_snapshot_item(r, directory) for r in rows])
+    items = [_to_snapshot_item(r, directory) for r in rows]
+    if filter_active:
+        items = [it for it in items if (it.company or "").strip().lower() == target]
+        items = items[offset:] if limit is None else items[offset : offset + limit]
+    return SnapshotListResponse(items=items)

@@ -5,28 +5,36 @@ import {
   Users,
   CalendarCheck,
   UserCog,
+  Building2,
 } from "lucide-react";
 
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { cn } from "@/lib/utils";
+import { getCurrentRole } from "@/lib/auth";
 
 import { EditEmployeesPanel } from "@/components/dashboard/settings/EditEmployeesPanel";
 import { EditAttendancePanel } from "@/components/dashboard/settings/EditAttendancePanel";
 import { EditProfilePanel } from "@/components/dashboard/settings/EditProfilePanel";
+import { EditCompaniesPanel } from "@/components/dashboard/settings/EditCompaniesPanel";
 
 export const Route = createFileRoute("/_dashboard/settings")({
   component: SettingsPage,
 });
 
-type TabId = "employees" | "attendance" | "profile";
+type TabId = "employees" | "companies" | "attendance" | "profile";
 
-const TABS: { id: TabId; label: string; icon: typeof Users }[] = [
+type TabDef = { id: TabId; label: string; icon: typeof Users; adminOnly?: boolean };
+
+const TABS: TabDef[] = [
   { id: "employees", label: "Edit Employee Management", icon: Users },
+  { id: "companies", label: "Edit Companies", icon: Building2, adminOnly: true },
   { id: "attendance", label: "Edit Attendance Report", icon: CalendarCheck },
   { id: "profile", label: "Edit Profile", icon: UserCog },
 ];
 
 function SettingsPage() {
+  const role = getCurrentRole();
+  const visibleTabs = TABS.filter((t) => !t.adminOnly || role === "admin");
   const [active, setActive] = useState<TabId>("employees");
 
   const tabBar = (
@@ -39,7 +47,7 @@ function SettingsPage() {
       // keeps them visually balanced against the section icon + title.
       className="flex w-full flex-col items-stretch gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-center md:mx-auto md:-translate-x-16"
     >
-      {TABS.map((tab) => {
+      {visibleTabs.map((tab) => {
         const Icon = tab.icon;
         const selected = tab.id === active;
         return (
@@ -74,8 +82,9 @@ function SettingsPage() {
         inlineActions
         actions={tabBar}
       >
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="scrollbar-hidden flex min-h-0 flex-1 flex-col overflow-y-auto pr-1">
           {active === "employees" ? <EditEmployeesPanel /> : null}
+          {active === "companies" && role === "admin" ? <EditCompaniesPanel /> : null}
           {active === "attendance" ? <EditAttendancePanel /> : null}
           {active === "profile" ? <EditProfilePanel /> : null}
         </div>

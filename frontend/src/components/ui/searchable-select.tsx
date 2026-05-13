@@ -18,6 +18,12 @@ type SearchableSelectProps = {
   clearValue?: string;
   showClear?: boolean;
   disabled?: boolean;
+  /** When true, a typed value that doesn't match any existing option can be
+   * committed as a new value (via the dropdown's "Add new" affordance, Enter,
+   * or blur). The committed value is the trimmed query string. */
+  creatable?: boolean;
+  /** Label template for the creatable affordance. Receives the typed query. */
+  createLabel?: (query: string) => string;
 };
 
 export function SearchableSelect({
@@ -31,16 +37,23 @@ export function SearchableSelect({
   clearValue = "",
   showClear = true,
   disabled = false,
+  creatable = false,
+  createLabel = (q) => `Add "${q}"`,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement | null>(null);
 
-  const selectedOption = useMemo(
-    () => options.find((opt) => opt.value === value) ?? null,
-    [options, value],
-  );
+  const selectedOption = useMemo(() => {
+    const match = options.find((opt) => opt.value === value) ?? null;
+    if (match) return match;
+    // In creatable mode, the current value may be a freshly-typed entry that
+    // isn't in the options list yet. Treat the value as its own label so the
+    // input still renders it.
+    if (creatable && value) return { value, label: value };
+    return null;
+  }, [options, value, creatable]);
 
   useEffect(() => {
     if (!isEditing) {
@@ -72,13 +85,37 @@ export function SearchableSelect({
   }, [options, query]);
 
   const commitByLabel = (typed: string) => {
-    const needle = typed.trim().toLowerCase();
-    if (!needle) return;
+    const trimmed = typed.trim();
+    if (!trimmed) return;
+    const needle = trimmed.toLowerCase();
     const exact = options.find((opt) => opt.label.toLowerCase() === needle);
-    if (exact && exact.value !== value) {
-      onValueChange(exact.value);
+    if (exact) {
+      if (exact.value !== value) onValueChange(exact.value);
+      return;
+    }
+    // Creatable: a typed value with no exact match becomes the new selection.
+    if (creatable && trimmed !== value) {
+      onValueChange(trimmed);
     }
   };
+
+  const commitCreated = (typed: string) => {
+    const trimmed = typed.trim();
+    if (!trimmed) return;
+    onValueChange(trimmed);
+    setQuery(trimmed);
+    setOpen(false);
+    setIsEditing(false);
+  };
+
+  const hasExactMatch = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return false;
+    return options.some((opt) => opt.label.toLowerCase() === needle);
+  }, [options, query]);
+
+  const showCreateOption =
+    creatable && isEditing && query.trim().length > 0 && !hasExactMatch;
 
   const closeEditor = () => {
     setOpen(false);
@@ -133,6 +170,8 @@ export function SearchableSelect({
             e.preventDefault();
             if (filteredOptions.length > 0) {
               choose(filteredOptions[0].value);
+            } else if (creatable && query.trim()) {
+              commitCreated(query);
             } else {
               closeEditor();
             }
@@ -164,25 +203,39 @@ export function SearchableSelect({
             dropdownClassName,
           )}
         >
-          {filteredOptions.length === 0 ? (
+          {filteredOptions.length === 0 && !showCreateOption ? (
             <div className="px-2 py-1.5 text-sm text-muted-foreground">{emptyText}</div>
           ) : (
-            filteredOptions.map((opt) => (
-              <button
-                key={opt.value}
-                type="button"
-                className={cn(
-                  "block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground",
-                  value === opt.value ? "bg-accent/60" : "",
-                )}
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  choose(opt.value);
-                }}
-              >
-                {opt.label}
-              </button>
-            ))
+            <>
+              {filteredOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={cn(
+                    "block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground",
+                    value === opt.value ? "bg-accent/60" : "",
+                  )}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    choose(opt.value);
+                  }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+              {showCreateOption ? (
+                <button
+                  type="button"
+                  className="block w-full rounded-sm px-2 py-1.5 text-left text-sm font-medium text-primary hover:bg-accent hover:text-accent-foreground"
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    commitCreated(query);
+                  }}
+                >
+                  + {createLabel(query.trim())}
+                </button>
+              ) : null}
+            </>
           )}
         </div>
       ) : null}

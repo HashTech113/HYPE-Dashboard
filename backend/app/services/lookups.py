@@ -30,8 +30,54 @@ def _normalize(name: str) -> str:
     return " ".join((name or "").strip().split())
 
 
+# Canonical company naming across the product. Keys are lowercase/normalized
+# variants seen in legacy imports, manual edits, or historical seeds.
+COMPANY_NAME_ALIASES: dict[str, str] = {
+    # Legacy/demo placeholders that should resolve to the real tenant.
+    "branch a": "WAWU",
+    "branch b": "WAWU",
+    "branch c": "WAWU",
+    "startup televison": "Startup TV",
+    "startup television": "Startup TV",
+    "startup tv": "Startup TV",
+    "startup park": "Startup Park",
+    "startup school": "Startup School",
+    "sib": "Study in Bengaluru",
+    "franchisify": "Franchisify",
+    "rent your hr": "Rent Your HR",
+    "ceo2": "CEO Square",
+    "ique ventures": "iQue Ventures",
+    "ique cap - delhi team": "iQue CAP - Delhi Team",
+    "ique cap - blr team": "iQue CAP - BLR Team",
+    "ique cap - kl team": "iQue CAP - KL Team",
+    "ique cap - mh team": "iQue CAP - MH Team",
+    "ique cap - mp": "iQue CAP - MP Team",
+    "ique cap - andra pradesh": "iQue CAP - AP Team",
+    "ique cap - andhra pradesh": "iQue CAP - AP Team",
+    "ique cap - tn team": "iQue CAP - TN Team",
+    "ique cap punjab": "iQue CAP - Punjab Team",
+    "ique cap - punjab team": "iQue CAP - Punjab Team",
+    "iquecap - core team": "iQue CAP - Core Team",
+    "skill univ": "Skill Univ",
+    "moonbliss": "Moon Bliss",
+    "incubenation": "Incubenation",
+    "ceo square": "CEO Square",
+    "karumitra": "Karu Mitra",
+    "karu miyta": "Karu Mitra",
+}
+
+
+def normalize_company_name(name: str) -> str:
+    canonical = _normalize(name)
+    if not canonical:
+        return canonical
+    return COMPANY_NAME_ALIASES.get(canonical.lower(), canonical)
+
+
 def _get_or_create(session: Session, model: Type[Any], name: str) -> Optional[int]:
     canonical = _normalize(name)
+    if model is Company:
+        canonical = normalize_company_name(canonical)
     if not canonical:
         return None
     # Case-insensitive lookup so "WAWU" and "wawu" don't get duplicate rows

@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { MapPin, RefreshCw, Video, VideoOff } from "lucide-react";
+import { Expand, MapPin, Minimize, RefreshCw, Video, VideoOff } from "lucide-react";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -128,7 +128,9 @@ function CameraTile({ camera }: { camera: Camera }) {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [imgFailed, setImgFailed] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const refreshRef = useRef<number | null>(null);
+  const tileRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,8 +160,33 @@ function CameraTile({ camera }: { camera: Camera }) {
     };
   }, [camera.id]);
 
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === tileRef.current);
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = async () => {
+    const tile = tileRef.current;
+    if (!tile) return;
+    try {
+      if (document.fullscreenElement === tile) {
+        await document.exitFullscreen();
+      } else {
+        await tile.requestFullscreen();
+      }
+    } catch {
+      // Some browsers block fullscreen requests outside direct user gestures.
+    }
+  };
+
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <div
+      ref={tileRef}
+      className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+    >
       <div className="relative aspect-video w-full bg-slate-900">
         {streamError ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-xs text-rose-200">
@@ -197,10 +224,23 @@ function CameraTile({ camera }: { camera: Camera }) {
             </div>
           ) : null}
         </div>
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
-          Live
-        </span>
+        <div className="inline-flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-500" />
+            Live
+          </span>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => void toggleFullscreen()}
+            className="h-6 w-6 rounded-full border-slate-200 text-slate-600"
+            title={isFullscreen ? "Exit fullscreen" : "View fullscreen"}
+            aria-label={isFullscreen ? "Exit fullscreen" : "View fullscreen"}
+          >
+            {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Expand className="h-3.5 w-3.5" />}
+          </Button>
+        </div>
       </div>
     </div>
   );

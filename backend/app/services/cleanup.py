@@ -177,6 +177,77 @@ def prune_old_snapshots() -> dict[str, int]:
     return summary
 
 
+def snapshot_storage_stats() -> dict:
+    """Quick summary the admin Settings → Snapshots panel renders: total
+    rows in each capture table, how many still hold image data, and the
+    approximate byte size that data is consuming.
+
+    The byte size is the sum of base64 string lengths across image_data
+    columns — close enough to disk usage for an at-a-glance view without
+    needing platform-specific page-size math.
+    """
+    out: dict = {"tables": {}, "totalRows": 0, "totalRowsWithImage": 0, "totalBytes": 0}
+    with session_scope() as session:
+        for table in _TABLES:
+            row = session.execute(
+                text(
+                    f"SELECT COUNT(*) AS n_total, "
+                    f"SUM(CASE WHEN image_data IS NOT NULL THEN 1 ELSE 0 END) AS n_with, "
+                    f"COALESCE(SUM(LENGTH(image_data)), 0) AS bytes "
+                    f"FROM {table}"
+                ),
+            ).mappings().one()
+            n_total = int(row["n_total"] or 0)
+            n_with = int(row["n_with"] or 0)
+            n_bytes = int(row["bytes"] or 0)
+            out["tables"][table] = {
+                "rows": n_total,
+                "rowsWithImage": n_with,
+                "approxBytes": n_bytes,
+            }
+            out["totalRows"] += n_total
+            out["totalRowsWithImage"] += n_with
+            out["totalBytes"] += n_bytes
+
+        first = session.execute(
+            text("SELECT MIN(timestamp) FROM snapshot_logs WHERE image_data IS NOT NULL")
+        ).scalar_one_or_none()
+        out["oldestImageTimestamp"] = (
+            first.isoformat() if isinstance(first, datetime) else (str(first) if first else None)
+        )
+    return out
+
+
+def purge_image_data_before(cutoff_date: date_cls) -> dict[str, int]:
+    """Force-NULL ``image_data`` on every capture row whose timestamp is
+    strictly before the start of ``cutoff_date`` (local). Unlike the
+    nightly prune, this does NOT preserve entry/exit thumbnails — the
+    admin is explicitly asking to free space.
+
+    Rows themselves are never deleted; only image_data is cleared so the
+    attendance summary can still account for the event (without a thumb).
+    Returns rows-cleared per table.
+    """
+    cutoff_utc = _local_midnight_utc(cutoff_date)
+    out: dict[str, int] = {}
+    with session_scope() as session:
+        for table in _TABLES:
+            result = session.execute(
+                text(
+                    f"UPDATE {table} SET image_data = NULL "
+                    f"WHERE image_data IS NOT NULL AND timestamp < :cutoff"
+                ),
+                {"cutoff": cutoff_utc},
+            )
+            cleared = int(result.rowcount or 0)
+            out[table] = cleared
+            log.info(
+                "manual purge[%s] cleared image_data on %d rows older than %s",
+                table, cleared, cutoff_date.isoformat(),
+            )
+    return out
+
+
 def seconds_until_next_local_midnight() -> float:
     """Seconds from now until 00:00:30 local on the next local day. The 30s
     cushion makes sure the cleanup runs *after* the date boundary rather

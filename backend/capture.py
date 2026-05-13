@@ -608,6 +608,7 @@ def _load_db_workers() -> list[CameraClient]:
                 camera_id=cam.id,
                 camera_name=cam.name,
                 camera_location=cam.location,
+                auto_discovery_enabled=cam.auto_discovery_enabled,
             )
         )
     return clients

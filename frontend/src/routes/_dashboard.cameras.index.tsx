@@ -86,6 +86,18 @@ const BRAND_PRESETS: Record<CameraBrand, { label: string; rtsp_path: string }> =
   generic: { label: "Generic / Other", rtsp_path: "/Streaming/Channels/101" },
 };
 
+/** Infer the camera brand from its persisted RTSP path. The DB has no
+ * brand column, so on Edit we look at the path the user (or a previous
+ * Smart Connect save) wrote and reverse-map it to the dropdown. Falls
+ * back to ``hikvision`` for unknown paths — same as the Add-mode default. */
+function inferBrandFromRtspPath(rtspPath: string): CameraBrand {
+  const p = (rtspPath || "").toLowerCase();
+  if (p.includes("realmonitor")) return "cp_plus"; // CP Plus + Dahua share; CP Plus is the common India case
+  if (p.includes("streaming/channels")) return "hikvision";
+  if (p.includes("axis-media")) return "axis";
+  return "hikvision";
+}
+
 type ConnectMode = "smart" | "custom";
 
 /** Mask the password and assemble the full RTSP URL preview shown to the
@@ -109,30 +121,77 @@ type ParsedRtsp = {
 
 /** Parse a user-supplied RTSP URL into the parts the backend stores.
  * The backend requires both username and password, so a URL without
- * `user:password@` is rejected here. */
+ * `user:password@` is rejected here.
+ *
+ * Hand-rolled (no regex) because RTSP credentials commonly contain ``@``
+ * or ``:`` (e.g. ``Admin@123``), and a greedy or naive regex split would
+ * pick the wrong delimiter and produce a corrupted host/IP. We split on
+ * the LAST ``@`` (credentials/host boundary) and the FIRST ``:`` in the
+ * credential part (username/password boundary). */
 function parseRtspUrl(raw: string): { ok: true; parts: ParsedRtsp } | { ok: false; reason: string } {
   const trimmed = raw.trim();
   if (!trimmed) return { ok: false, reason: "RTSP URL is required." };
-  // rtsp://[user[:pass]@]host[:port][/path]
-  const re = /^rtsp:\/\/(?:([^:@/\s]+)(?::([^@\s]*))?@)?([^:/\s]+)(?::(\d+))?(\/[^\s]*)?$/i;
-  const m = trimmed.match(re);
-  if (!m) {
-    return {
-      ok: false,
-      reason: "URL must look like rtsp://user:password@host:554/path",
-    };
+  const SCHEME = "rtsp://";
+  if (!trimmed.toLowerCase().startsWith(SCHEME)) {
+    return { ok: false, reason: "URL must start with rtsp://" };
   }
-  const [, username, password, ip, portStr, path] = m;
-  if (!username || !password) {
+  const afterScheme = trimmed.slice(SCHEME.length);
+  // Split credentials from host on the LAST '@' — that's the credential
+  // boundary, even if the password itself contains '@'.
+  const atIdx = afterScheme.lastIndexOf("@");
+  if (atIdx === -1) {
     return { ok: false, reason: "RTSP URL must include user:password@ before the host." };
   }
-  const port = portStr ? Number.parseInt(portStr, 10) : DEFAULT_PORT;
-  if (!Number.isFinite(port) || port < 1 || port > 65535) {
-    return { ok: false, reason: "Port must be between 1 and 65535." };
+  const credPart = afterScheme.slice(0, atIdx);
+  const hostPart = afterScheme.slice(atIdx + 1);
+
+  // Username = everything before the FIRST ':' in credPart; password = the rest.
+  // Lets passwords contain ':' freely (handful of cameras ship with such defaults).
+  const colonIdx = credPart.indexOf(":");
+  if (colonIdx === -1) {
+    return { ok: false, reason: "Credentials must look like user:password before '@'." };
+  }
+  // Decode in case the user pasted a pre-encoded URL (e.g. %40 for '@').
+  // Wrap in try/catch — malformed sequences should yield a clear error,
+  // not an opaque URIError.
+  let username: string;
+  let password: string;
+  try {
+    username = decodeURIComponent(credPart.slice(0, colonIdx));
+    password = decodeURIComponent(credPart.slice(colonIdx + 1));
+  } catch {
+    return { ok: false, reason: "Could not decode credentials — check for stray %XX sequences." };
+  }
+  if (!username || !password) {
+    return { ok: false, reason: "Both username and password are required before '@'." };
+  }
+
+  // hostPart looks like ip[:port][/path]. Split path off first.
+  let hostPortPart = hostPart;
+  let path = "/";
+  const slashIdx = hostPart.indexOf("/");
+  if (slashIdx !== -1) {
+    hostPortPart = hostPart.slice(0, slashIdx);
+    path = hostPart.slice(slashIdx);
+  }
+  let ip = hostPortPart;
+  let port: number = DEFAULT_PORT;
+  const colonInHost = hostPortPart.lastIndexOf(":");
+  if (colonInHost !== -1) {
+    ip = hostPortPart.slice(0, colonInHost);
+    const portStr = hostPortPart.slice(colonInHost + 1);
+    const parsedPort = Number.parseInt(portStr, 10);
+    if (!Number.isFinite(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+      return { ok: false, reason: "Port must be between 1 and 65535." };
+    }
+    port = parsedPort;
+  }
+  if (!ip) {
+    return { ok: false, reason: "Host / IP is missing in the URL." };
   }
   return {
     ok: true,
-    parts: { username, password, ip, port, rtsp_path: path || "/" },
+    parts: { username, password, ip, port, rtsp_path: path },
   };
 }
 
@@ -149,6 +208,12 @@ type FormState = {
   // (including credentials) and we parse it into ip/port/username/etc on
   // submit.
   rtsp_url_custom: string;
+  // Per-camera operating flags, surfaced as toggles in the form. When the
+  // user opens Add Camera fresh, defaults are mode-aware (see switchMode):
+  // Custom Connect = both ON (Uniview / Eye Camera flow), Smart Connect =
+  // both OFF (CP Plus / Hikvision / Dahua = live-view only by default).
+  enable_face_ingest: boolean;
+  auto_discovery_enabled: boolean;
 };
 
 const EMPTY_FORM: FormState = {
@@ -161,6 +226,8 @@ const EMPTY_FORM: FormState = {
   rtsp_path: DEFAULT_RTSP_PATH,
   brand: "hikvision",
   rtsp_url_custom: "",
+  enable_face_ingest: false,
+  auto_discovery_enabled: false,
 };
 
 function CamerasPage() {
@@ -272,6 +339,7 @@ function CamerasPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Location</TableHead>
                   <TableHead>IP / Port</TableHead>
+                  <TableHead>Use Case</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Last Checked</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
@@ -280,23 +348,49 @@ function CamerasPage() {
               <TableBody>
                 {loading && cameras.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-500">
+                    <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-500">
                       Loading cameras…
                     </TableCell>
                   </TableRow>
                 ) : cameras.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-500">
+                    <TableCell colSpan={7} className="py-10 text-center text-sm text-slate-500">
                       No cameras yet. Click <span className="font-medium">Add Camera</span> to get started.
                     </TableCell>
                   </TableRow>
                 ) : (
                   cameras.map((cam) => (
                     <TableRow key={cam.id}>
-                      <TableCell className="font-medium text-slate-900">{cam.name}</TableCell>
+                      <TableCell className="font-medium text-slate-900">
+                        <span className="inline-flex flex-wrap items-center gap-1.5">
+                          {cam.name}
+                          {cam.auto_discovery_enabled ? (
+                            <span
+                              className="inline-flex items-center rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sky-700"
+                              title={
+                                cam.last_discovered_at
+                                  ? `Auto-discovery on. Last sweep: ${new Date(
+                                      cam.last_discovered_at,
+                                    ).toLocaleString()}`
+                                  : "Auto-discovery on. No sweep recorded yet."
+                              }
+                            >
+                              Auto-discover
+                            </span>
+                          ) : null}
+                        </span>
+                      </TableCell>
                       <TableCell className="text-slate-600">{cam.location || "—"}</TableCell>
                       <TableCell className="text-slate-600">
-                        {cam.ip}:{cam.port}
+                        <div>{cam.ip}:{cam.port}</div>
+                        {cam.last_known_ip && cam.last_known_ip !== cam.ip ? (
+                          <div className="text-[10px] text-slate-400">
+                            was {cam.last_known_ip}
+                          </div>
+                        ) : null}
+                      </TableCell>
+                      <TableCell>
+                        <UseCaseBadge enableFaceIngest={cam.enable_face_ingest} />
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={cam.connection_status} />
@@ -394,6 +488,76 @@ function CamerasPage() {
   );
 }
 
+function ConnectionStatusBanner({
+  testing,
+  check,
+}: {
+  testing: boolean;
+  check: CameraCheckResponse | null;
+}) {
+  // Four discrete states, in priority order:
+  //   testing  → ongoing probe (blue, spinner)
+  //   ok=true  → camera responded to the RTSP frame read (green, check)
+  //   ok=false → camera unreachable / wrong creds / wrong path (red, X)
+  //   else     → nothing tried yet (grey, neutral)
+  if (testing) {
+    return (
+      <div className="-mt-1 mb-1 flex items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700">
+        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+        Testing connection…
+      </div>
+    );
+  }
+  if (check?.ok === true) {
+    return (
+      <div className="-mt-1 mb-1 flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        Connected — ready to save
+      </div>
+    );
+  }
+  if (check?.ok === false) {
+    return (
+      <div className="-mt-1 mb-1 flex flex-col gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
+        <div className="flex items-center gap-2">
+          <XCircle className="h-3.5 w-3.5" />
+          Not connected — fix the issue before saving
+        </div>
+        <div className="pl-5 text-[11px] font-normal text-rose-600/90">
+          {check.message}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="-mt-1 mb-1 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+      <span className="inline-block h-2 w-2 rounded-full bg-slate-400" />
+      Connection not tested — click "Test connection" to verify the camera is reachable
+    </div>
+  );
+}
+
+function UseCaseBadge({ enableFaceIngest }: { enableFaceIngest: boolean }) {
+  if (enableFaceIngest) {
+    return (
+      <span
+        className="inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700"
+        title="Used for face-detection / attendance capture."
+      >
+        Attendance
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600"
+      title="Live RTSP/MJPEG view only — no face events ingested."
+    >
+      Live View
+    </span>
+  );
+}
+
 function StatusBadge({ status }: { status: CameraConnectionStatus }) {
   if (status === "connected") {
     return (
@@ -458,6 +622,32 @@ function CameraDetailsDialog({ camera, onOpenChange }: CameraDetailsDialogProps)
                 <dd className="text-xs text-slate-600">{camera.last_check_message}</dd>
               </>
             ) : null}
+            <dt className="text-slate-500">Face ingest</dt>
+            <dd className="text-xs text-slate-700">
+              {camera.enable_face_ingest ? "Enabled" : "Disabled (live view only)"}
+            </dd>
+            <dt className="text-slate-500">Auto-discovery</dt>
+            <dd className="text-xs text-slate-700">
+              {camera.auto_discovery_enabled
+                ? "On — IP changes are detected automatically"
+                : "Off — IP is fixed"}
+            </dd>
+            {camera.auto_discovery_enabled ? (
+              <>
+                <dt className="text-slate-500">Last discovered</dt>
+                <dd className="text-xs text-slate-600">
+                  {camera.last_discovered_at
+                    ? new Date(camera.last_discovered_at).toLocaleString()
+                    : "—"}
+                </dd>
+                {camera.last_known_ip && camera.last_known_ip !== camera.ip ? (
+                  <>
+                    <dt className="text-slate-500">Previous IP</dt>
+                    <dd className="text-xs text-slate-600">{camera.last_known_ip}</dd>
+                  </>
+                ) : null}
+              </>
+            ) : null}
           </dl>
         ) : null}
       </DialogContent>
@@ -494,8 +684,16 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
               username: camera.username,
               password: "",
               rtsp_path: camera.rtsp_path,
-              brand: "hikvision",
+              // Brand isn't stored in the DB; derive it from the saved
+              // RTSP path so the dropdown shows the right vendor on Edit
+              // (CP Plus / Dahua → /cam/realmonitor, Hikvision →
+              // /Streaming/Channels, etc.).
+              brand: inferBrandFromRtspPath(camera.rtsp_path),
               rtsp_url_custom: "",
+              // Edit mode preserves the camera's existing flags so a
+              // re-open doesn't silently flip face_ingest / auto_discovery.
+              enable_face_ingest: camera.enable_face_ingest,
+              auto_discovery_enabled: camera.auto_discovery_enabled,
             }
           : EMPTY_FORM,
       );
@@ -534,6 +732,18 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
     setMode(next);
     setError(null);
     setCheck(null);
+    // Mode-aware defaults for NEW cameras only — edits preserve whatever
+    // the camera already has. Custom Connect is typically used for Uniview
+    // cameras like Eye Camera (face ingest + WiFi/DHCP rediscovery), so
+    // both default ON. Smart Connect's brands (CP Plus / Hikvision / Dahua)
+    // don't speak the Uniview face-detection API, so both default OFF.
+    if (!isEdit) {
+      setForm((prev) => ({
+        ...prev,
+        enable_face_ingest: next === "custom",
+        auto_discovery_enabled: next === "custom",
+      }));
+    }
   };
 
   const validate = (): { ok: true; payload: CameraCreatePayload } | { ok: false; reason: string } => {
@@ -553,6 +763,8 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
           username: parsed.parts.username,
           password: parsed.parts.password,
           rtsp_path: parsed.parts.rtsp_path,
+          enable_face_ingest: form.enable_face_ingest,
+          auto_discovery_enabled: form.auto_discovery_enabled,
         },
       };
     }
@@ -563,7 +775,7 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
       return { ok: false, reason: "Port must be between 1 and 65535." };
     }
     if (!form.username.trim()) return { ok: false, reason: "Username is required." };
-    if (!isEdit && !form.password) return { ok: false, reason: "Password is required." };
+    if (!form.password) return { ok: false, reason: "Password is required." };
     if (!form.rtsp_path.trim()) return { ok: false, reason: "RTSP path is required." };
     return {
       ok: true,
@@ -575,6 +787,8 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
         username: form.username.trim(),
         password: form.password,
         rtsp_path: form.rtsp_path.trim(),
+        enable_face_ingest: form.enable_face_ingest,
+        auto_discovery_enabled: form.auto_discovery_enabled,
       },
     };
   };
@@ -637,11 +851,15 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
     }
   };
 
-  // Edit mode + no new password = metadata-only update; safe to save without
-  // a re-test. Custom Connect always carries fresh credentials in the typed
-  // URL, so it never qualifies as metadata-only.
-  const isMetadataOnlyEdit = mode === "smart" && isEdit && form.password === "";
-  const saveAllowed = isMetadataOnlyEdit || check?.ok === true;
+  // Save is allowed in any connection state — the backend probes again on
+  // create/update and persists ``connection_status`` accordingly. So a
+  // not-yet-reachable camera can be added and will simply appear in the list
+  // with status "Not Connected", ready for a manual re-check once the
+  // network issue is fixed. We still block while a save / test is in
+  // flight, and surface a small non-blocking hint if the user is saving
+  // without a successful probe.
+  const saveBlockedInFlight = submitting || testing;
+  const savingWithoutConfirmedProbe = check?.ok !== true;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -649,6 +867,12 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit camera" : "Add camera"}</DialogTitle>
         </DialogHeader>
+
+        {/* Always-visible connection status. Shows "Not tested" until the
+            operator clicks Test connection, then flips to Connected /
+            Not connected based on the probe result. Makes it obvious why
+            the Add camera button below is enabled or greyed out. */}
+        <ConnectionStatusBanner testing={testing} check={check} />
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {/* Two-tab connect mode: Smart wires up host/port/creds and
@@ -734,10 +958,7 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
                   autoComplete="off"
                 />
               </Field>
-              <Field
-                label={isEdit ? "Password (leave blank to keep)" : "Password"}
-                required={!isEdit}
-              >
+              <Field label="Password" required>
                 <div className="relative">
                   <Input
                     type={showPassword ? "text" : "password"}
@@ -803,29 +1024,13 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
             </div>
           )}
 
-          {testing ? (
-            <div
-              role="status"
-              className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs font-medium text-slate-600"
-            >
-              <RefreshCw className="h-4 w-4 animate-spin" />
-              Verifying camera connection…
-            </div>
-          ) : check ? (
-            <div
-              role="status"
-              className={cn(
-                "rounded-xl border px-3 py-2.5 text-xs font-medium",
-                check.ok
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                  : "border-rose-200 bg-rose-50 text-rose-700",
-              )}
-            >
-              <div className="flex items-center gap-2">
-                {check.ok ? <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}
-                {check.message}
-              </div>
-              <div className="mt-1 text-[11px] opacity-70">{check.latency_ms} ms</div>
+          {/* The top-level <ConnectionStatusBanner /> already shows
+              Testing / Connected / Not connected; here we only show the
+              ms latency on a successful probe (useful diagnostic) and any
+              transient validation errors from the form. */}
+          {check?.ok ? (
+            <div className="text-right text-[11px] text-slate-500">
+              Probe completed in {check.latency_ms} ms
             </div>
           ) : null}
 
@@ -852,15 +1057,22 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
               </Button>
               <Button
                 type="submit"
-                disabled={!saveAllowed || submitting || testing}
-                className="h-10 rounded-xl bg-gradient-to-r from-[#4aa590] to-[#2f8f7b] px-5 text-white hover:from-[#3f9382] hover:to-[#256f60] disabled:opacity-60"
+                disabled={saveBlockedInFlight}
+                title={
+                  savingWithoutConfirmedProbe && !saveBlockedInFlight
+                    ? "Camera will be added with 'Not Connected' status; re-check from the cameras list once the connection is fixed."
+                    : undefined
+                }
+                className="h-10 rounded-xl bg-gradient-to-r from-[#4aa590] to-[#2f8f7b] px-5 text-white hover:from-[#3f9382] hover:to-[#256f60] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {submitting ? "Saving…" : isEdit ? "Save changes" : "Add camera"}
               </Button>
             </div>
-            {!saveAllowed && !submitting && !testing ? (
+            {savingWithoutConfirmedProbe && !saveBlockedInFlight ? (
               <p className="text-right text-[11px] text-slate-500">
-                Test the connection successfully before saving.
+                {check?.ok === false
+                  ? "You can still add the camera — it will appear in the list with 'Not Connected' status until you re-check it."
+                  : "Tip: click 'Test connection' first to verify reachability — or add it now and re-check later."}
               </p>
             ) : null}
           </DialogFooter>

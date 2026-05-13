@@ -40,10 +40,10 @@ _HR_SEEDS: tuple[tuple[str, str, str], ...] = (
     ("owlytics",      "Owlytics",        "Owlytics HR"),
     ("grow",          "Grow",            "Grow HR"),
     ("perform100x",   "Perform100x",     "Perform100x HR"),
-    ("sib",           "SIB",             "SIB HR"),
+    ("sib",           "Study in Bengaluru", "Study in Bengaluru HR"),
     ("careercafeco",  "career cafe co",  "Career Cafe Co HR"),
-    ("ceo2",          "CEO2",            "CEO2 HR"),
-    ("karumitra",     "karu mitra",      "Karu Mitra HR"),
+    ("ceo2",          "CEO Square",      "CEO Square HR"),
+    ("karumitra",     "Karumitra",       "Karumitra HR"),
     ("legalquotient", "Legal Quotient",  "Legal Quotient HR"),
     ("startuptv",     "Startup TV",      "Startup TV HR"),
 )
@@ -164,6 +164,91 @@ def update_profile(
             row.username = username
         session.flush()
         return _model_to_user(row)
+
+
+def list_all() -> list[User]:
+    with session_scope() as session:
+        rows = session.execute(
+            select(UserModel).order_by(UserModel.role.desc(), UserModel.username)
+        ).scalars().all()
+        return [_model_to_user(r) for r in rows]
+
+
+def create_user(
+    *,
+    username: str,
+    password: str,
+    role: str,
+    company: str,
+    display_name: str,
+) -> User:
+    """Mint a new user. Raises ValueError on duplicate username or bad role."""
+    username = (username or "").strip()
+    role = (role or "").strip().lower()
+    if not username:
+        raise ValueError("username is required")
+    if role not in ("admin", "hr"):
+        raise ValueError("role must be 'admin' or 'hr'")
+    if role == "hr" and not (company or "").strip():
+        raise ValueError("HR users must have a company assigned")
+    with session_scope() as session:
+        clash = session.execute(
+            select(UserModel.id).where(UserModel.username == username)
+        ).scalar_one_or_none()
+        if clash is not None:
+            raise ValueError(f"username already exists: {username!r}")
+        company_id = get_or_create_company_id(session, company) if company else None
+        row = UserModel(
+            id=f"usr-{uuid.uuid4().hex[:10]}",
+            username=username,
+            password_hash=hash_password(password),
+            role=role,
+            company=company or "",
+            company_id=company_id,
+            display_name=display_name or username,
+            avatar_url="",
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(row)
+        session.flush()
+        return _model_to_user(row)
+
+
+def update_user_meta(
+    user_id: str,
+    *,
+    role: Optional[str] = None,
+    company: Optional[str] = None,
+    display_name: Optional[str] = None,
+    is_active: Optional[bool] = None,
+) -> Optional[User]:
+    """Admin-only metadata update. Re-syncs company_id when company changes."""
+    with session_scope() as session:
+        row = session.get(UserModel, user_id)
+        if row is None:
+            return None
+        if role is not None:
+            r = role.strip().lower()
+            if r not in ("admin", "hr"):
+                raise ValueError("role must be 'admin' or 'hr'")
+            row.role = r
+        if company is not None:
+            row.company = company
+            row.company_id = (
+                get_or_create_company_id(session, company) if company else None
+            )
+        if display_name is not None:
+            row.display_name = display_name
+        if is_active is not None:
+            row.is_active = bool(is_active)
+        session.flush()
+        return _model_to_user(row)
+
+
+def reset_password(user_id: str, new_plain: str) -> bool:
+    """Admin-only password reset for another user (no current-password check)."""
+    return update_password(user_id, new_plain)
 
 
 def seed_users_if_empty() -> None:

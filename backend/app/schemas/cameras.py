@@ -17,6 +17,10 @@ class CameraOut(BaseModel):
     rtsp_path: str
     rtsp_url_preview: str  # masked; never includes the password
     connection_status: str
+    enable_face_ingest: bool
+    auto_discovery_enabled: bool
+    last_known_ip: Optional[str]
+    last_discovered_at: Optional[str]
     last_checked_at: Optional[str]
     last_check_message: Optional[str]
     created_at: str
@@ -31,6 +35,12 @@ class CameraCreate(BaseModel):
     username: str = Field(..., min_length=1, max_length=128)
     password: str = Field(..., min_length=1, max_length=256)
     rtsp_path: str = Field("/Streaming/Channels/101", min_length=1, max_length=256)
+    # Both flags are optional at create-time. When omitted, the model
+    # defaults (face_ingest=True, auto_discovery=False) apply, preserving
+    # the pre-toggle behavior. The frontend form sends explicit values so
+    # the user's choice in the Add Camera dialog is honored.
+    enable_face_ingest: Optional[bool] = None
+    auto_discovery_enabled: Optional[bool] = None
 
 
 class CameraUpdate(BaseModel):
@@ -42,6 +52,8 @@ class CameraUpdate(BaseModel):
     # Empty / None = leave the existing password unchanged.
     password: Optional[str] = Field(None, max_length=256)
     rtsp_path: Optional[str] = Field(None, min_length=1, max_length=256)
+    enable_face_ingest: Optional[bool] = None
+    auto_discovery_enabled: Optional[bool] = None
 
 
 class CameraCheckRequest(BaseModel):
@@ -66,3 +78,16 @@ class CameraListResponse(BaseModel):
 class StreamTokenResponse(BaseModel):
     token: str
     expires_in: int
+
+
+class CameraRediscoverResponse(BaseModel):
+    """Result of a manual auto-discovery sweep for one DB-backed camera.
+
+    ``previous_ip`` and ``new_ip`` are equal when discovery confirmed the
+    saved IP is still correct (still useful — signals the camera is alive
+    on the LAN). ``new_ip`` is None when no Uniview host on the camera's
+    /24 passed the login probe."""
+    ok: bool
+    message: str
+    previous_ip: str
+    new_ip: Optional[str]

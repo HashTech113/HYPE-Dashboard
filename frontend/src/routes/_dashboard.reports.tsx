@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Download, FileText, RefreshCw, Search } from "lucide-react";
 import {
   ATTENDANCE_CORRECTION_EVENT,
+  downloadAttendanceXlsx,
   getAttendanceLogs,
   type AttendanceSummaryItem,
   type Employee,
@@ -11,6 +12,7 @@ import { useEmployees } from "@/contexts/EmployeesContext";
 import { companyMatches } from "@/lib/auth";
 import { matchesEmployeeName } from "@/lib/nameMatch";
 import { SectionShell } from "@/components/dashboard/SectionShell";
+import { EmployeeManagementTabs } from "@/components/dashboard/EmployeeManagementTabs";
 import { DatePicker } from "@/components/dashboard/DatePicker";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -244,37 +246,37 @@ function ReportsPage() {
     endDate,
   ]);
 
-  const handleExport = useCallback(() => {
-    const header = [
-      "Employee Name",
-      "Company",
-      "Date",
-      "Entry Time",
-      "Exit Time",
-      "Total Break",
-      "Total Working Hours",
-    ];
-    const rows = filteredItems.map((item) => {
-      const emp = findEmployeeForName(employees, item.name);
-      return [
-        item.name,
-        item.company ?? emp?.company ?? "—",
-        formatDateKeyDash(item.date),
-        formatClock12(item.entry_time),
-        item.missing_checkout ? "Missing checkout" : formatClock12(item.exit_time),
-        item.total_break_time ?? "—",
-        item.total_working_hours ?? item.total_hours,
-      ];
-    });
-    const tag = [startDate || "all", endDate || "all"].join("_to_");
-    downloadCsv([header, ...rows], `attendance-report-${tag}.csv`);
-  }, [employees, filteredItems, startDate, endDate]);
+  const handleExport = useCallback(async () => {
+    // Build the same filter set the on-screen table is using and ask the
+    // backend to render an .xlsx with those rows. The Excel file mirrors
+    // the summary view exactly because the backend reuses the same
+    // build_attendance_summaries() function.
+    const params: Record<string, string> = {};
+    if (startDate) params.start = startDate;
+    if (endDate) params.end = endDate;
+    if (selectedEmployee !== "all") {
+      const emp = employees.find((e) => e.employeeId === selectedEmployee);
+      if (emp?.name) params.name = emp.name;
+    }
+    // Admin can override company; HR is auto-scoped server-side and any
+    // company= param is ignored for them.
+    if (!isCompanyScoped && selectedCompany !== "all") {
+      params.company = selectedCompany;
+    }
+    try {
+      await downloadAttendanceXlsx("summary", params);
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "Export failed");
+    }
+  }, [startDate, endDate, selectedEmployee, selectedCompany, isCompanyScoped, employees]);
 
   const itemCount = filteredItems.length;
   const employeeFilterOptions = useMemo(
     () => [
       { value: "all", label: "All Employees" },
-      ...employeesForSelectedCompany.map((employee) => ({
+      ...[...employeesForSelectedCompany]
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+        .map((employee) => ({
         value: employee.employeeId,
         label: employee.name,
       })),
@@ -295,42 +297,46 @@ function ReportsPage() {
         title="Reports"
         icon={<FileText className="h-5 w-5 text-primary" />}
         className="animate-fade-in-up"
+        inlineActions
         actions={
-          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:gap-3">
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-              </span>
-              <span>
-                {itemCount} record{itemCount === 1 ? "" : "s"}
-              </span>
+          <>
+            <EmployeeManagementTabs />
+            <div className="flex w-full flex-wrap items-center gap-2 md:ml-auto md:w-auto md:gap-3">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
+                <span>
+                  {itemCount} record{itemCount === 1 ? "" : "s"}
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-10 gap-1.5 px-4"
+                onClick={() => fetchData({ manual: true })}
+                disabled={refreshing}
+                title="Refresh report data"
+              >
+                <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+                {refreshing ? "Refreshing…" : "Refresh"}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-10 gap-1.5 px-4"
+                onClick={handleExport}
+                disabled={itemCount === 0}
+                title="Export filtered rows as CSV"
+              >
+                <Download className="h-4 w-4" />
+                Export Report
+              </Button>
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-10 gap-1.5 px-4"
-              onClick={() => fetchData({ manual: true })}
-              disabled={refreshing}
-              title="Refresh report data"
-            >
-              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-              {refreshing ? "Refreshing…" : "Refresh"}
-            </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-10 gap-1.5 px-4"
-              onClick={handleExport}
-              disabled={itemCount === 0}
-              title="Export filtered rows as CSV"
-            >
-              <Download className="h-4 w-4" />
-              Export Report
-            </Button>
-          </div>
+          </>
         }
       >
         <Card className="flex min-h-0 flex-1 flex-col">

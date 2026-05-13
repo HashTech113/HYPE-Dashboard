@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import CheckConstraint, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ._base import Base
@@ -36,6 +36,26 @@ class Camera(Base):
     )
     connection_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="unknown", server_default="unknown", index=True,
+    )
+    # When False, capture.py skips this camera entirely — used for brands that
+    # don't speak Uniview's face-detection HTTP API (Hikvision/CP Plus/Dahua).
+    # Live-view (RTSP/MJPEG) still works regardless, since that path is
+    # vendor-agnostic. Default True preserves legacy behavior for existing rows.
+    enable_face_ingest: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1",
+    )
+    # Auto-rediscovery for WiFi/DHCP cameras whose IP rotates. When True,
+    # CameraClient sweeps the camera's /24 subnet on login failure, validates
+    # candidates by Uniview ``/API/Web/Login`` against the saved credentials,
+    # and on success persists the new IP here (with ``last_known_ip`` /
+    # ``last_discovered_at`` recording the transition). Default False keeps
+    # static-IP cameras strictly fixed.
+    auto_discovery_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0",
+    )
+    last_known_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    last_discovered_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True), nullable=True,
     )
     last_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     last_check_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)

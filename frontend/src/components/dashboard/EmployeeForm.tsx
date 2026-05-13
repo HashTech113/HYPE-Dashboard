@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Cropper, { type Area } from "react-easy-crop";
 import { type Employee } from "@/api/dashboardApi";
 import { getCurrentCompany } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SearchableSelect, type SearchableSelectOption } from "@/components/ui/searchable-select";
+import { useEmployees } from "@/contexts/EmployeesContext";
 import { DatePicker } from "@/components/dashboard/DatePicker";
 import {
   Dialog,
@@ -26,10 +27,10 @@ export const COMPANY_OPTIONS = [
   "Owlytics",
   "Grow",
   "Perform100x",
-  "SIB",
+  "Study in Bengaluru",
   "career cafe co",
-  "CEO2",
-  "karu mitra",
+  "CEO Square",
+  "Karu Mitra",
   "Legal Quotient",
   "Startup TV",
 ] as const;
@@ -189,6 +190,7 @@ export function EmployeeForm({
   // HR users are scoped to one company; their employees should always belong
   // to that company. Lock the field rather than show a dropdown.
   const scopedCompany = getCurrentCompany();
+  const { employees: roster } = useEmployees();
   const [draft, setDraft] = useState<Employee>({
     ...employee,
     dob: normalizeDob(employee.dob),
@@ -246,9 +248,28 @@ export function EmployeeForm({
     });
   }, [employee, scopedCompany]);
 
-  const companyOptions = COMPANY_OPTIONS.includes(draft.company as (typeof COMPANY_OPTIONS)[number])
-    ? COMPANY_OPTIONS
-    : ([draft.company, ...COMPANY_OPTIONS] as readonly string[]);
+  // Suggest companies that already exist in the roster (so admins can pick
+  // one without typo risk) plus the legacy curated list. The form still
+  // accepts brand-new company names via the SearchableSelect's creatable
+  // mode — the backend auto-creates the row in the `companies` table on
+  // first use of a new name (services/employees.py → get_or_create_company_id).
+  const companySuggestions: SearchableSelectOption[] = useMemo(() => {
+    const seen = new Set<string>();
+    const out: SearchableSelectOption[] = [];
+    const push = (raw: string) => {
+      const value = (raw || "").trim();
+      if (!value) return;
+      const key = value.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ value, label: value });
+    };
+    for (const emp of roster) push(emp.company);
+    for (const name of COMPANY_OPTIONS) push(name);
+    if (draft.company) push(draft.company);
+    out.sort((a, b) => a.label.localeCompare(b.label));
+    return out;
+  }, [roster, draft.company]);
 
   const handleSave = () => {
     if (!draft.name.trim()) {
@@ -399,18 +420,14 @@ export function EmployeeForm({
             // input so it's visually obvious it can't be changed.
             <Input value={draft.company} disabled />
           ) : (
-            <Select value={draft.company} onValueChange={(value) => setDraft({ ...draft, company: value })}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select company" />
-              </SelectTrigger>
-              <SelectContent>
-                {companyOptions.map((company) => (
-                  <SelectItem key={company} value={company}>
-                    {company}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <SearchableSelect
+              value={draft.company}
+              options={companySuggestions}
+              creatable
+              placeholder="Select a company or type a new one"
+              createLabel={(q) => `Add new company "${q}"`}
+              onValueChange={(value) => setDraft({ ...draft, company: value })}
+            />
           )}
         </div>
         <div className="space-y-2">

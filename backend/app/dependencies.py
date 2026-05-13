@@ -11,6 +11,7 @@ When a route needs the user object, declare it positionally:
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 import jwt
@@ -19,6 +20,8 @@ from fastapi import Depends, Header, HTTPException, status
 from .config import INGEST_API_KEY
 from .services import auth as auth_service
 from .services.auth import User
+
+log = logging.getLogger(__name__)
 
 
 def _extract_bearer(auth_header: Optional[str]) -> str:
@@ -78,6 +81,30 @@ def require_admin_or_hr(user: User = Depends(get_current_user)) -> User:
     if user.role not in ("admin", "hr"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
     return user
+
+
+def hr_scope(user: User) -> tuple[bool, str]:
+    """Decide whether the caller's view should be filtered to a single company.
+
+    Returns ``(filter_active, target_company)`` where ``target_company`` is
+    pre-normalized for case-insensitive comparison:
+
+    * Admins → ``(False, "")`` — full access; caller skips filtering.
+    * HR with a company → ``(True, "owlytics")`` — caller filters to it.
+    * HR with no company → ``(True, "")`` — empty target naturally filters
+      everything out, so the user sees nothing instead of everything. Logged
+      so a super-admin can repair the misconfigured account.
+    """
+    if user.role != "hr":
+        return False, ""
+    own = (user.company or "").strip().lower()
+    if not own:
+        log.warning(
+            "HR user %r has no company assigned; serving empty result",
+            user.username,
+        )
+        return True, ""
+    return True, own
 
 
 def require_api_key(x_api_key: Optional[str] = Header(None)) -> None:

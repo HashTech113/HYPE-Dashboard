@@ -45,6 +45,7 @@ from .services.lookups import (
     get_or_create_company_id,
     get_or_create_department_id,
     get_or_create_shift_id,
+    normalize_company_name,
 )
 
 log = logging.getLogger(__name__)
@@ -76,6 +77,22 @@ _NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # all marked active without a separate UPDATE pass. ``DEFAULT TRUE`` is
     # accepted on both PostgreSQL (boolean literal) and SQLite (parsed as 1).
     ("employees", "is_active", "BOOLEAN NOT NULL DEFAULT TRUE"),
+    # cameras.enable_face_ingest: gating column for capture.py — when FALSE,
+    # the capture loop skips spawning a Uniview HTTP worker for that camera
+    # (non-Uniview brands 404 on /API/Web/Login). RTSP/MJPEG live view still
+    # works regardless. Existing legacy rows default to TRUE to preserve prior
+    # behavior; non-Uniview rows are flipped to FALSE manually post-migrate.
+    ("cameras", "enable_face_ingest", "BOOLEAN NOT NULL DEFAULT TRUE"),
+    # cameras.auto_discovery_enabled: opt-in flag for WiFi/DHCP cameras whose
+    # IP rotates. Defaults to FALSE so static-IP cameras remain strictly
+    # fixed and the discovery sweep never fires unintentionally.
+    ("cameras", "auto_discovery_enabled", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    # cameras.last_known_ip: previous ip value before the most recent
+    # successful rediscovery — surfaced in the UI to show what changed.
+    ("cameras", "last_known_ip", "VARCHAR(64)"),
+    # cameras.last_discovered_at: timestamp of the most recent successful
+    # rediscovery (distinct from last_checked_at which tracks every probe).
+    ("cameras", "last_discovered_at", "TIMESTAMP"),
 )
 
 
@@ -282,6 +299,119 @@ def _backfill_lookup_fks(session) -> dict[str, int]:
     return counts
 
 
+def _canonicalize_company_values(session) -> dict[str, int]:
+    """Normalize company names across lookup + denormalized string columns.
+
+    Handles alias cleanup (e.g. demo placeholders like "Branch A/B/C")
+    and merges duplicate company lookup rows by repointing FKs, then
+    deleting now-unreferenced obsolete rows.
+    """
+    inspector = inspect(session.get_bind())
+    if not inspector.has_table("companies"):
+        return {"companies_renamed": 0, "companies_merged": 0, "employees_updated": 0, "users_updated": 0}
+
+    counts = {
+        "companies_renamed": 0,
+        "companies_merged": 0,
+        "employees_updated": 0,
+        "users_updated": 0,
+    }
+
+    # 1) Canonicalize free-text company fields first.
+    if inspector.has_table("employees"):
+        rows = session.execute(text("SELECT id, company FROM employees")).all()
+        for emp_id, company in rows:
+            canonical = normalize_company_name(str(company or ""))
+            if canonical != str(company or ""):
+                result = session.execute(
+                    text("UPDATE employees SET company = :new WHERE id = :id"),
+                    {"new": canonical, "id": emp_id},
+                )
+                counts["employees_updated"] += int(result.rowcount or 0)
+    if inspector.has_table("users"):
+        rows = session.execute(text("SELECT id, company FROM users")).all()
+        for user_id, company in rows:
+            canonical = normalize_company_name(str(company or ""))
+            if canonical != str(company or ""):
+                result = session.execute(
+                    text("UPDATE users SET company = :new WHERE id = :id"),
+                    {"new": canonical, "id": user_id},
+                )
+                counts["users_updated"] += int(result.rowcount or 0)
+
+    # 2) Canonicalize and merge companies lookup rows.
+    company_rows = session.execute(text("SELECT id, name FROM companies")).all()
+    for company_id, name in company_rows:
+        raw_name = str(name or "")
+        canonical = normalize_company_name(raw_name)
+        if not canonical:
+            continue
+
+        # Ensure canonical row exists; may return this row's id.
+        target_id = get_or_create_company_id(session, canonical)
+
+        # If this row is the target but has non-canonical casing/text,
+        # rename it in place.
+        if target_id == int(company_id) and raw_name != canonical:
+            result = session.execute(
+                text("UPDATE companies SET name = :new WHERE id = :id"),
+                {"new": canonical, "id": company_id},
+            )
+            counts["companies_renamed"] += int(result.rowcount or 0)
+            continue
+
+        # Different canonical target: repoint FKs, then remove the old row.
+        if target_id != int(company_id):
+            if inspector.has_table("employees"):
+                moved_emp = session.execute(
+                    text(
+                        "UPDATE employees SET company_id = :target, company = :name "
+                        "WHERE company_id = :old"
+                    ),
+                    {"target": target_id, "old": company_id, "name": canonical},
+                ).rowcount or 0
+                counts["employees_updated"] += int(moved_emp)
+            if inspector.has_table("users"):
+                moved_users = session.execute(
+                    text(
+                        "UPDATE users SET company_id = :target, company = :name "
+                        "WHERE company_id = :old"
+                    ),
+                    {"target": target_id, "old": company_id, "name": canonical},
+                ).rowcount or 0
+                counts["users_updated"] += int(moved_users)
+            deleted = session.execute(
+                text("DELETE FROM companies WHERE id = :id"),
+                {"id": company_id},
+            ).rowcount or 0
+            counts["companies_merged"] += int(deleted)
+
+    # 3) Best-effort repair for legacy rows where FK points to a missing
+    # company id but the string company still exists.
+    if inspector.has_table("employees"):
+        session.execute(
+            text(
+                "UPDATE employees SET company_id = ("
+                "  SELECT c.id FROM companies c "
+                "  WHERE lower(c.name) = lower(employees.company) LIMIT 1"
+                ") "
+                "WHERE company_id IS NULL AND company IS NOT NULL AND company != ''"
+            )
+        )
+    if inspector.has_table("users"):
+        session.execute(
+            text(
+                "UPDATE users SET company_id = ("
+                "  SELECT c.id FROM companies c "
+                "  WHERE lower(c.name) = lower(users.company) LIMIT 1"
+                ") "
+                "WHERE company_id IS NULL AND company IS NOT NULL AND company != ''"
+            )
+        )
+
+    return counts
+
+
 def _backfill_employee_ids(session) -> dict[str, int]:
     """Populate ``employee_id`` on log + edit tables for rows where it's
     NULL but the denormalized ``name`` resolves to a known employee.
@@ -378,3 +508,13 @@ def run() -> None:
             log.info("upgrade: employee_id backfill counts=%s", counts)
     except Exception:
         log.exception("upgrade: employee_id backfill failed; continuing")
+
+    # Step 6 — canonicalize + merge company names so placeholder/demo labels
+    # like "Branch A/B/C" never leak into employee/company filters.
+    try:
+        with session_scope() as session:
+            counts = _canonicalize_company_values(session)
+        if any(counts.values()):
+            log.info("upgrade: company canonicalization counts=%s", counts)
+    except Exception:
+        log.exception("upgrade: company canonicalization failed; continuing")

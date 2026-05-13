@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, Search, Settings as SettingsIcon, Users } from "lucide-react";
 import { useEmployees } from "@/contexts/EmployeesContext";
 import { SectionShell } from "@/components/dashboard/SectionShell";
+import { EmployeeManagementTabs } from "@/components/dashboard/EmployeeManagementTabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -15,7 +16,7 @@ export const Route = createFileRoute("/_dashboard/employees")({
 });
 
 function EmployeesPage() {
-  const { employees, scopedCompany } = useEmployees();
+  const { employees, scopedCompany, error: loadError, isStale, reload } = useEmployees();
   // HR users see only their own company's roster, so the Company filter and
   // Company column are redundant — hide both.
   const isCompanyScoped = scopedCompany !== null;
@@ -26,7 +27,9 @@ function EmployeesPage() {
 
   const companyOptions = useMemo(() => {
     const fromData = Array.from(new Set(employees.map((employee) => employee.company)));
-    return Array.from(new Set([...COMPANY_OPTIONS, ...fromData]));
+    return Array.from(new Set([...COMPANY_OPTIONS, ...fromData])).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
   }, [employees]);
 
   const employeesForSelectedCompany = useMemo(
@@ -67,7 +70,9 @@ function EmployeesPage() {
   const employeeFilterOptions = useMemo(
     () => [
       { value: "all", label: "All Employees" },
-      ...employeesForSelectedCompany.map((emp) => ({
+      ...[...employeesForSelectedCompany]
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+        .map((emp) => ({
         value: emp.employeeId,
         label: emp.name,
       })),
@@ -95,20 +100,45 @@ function EmployeesPage() {
         title="Employee Management"
         icon={<Users className="h-5 w-5 text-primary" />}
         className="animate-fade-in-up"
+        inlineActions
         actions={
-          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:gap-3">
-            <Link to="/settings">
-              <Button size="sm" className="h-10 gap-1.5 px-4">
-                <SettingsIcon className="h-4 w-4" />
-                Manage in Settings
+          <>
+            <EmployeeManagementTabs />
+            <div className="flex w-full flex-wrap items-center gap-2 md:ml-auto md:w-auto md:gap-3">
+              <Link to="/settings">
+                <Button size="sm" className="h-10 gap-1.5 px-4">
+                  <SettingsIcon className="h-4 w-4" />
+                  Manage in Settings
+                </Button>
+              </Link>
+              <Button variant="outline" size="sm" className="h-10 gap-1.5 px-4">
+                <Download className="h-4 w-4" />Export
               </Button>
-            </Link>
-            <Button variant="outline" size="sm" className="h-10 gap-1.5 px-4">
-              <Download className="h-4 w-4" />Export
-            </Button>
-          </div>
+            </div>
+          </>
         }
       >
+      {loadError ? (
+        <div
+          role="alert"
+          className={`mb-3 flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm ${
+            isStale
+              ? "border-amber-200 bg-amber-50 text-amber-800"
+              : "border-rose-200 bg-rose-50 text-rose-800"
+          }`}
+        >
+          <span className="flex-1 min-w-[12rem]">{loadError}</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => reload()}
+            className="h-8 px-3"
+          >
+            Retry
+          </Button>
+        </div>
+      ) : null}
       <Card className="flex min-h-0 flex-1 flex-col">
         <CardContent className="flex min-h-0 flex-1 flex-col gap-3 px-0 pt-4">
           {/* Filter row — stacks vertically on phones so each label/select
@@ -184,7 +214,7 @@ function EmployeesPage() {
                   <TableRow key={employee.id} className="transition-colors hover:bg-slate-50/60">
                     <TableCell className="border-r border-slate-200 py-2 align-middle text-slate-500 last:border-r-0">{index + 1}</TableCell>
                     <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
                         {employee.imageUrl ? (
                           <img
                             src={employee.imageUrl}
@@ -197,12 +227,14 @@ function EmployeesPage() {
                             {(employee.name.trim().charAt(0) || "?").toUpperCase()}
                           </div>
                         )}
-                        <span className="truncate font-medium text-foreground">{employee.name}</span>
+                        <span className="min-w-0 break-words whitespace-normal font-medium leading-5 text-foreground">
+                          {employee.name}
+                        </span>
                       </div>
                     </TableCell>
                     <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-indigo-700 last:border-r-0">{employee.company || "—"}</TableCell>
                     <TableCell className="border-r border-slate-200 py-2 align-middle text-slate-500 last:border-r-0">{employee.employeeId}</TableCell>
-                    <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-emerald-700 last:border-r-0">{employee.department || "—"}</TableCell>
+                    <TableCell className="border-r border-slate-200 py-2 align-middle font-medium leading-5 whitespace-normal break-words text-emerald-700 last:border-r-0">{employee.department || "—"}</TableCell>
                     <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-amber-700 last:border-r-0">{formatShiftTo12Hour(employee.shift)}</TableCell>
                   </TableRow>
                 ))}

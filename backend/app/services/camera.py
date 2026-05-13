@@ -52,6 +52,7 @@ class CameraClient:
         camera_id: str = "",
         camera_name: str = "",
         camera_location: str = "",
+        auto_discovery_enabled: bool = False,
     ) -> None:
         # ``host=None`` means "use the legacy env config" — preserves the
         # previous single-camera behavior for the env-fallback code path.
@@ -60,12 +61,22 @@ class CameraClient:
             self._base_url = f"http://{host}"
             self._user = user or CAMERA_USER
             self._password = password if password is not None else CAMERA_PASS
-            self._enable_rediscovery = False
+            # DB cameras opt in explicitly per-row. When the row carries
+            # auto_discovery_enabled=True we sweep the SAME /24 the camera
+            # currently lives on and persist any successful match back to
+            # the DB. Default False keeps static-IP DB cameras strictly
+            # fixed (matches the column default).
+            self._enable_rediscovery = bool(auto_discovery_enabled)
+            self._persist_rediscovery = bool(auto_discovery_enabled and camera_id)
         else:
             self._base_url = CAMERA_BASE_URL
             self._user = CAMERA_USER
             self._password = CAMERA_PASS
+            # Legacy env-driven client uses the .env-pinned MAC + subnet
+            # list and does NOT persist anywhere — there's no DB row to
+            # update.
             self._enable_rediscovery = True
+            self._persist_rediscovery = False
         # Identity tags, only used to enrich log messages and ingest payloads.
         self.camera_id = camera_id
         self.camera_name = camera_name
@@ -117,17 +128,49 @@ class CameraClient:
         log.info("[%s] Camera login succeeded; X-csrftoken received", self.label)
         return session
 
+    def _current_subnet_prefix(self) -> Optional[str]:
+        """Derive ``a.b.c`` from ``http://a.b.c.d`` for DB-camera rediscovery.
+
+        DB cameras don't get to sweep the global CAMERA_DISCOVERY_SUBNETS
+        list — they're constrained to the /24 they're currently on. Returns
+        None if the current URL doesn't look like a numeric IPv4 host
+        (e.g. someone configured a DNS name)."""
+        host = self._base_url.replace("http://", "", 1).split(":", 1)[0]
+        parts = host.split(".")
+        if len(parts) != 4 or not all(p.isdigit() for p in parts):
+            return None
+        return ".".join(parts[:3])
+
     def _rediscover(self) -> None:
-        """Look up the camera's current IP via ARP. No-op for non-legacy
-        clients (DB-backed cameras have stable IPs editable via admin UI),
-        or when discovery finds nothing."""
+        """Look up the camera's current IP via ARP, validate it with the
+        Uniview login probe, and (for DB-backed cameras) persist the new IP
+        atomically. No-op when rediscovery is disabled for this client or
+        when discovery turns up nothing."""
         if not self._enable_rediscovery:
             return
+
+        # DB-camera path: scan only the camera's own /24, no MAC pin
+        # (saved username/password identifies it via the Uniview API).
+        # Legacy env path: use the global pinned-MAC + multi-subnet config.
+        if self._persist_rediscovery:
+            prefix = self._current_subnet_prefix()
+            if prefix is None:
+                log.warning(
+                    "[%s] auto-discovery: current host %r is not an IPv4 "
+                    "address; cannot derive subnet to scan", self.label, self._base_url,
+                )
+                return
+            subnets: tuple[str, ...] = (prefix,)
+            mac_pin: Optional[str] = None
+        else:
+            subnets = CAMERA_DISCOVERY_SUBNETS
+            mac_pin = CAMERA_MAC or None
+
         new_ip = discover_camera(
             user=self._user,
             password=self._password,
-            expected_mac=CAMERA_MAC or None,
-            subnet_prefixes=CAMERA_DISCOVERY_SUBNETS,
+            expected_mac=mac_pin,
+            subnet_prefixes=subnets,
         )
         if not new_ip:
             return
@@ -135,10 +178,30 @@ class CameraClient:
         if candidate == self._base_url:
             return
         log.info(
-            "[%s] Camera rediscovered: %s -> %s (MAC pin=%s)",
-            self.label, self._base_url, candidate, CAMERA_MAC or "(OUI filter)",
+            "[%s] Camera rediscovered: %s -> %s (subnets=%s pin=%s)",
+            self.label, self._base_url, candidate, subnets,
+            mac_pin or "(none — login probe)",
         )
         self._base_url = candidate
+
+        # Persist the IP change so the live-view router, the API, and the
+        # next worker spawn all agree with the running worker. Late import
+        # to avoid a service-layer cycle at module load.
+        if self._persist_rediscovery:
+            try:
+                from . import cameras as cameras_service  # late import: avoid cycle
+                cameras_service.record_rediscovery(self.camera_id, new_ip=new_ip)
+                log.info(
+                    "[%s] auto-discovery: persisted new IP %s to DB (camera_id=%s)",
+                    self.label, new_ip, self.camera_id,
+                )
+            except Exception:
+                # Worker keeps running with the in-memory ip even if the
+                # DB write fails; we just won't survive a process restart.
+                log.exception(
+                    "[%s] auto-discovery: failed to persist new IP %s to DB",
+                    self.label, new_ip,
+                )
 
     def _ensure_session(self) -> requests.Session:
         if self._session is None:

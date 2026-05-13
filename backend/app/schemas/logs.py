@@ -13,6 +13,11 @@ class SnapshotItem(BaseModel):
     company: Optional[str] = None
     timestamp: str
     image_url: Optional[str] = None
+    # Empty string for legacy single-camera rows (capture.py env-fallback
+    # mode) and for snapshots ingested before multi-camera support landed.
+    # Populated with the cameras.id once the camera is connected via the
+    # admin UI and capture.py is in multi-camera mode.
+    camera_id: Optional[str] = None
 
 
 class SnapshotListResponse(BaseModel):

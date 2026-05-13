@@ -58,13 +58,13 @@
   "employees": [
     { "id": "1", "name": "Akash", "employeeId": "EMP-001", "company": "WAWU", "department": "Engineering", "shift": "08:00-17:00", "role": "Employee", "password": "pass1234", "dob": "1990-03-15" },
     { "id": "2", "name": "Aswin", "employeeId": "EMP-002", "company": "WAWU", "department": "HR", "shift": "09:00-18:00", "role": "Admin", "password": "admin5678", "dob": "1988-07-22" },
-    { "id": "3", "name": "Aromal", "employeeId": "EMP-003", "company": "Branch A", "department": "Operations", "shift": "07:00-16:00", "role": "Employee", "password": "aro9012", "dob": "1992-11-08" },
+    { "id": "3", "name": "Aromal", "employeeId": "EMP-003", "company": "WAWU", "department": "Operations", "shift": "07:00-16:00", "role": "Employee", "password": "aro9012", "dob": "1992-11-08" },
     { "id": "4", "name": "Akhil", "employeeId": "EMP-004", "company": "WAWU", "department": "Finance", "shift": "08:00-17:00", "role": "Employee", "password": "akh3456", "dob": "1995-01-30" },
-    { "id": "5", "name": "Greeshma", "employeeId": "EMP-005", "company": "Branch B", "department": "Security", "shift": "06:00-14:00", "role": "Employee", "password": "gre7890", "dob": "1985-06-12" },
+    { "id": "5", "name": "Greeshma", "employeeId": "EMP-005", "company": "WAWU", "department": "Security", "shift": "06:00-14:00", "role": "Employee", "password": "gre7890", "dob": "1985-06-12" },
     { "id": "6", "name": "Vaishnavi", "employeeId": "EMP-006", "company": "WAWU", "department": "Engineering", "shift": "08:00-17:00", "role": "Employee", "password": "vai1234", "dob": "1993-09-25" },
-    { "id": "7", "name": "Maria", "employeeId": "EMP-007", "company": "Branch A", "department": "Logistics", "shift": "07:00-16:00", "role": "Employee", "password": "mar5678", "dob": "1991-04-18" },
+    { "id": "7", "name": "Maria", "employeeId": "EMP-007", "company": "WAWU", "department": "Logistics", "shift": "07:00-16:00", "role": "Employee", "password": "mar5678", "dob": "1991-04-18" },
     { "id": "8", "name": "Ambika Menon", "employeeId": "EMP-008", "company": "WAWU", "department": "Marketing", "shift": "09:00-18:00", "role": "Employee", "password": "amb9012", "dob": "1994-12-05" },
-    { "id": "9", "name": "Niharika", "employeeId": "EMP-009", "company": "Branch C", "department": "Support", "shift": "09:00-18:00", "role": "Employee", "password": "nih2468", "dob": "1996-02-14" }
+    { "id": "9", "name": "Niharika", "employeeId": "EMP-009", "company": "WAWU", "department": "Support", "shift": "09:00-18:00", "role": "Employee", "password": "nih2468", "dob": "1996-02-14" }
   ],
   "presenceHistory": [
     { "id": "h1", "employeeName": "Akash", "employeeId": "EMP-001", "entryTime": "08:02", "exitTime": "17:05", "totalHours": "9h 03m", "status": "Present", "date": "2025-04-13" },
@@ -119,7 +119,7 @@
     { "id": "3", "type": "info", "title": "Shift Change Approved", "description": "Ambika Menon's shift updated to 09:00–18:00", "employee": "Ambika Menon", "timestamp": "2025-04-13T08:00:00" },
     { "id": "4", "type": "warning", "title": "After-Hours Access", "description": "Greeshma accessed building at 22:45", "employee": "Greeshma", "timestamp": "2025-04-12T22:45:00" },
     { "id": "5", "type": "critical", "title": "Camera Offline", "description": "Gate C camera offline for 2+ hours", "timestamp": "2025-04-13T12:00:00" },
-    { "id": "6", "type": "info", "title": "New Employee Added", "description": "Maria was added to Branch A – Logistics", "employee": "Maria", "timestamp": "2025-04-12T10:00:00" }
+    { "id": "6", "type": "info", "title": "New Employee Added", "description": "Maria was added to WAWU – Logistics", "employee": "Maria", "timestamp": "2025-04-12T10:00:00" }
   ],
   "alertRules": {
     "lateThreshold": 10,

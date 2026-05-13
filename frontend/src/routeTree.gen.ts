@@ -21,6 +21,7 @@ import { Route as DashboardRequestsRouteImport } from './routes/_dashboard.reque
 import { Route as DashboardReportsRouteImport } from './routes/_dashboard.reports'
 import { Route as DashboardPresenceRouteImport } from './routes/_dashboard.presence'
 import { Route as DashboardHomeRouteImport } from './routes/_dashboard.home'
+import { Route as DashboardFaceTrainingRouteImport } from './routes/_dashboard.face-training'
 import { Route as DashboardEmployeesRouteImport } from './routes/_dashboard.employees'
 import { Route as DashboardCamerasRouteImport } from './routes/_dashboard.cameras'
 import { Route as DashboardAlertsRouteImport } from './routes/_dashboard.alerts'
@@ -87,6 +88,11 @@ const DashboardHomeRoute = DashboardHomeRouteImport.update({
   path: '/home',
   getParentRoute: () => DashboardRoute,
 } as any)
+const DashboardFaceTrainingRoute = DashboardFaceTrainingRouteImport.update({
+  id: '/face-training',
+  path: '/face-training',
+  getParentRoute: () => DashboardRoute,
+} as any)
 const DashboardEmployeesRoute = DashboardEmployeesRouteImport.update({
   id: '/employees',
   path: '/employees',
@@ -125,6 +131,7 @@ export interface FileRoutesByFullPath {
   '/alerts': typeof DashboardAlertsRoute
   '/cameras': typeof DashboardCamerasRouteWithChildren
   '/employees': typeof DashboardEmployeesRoute
+  '/face-training': typeof DashboardFaceTrainingRoute
   '/home': typeof DashboardHomeRoute
   '/presence': typeof DashboardPresenceRoute
   '/reports': typeof DashboardReportsRoute
@@ -142,6 +149,7 @@ export interface FileRoutesByTo {
   '/admin': typeof DashboardAdminRoute
   '/alerts': typeof DashboardAlertsRoute
   '/employees': typeof DashboardEmployeesRoute
+  '/face-training': typeof DashboardFaceTrainingRoute
   '/home': typeof DashboardHomeRoute
   '/presence': typeof DashboardPresenceRoute
   '/reports': typeof DashboardReportsRoute
@@ -163,6 +171,7 @@ export interface FileRoutesById {
   '/_dashboard/alerts': typeof DashboardAlertsRoute
   '/_dashboard/cameras': typeof DashboardCamerasRouteWithChildren
   '/_dashboard/employees': typeof DashboardEmployeesRoute
+  '/_dashboard/face-training': typeof DashboardFaceTrainingRoute
   '/_dashboard/home': typeof DashboardHomeRoute
   '/_dashboard/presence': typeof DashboardPresenceRoute
   '/_dashboard/reports': typeof DashboardReportsRoute
@@ -184,6 +193,7 @@ export interface FileRouteTypes {
     | '/alerts'
     | '/cameras'
     | '/employees'
+    | '/face-training'
     | '/home'
     | '/presence'
     | '/reports'
@@ -201,6 +211,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/alerts'
     | '/employees'
+    | '/face-training'
     | '/home'
     | '/presence'
     | '/reports'
@@ -221,6 +232,7 @@ export interface FileRouteTypes {
     | '/_dashboard/alerts'
     | '/_dashboard/cameras'
     | '/_dashboard/employees'
+    | '/_dashboard/face-training'
     | '/_dashboard/home'
     | '/_dashboard/presence'
     | '/_dashboard/reports'
@@ -326,6 +338,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardHomeRouteImport
       parentRoute: typeof DashboardRoute
     }
+    '/_dashboard/face-training': {
+      id: '/_dashboard/face-training'
+      path: '/face-training'
+      fullPath: '/face-training'
+      preLoaderRoute: typeof DashboardFaceTrainingRouteImport
+      parentRoute: typeof DashboardRoute
+    }
     '/_dashboard/employees': {
       id: '/_dashboard/employees'
       path: '/employees'
@@ -389,6 +408,7 @@ interface DashboardRouteChildren {
   DashboardAlertsRoute: typeof DashboardAlertsRoute
   DashboardCamerasRoute: typeof DashboardCamerasRouteWithChildren
   DashboardEmployeesRoute: typeof DashboardEmployeesRoute
+  DashboardFaceTrainingRoute: typeof DashboardFaceTrainingRoute
   DashboardHomeRoute: typeof DashboardHomeRoute
   DashboardPresenceRoute: typeof DashboardPresenceRoute
   DashboardReportsRoute: typeof DashboardReportsRoute
@@ -402,6 +422,7 @@ const DashboardRouteChildren: DashboardRouteChildren = {
   DashboardAlertsRoute: DashboardAlertsRoute,
   DashboardCamerasRoute: DashboardCamerasRouteWithChildren,
   DashboardEmployeesRoute: DashboardEmployeesRoute,
+  DashboardFaceTrainingRoute: DashboardFaceTrainingRoute,
   DashboardHomeRoute: DashboardHomeRoute,
   DashboardPresenceRoute: DashboardPresenceRoute,
   DashboardReportsRoute: DashboardReportsRoute,

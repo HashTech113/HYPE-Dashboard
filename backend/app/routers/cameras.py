@@ -9,10 +9,11 @@ via query string without exposing the long-lived JWT.
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 import jwt
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 
 from ..config import JWT_ALGORITHM, JWT_SECRET
@@ -23,6 +24,7 @@ from ..schemas.cameras import (
     CameraCreate,
     CameraListResponse,
     CameraOut,
+    CameraRediscoverResponse,
     CameraUpdate,
     StreamTokenResponse,
 )
@@ -37,6 +39,23 @@ STREAM_TOKEN_TTL_SECONDS = 300  # 5 min — refreshed by the frontend
 STREAM_TOKEN_SCOPE = "camera-stream"
 
 
+def _workers_enabled() -> bool:
+    raw = os.getenv("RECOGNITION_WORKERS_ENABLED", "1").strip().lower()
+    return raw not in ("0", "false", "no")
+
+
+def _refresh_workers() -> None:
+    if not _workers_enabled():
+        return
+    try:
+        from ..services.recognition_worker import get_worker_manager
+        count = get_worker_manager().start_all()
+        log.info("recognition workers refreshed (%d cameras)", count)
+    except Exception:
+        # Camera CRUD should still succeed even if worker refresh fails.
+        log.exception("failed to refresh recognition workers")
+
+
 def _serialize(cam: cameras_service.Camera) -> CameraOut:
     return CameraOut(
         id=cam.id,
@@ -48,6 +67,10 @@ def _serialize(cam: cameras_service.Camera) -> CameraOut:
         rtsp_path=cam.rtsp_path,
         rtsp_url_preview=cameras_service.masked_rtsp_url(cam),
         connection_status=cam.connection_status,
+        enable_face_ingest=cam.enable_face_ingest,
+        auto_discovery_enabled=cam.auto_discovery_enabled,
+        last_known_ip=cam.last_known_ip,
+        last_discovered_at=cam.last_discovered_at,
         last_checked_at=cam.last_checked_at,
         last_check_message=cam.last_check_message,
         created_at=cam.created_at,
@@ -60,7 +83,11 @@ def _serialize(cam: cameras_service.Camera) -> CameraOut:
     response_model=CameraListResponse,
     dependencies=[Depends(require_admin)],
 )
-def list_cameras() -> CameraListResponse:
+def list_cameras(response: Response) -> CameraListResponse:
+    # Same short browser cache as /api/employees — repeat polls within
+    # 5 s come straight from the local cache, eliminating the matching
+    # OPTIONS + GET round-trip from the dev log.
+    response.headers["Cache-Control"] = "private, max-age=5"
     return CameraListResponse(items=[_serialize(c) for c in cameras_service.all_cameras()])
 
 
@@ -79,6 +106,8 @@ def create_camera(payload: CameraCreate) -> CameraOut:
         username=payload.username.strip(),
         password=payload.password,
         rtsp_path=(payload.rtsp_path.strip() or "/Streaming/Channels/101"),
+        enable_face_ingest=payload.enable_face_ingest,
+        auto_discovery_enabled=payload.auto_discovery_enabled,
     )
     # Run an immediate connection check so the new row carries a real status
     # rather than 'unknown'.
@@ -92,6 +121,7 @@ def create_camera(payload: CameraCreate) -> CameraOut:
     cameras_service.update_status(
         cam.id, status="connected" if ok else "failed", message=msg
     )
+    _refresh_workers()
     refreshed = cameras_service.get_by_id(cam.id)
     assert refreshed is not None
     return _serialize(refreshed)
@@ -141,9 +171,12 @@ def update_camera(camera_id: str, payload: CameraUpdate) -> CameraOut:
         username=payload.username.strip() if payload.username else None,
         password=payload.password if payload.password else None,
         rtsp_path=payload.rtsp_path.strip() if payload.rtsp_path else None,
+        enable_face_ingest=payload.enable_face_ingest,
+        auto_discovery_enabled=payload.auto_discovery_enabled,
     )
     if cam is None:
         raise HTTPException(status_code=404, detail=f"camera not found: {camera_id}")
+    _refresh_workers()
     return _serialize(cam)
 
 
@@ -151,6 +184,7 @@ def update_camera(camera_id: str, payload: CameraUpdate) -> CameraOut:
 def delete_camera(camera_id: str) -> dict:
     if not cameras_service.delete(camera_id):
         raise HTTPException(status_code=404, detail=f"camera not found: {camera_id}")
+    _refresh_workers()
     return {"status": "deleted", "id": camera_id}
 
 
@@ -173,7 +207,81 @@ def check_existing(camera_id: str) -> CameraCheckResponse:
     cameras_service.update_status(
         camera_id, status="connected" if ok else "failed", message=msg
     )
+    _refresh_workers()
     return CameraCheckResponse(ok=ok, message=msg, latency_ms=latency)
+
+
+@router.post(
+    "/{camera_id}/rediscover",
+    response_model=CameraRediscoverResponse,
+    dependencies=[Depends(require_admin)],
+)
+def rediscover(camera_id: str) -> CameraRediscoverResponse:
+    """Manually trigger an auto-discovery sweep for one camera.
+
+    Only enabled when the row has ``auto_discovery_enabled=True``. Scans
+    the camera's current /24 subnet, validates candidates via Uniview
+    ``/API/Web/Login`` against the saved credentials, and on success
+    persists the new IP (recording ``last_known_ip``/``last_discovered_at``).
+    Workers running against the camera will pick up the new IP on their
+    next iteration; the in-memory ``CameraClient._base_url`` is also
+    refreshed transparently when ``_rediscover()`` runs there.
+    """
+    cam = cameras_service.get_by_id(camera_id)
+    if cam is None:
+        raise HTTPException(status_code=404, detail=f"camera not found: {camera_id}")
+    if not cam.auto_discovery_enabled:
+        raise HTTPException(
+            status_code=409,
+            detail="auto_discovery_enabled=False; toggle it on before rediscovering",
+        )
+
+    # Late import: discovery is a heavy module (ThreadPoolExecutor, ARP
+    # parsing) and we only need it on this code path.
+    from ..services.camera_discovery import discover_camera
+
+    parts = cam.ip.split(".")
+    if len(parts) != 4 or not all(p.isdigit() for p in parts):
+        raise HTTPException(
+            status_code=400,
+            detail=f"camera ip {cam.ip!r} is not an IPv4 address; cannot derive subnet",
+        )
+    prefix = ".".join(parts[:3])
+    password = crypto.decrypt(cam.password_encrypted)
+    new_ip = discover_camera(
+        user=cam.username,
+        password=password,
+        expected_mac=None,
+        subnet_prefixes=(prefix,),
+    )
+    if not new_ip:
+        return CameraRediscoverResponse(
+            ok=False,
+            message=f"No Uniview camera on {prefix}.0/24 accepted the saved credentials",
+            previous_ip=cam.ip,
+            new_ip=None,
+        )
+    if new_ip == cam.ip:
+        # Stamp last_discovered_at so the UI shows a fresh probe even
+        # when the IP didn't change — useful liveness signal.
+        cameras_service.record_rediscovery(camera_id, new_ip=new_ip)
+        return CameraRediscoverResponse(
+            ok=True,
+            message="Camera still reachable at the saved IP",
+            previous_ip=cam.ip,
+            new_ip=new_ip,
+        )
+    cameras_service.record_rediscovery(camera_id, new_ip=new_ip)
+    log.info(
+        "camera %s (%s) rediscovered: %s -> %s", camera_id, cam.name, cam.ip, new_ip,
+    )
+    _refresh_workers()
+    return CameraRediscoverResponse(
+        ok=True,
+        message=f"IP updated: {cam.ip} -> {new_ip}",
+        previous_ip=cam.ip,
+        new_ip=new_ip,
+    )
 
 
 @router.post(
@@ -217,7 +325,11 @@ def stream(camera_id: str, token: str = Query(...)) -> StreamingResponse:
         raise HTTPException(status_code=404, detail=f"camera not found: {camera_id}")
 
     rtsp_url = cameras_service.build_rtsp_url_for_camera(cam)
+    # Passing ``camera_id`` lets the streamer serve the recognition
+    # worker's pre-annotated frames (with face boxes + names) instead of
+    # opening a second RTSP read. Falls back to direct RTSP when the
+    # worker isn't running for this camera.
     return StreamingResponse(
-        cameras_service.mjpeg_stream(rtsp_url),
+        cameras_service.mjpeg_stream(rtsp_url, camera_id=camera_id),
         media_type="multipart/x-mixed-replace; boundary=frame",
     )

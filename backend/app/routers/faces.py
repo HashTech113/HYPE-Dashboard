@@ -10,10 +10,12 @@ from sqlalchemy import text
 
 from ..config import DEFAULT_HISTORY_START, DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT
 from ..db import session_scope
-from ..dependencies import require_admin_or_hr
+from ..dependencies import hr_scope, require_admin_or_hr
 from ..schemas.faces import FaceHistoryItem, FaceHistoryResponse
+from ..services import employees as employees_service
+from ..services.auth import User
 
-router = APIRouter(tags=["faces"], dependencies=[Depends(require_admin_or_hr)])
+router = APIRouter(tags=["faces"])
 
 
 def _parse_boundary(value: str, field: str, *, end: bool) -> datetime:
@@ -57,6 +59,7 @@ def face_history(
     limit: int = Query(DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT),
     offset: int = Query(0, ge=0),
     latest: Optional[int] = Query(None, ge=1, le=MAX_PAGE_LIMIT),
+    user: User = Depends(require_admin_or_hr),
 ) -> FaceHistoryResponse:
     # image_data IS NOT NULL hides rows pruned by the retention job
     # (services/cleanup.py): for older dates only the kept entry/exit
@@ -80,21 +83,48 @@ def face_history(
         where_sql += " AND timestamp >= :start_ts AND timestamp <= :end_ts"
         where_params = {"start_ts": start_dt, "end_ts": end_dt}
 
+    filter_active, target = hr_scope(user)
+
     with session_scope() as session:
-        total = int(session.execute(
-            text(f"SELECT COUNT(*) FROM snapshot_logs{where_sql}"), where_params,
-        ).scalar_one() or 0)
-        rows = [
-            dict(r)
-            for r in session.execute(
-                text(
-                    "SELECT id, name, timestamp, image_path, image_data FROM snapshot_logs"
-                    f"{where_sql} ORDER BY timestamp DESC, id DESC "
-                    "LIMIT :limit OFFSET :offset"
-                ),
-                {**where_params, "limit": effective_limit, "offset": effective_offset},
-            ).mappings().all()
-        ]
+        if filter_active:
+            # HR view: pull the unpaginated window from DB, filter by company
+            # (resolved via name → employee match), then paginate the result
+            # so HR pagination matches what they can actually see.
+            rows = [
+                dict(r)
+                for r in session.execute(
+                    text(
+                        "SELECT id, name, timestamp, image_path, image_data FROM snapshot_logs"
+                        f"{where_sql} ORDER BY timestamp DESC, id DESC"
+                    ),
+                    where_params,
+                ).mappings().all()
+            ]
+            directory = employees_service.all_employees()
+            filtered = [
+                r for r in rows
+                if (
+                    employees_service.company_for(r.get("name") or "", employees=directory)
+                    or ""
+                ).strip().lower() == target
+            ]
+            total = len(filtered)
+            window = filtered[effective_offset : effective_offset + effective_limit]
+        else:
+            total = int(session.execute(
+                text(f"SELECT COUNT(*) FROM snapshot_logs{where_sql}"), where_params,
+            ).scalar_one() or 0)
+            window = [
+                dict(r)
+                for r in session.execute(
+                    text(
+                        "SELECT id, name, timestamp, image_path, image_data FROM snapshot_logs"
+                        f"{where_sql} ORDER BY timestamp DESC, id DESC "
+                        "LIMIT :limit OFFSET :offset"
+                    ),
+                    {**where_params, "limit": effective_limit, "offset": effective_offset},
+                ).mappings().all()
+            ]
 
     items = [
         FaceHistoryItem(
@@ -104,7 +134,7 @@ def face_history(
             exit=_ts_to_str(row["timestamp"]),
             image_url=_build_image_url(row),
         )
-        for row in rows
+        for row in window
     ]
     return FaceHistoryResponse(
         count=len(items),

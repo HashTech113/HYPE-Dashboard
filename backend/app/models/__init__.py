@@ -14,6 +14,8 @@ from .camera import Camera
 from .company import Company
 from .department import Department
 from .employee import Employee
+from .face_embedding import FaceEmbedding
+from .face_image import FaceImage
 from .setting import Setting
 from .shift import Shift
 from .user import User
@@ -25,6 +27,8 @@ __all__ = [
     "Camera",
     "Company",
     "Department",
+    "FaceEmbedding",
+    "FaceImage",
     "Shift",
     "AttendanceLog",
     "SnapshotLog",

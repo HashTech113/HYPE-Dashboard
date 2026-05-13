@@ -12,7 +12,9 @@ import {
   LogOut,
   Camera as CameraIcon,
   Video,
+  ScanFace,
 } from "lucide-react";
+import hypeLogo from "@/images/HYPE_logo.png";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getIngestLastSeen } from "@/api/dashboardApi";
 import {
@@ -47,13 +49,15 @@ type NavItem = {
 
 const navItems: NavItem[] = [
   { label: "Dashboard", to: "/home", icon: LayoutDashboard },
-  { label: "Attendance History", to: "/presence", icon: Clock },
-  { label: "Reports", to: "/reports", icon: FileText },
-  { label: "Live Captures", to: "/requests", icon: MessageSquare, roles: ["admin"] },
-  { label: "Employee Management", to: "/employees", icon: Users },
+  // HR-only items keep their pre-existing slot near the top of the HR view.
+  { label: "Attendance History", to: "/presence", icon: Clock, roles: ["hr"] },
+  { label: "Reports", to: "/reports", icon: FileText, roles: ["hr"] },
   { label: "Add Camera", to: "/cameras", icon: CameraIcon, roles: ["admin"] },
   { label: "Live Cameras", to: "/cameras/live", icon: Video, roles: ["admin"] },
+  { label: "Face Training", to: "/face-training", icon: ScanFace, roles: ["admin"] },
+  { label: "Live Captures", to: "/requests", icon: MessageSquare, roles: ["admin"] },
   { label: "Unknown Faces", to: "/unknown-faces", icon: UserX, roles: ["admin"] },
+  { label: "Employee Management", to: "/employees", icon: Users },
   { label: "Settings", to: "/settings", icon: Settings },
 ];
 
@@ -347,15 +351,24 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     <div className="relative h-screen overflow-hidden bg-[#f3f4f6]">
       <div className="mx-auto flex h-full max-w-[1680px] flex-col px-2 py-2 sm:px-3 sm:py-3 md:px-4 md:py-4">
         <header className="relative flex h-[62px] shrink-0 items-center border-b border-slate-200/60 bg-[#f3f4f6] px-2 sm:px-3 md:px-4">
-          <button
-            type="button"
-            onClick={() => setSidebarExpanded((prev) => !prev)}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-700 transition-colors hover:bg-slate-200/60 hover:text-slate-900"
-            aria-label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
-            title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
-          >
-            <Menu className="h-5 w-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSidebarExpanded((prev) => !prev)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-slate-700 transition-colors hover:bg-slate-200/60 hover:text-slate-900"
+              aria-label={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+              title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"}
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            {sidebarExpanded ? (
+              <img
+                src={hypeLogo}
+                alt="HYPE logo"
+                className="h-20 w-20 shrink-0 object-contain sm:h-24 sm:w-24"
+              />
+            ) : null}
+          </div>
 
           <p className="pointer-events-none absolute left-1/2 -translate-x-1/2 whitespace-nowrap text-base font-semibold tracking-wide text-[#3f9382] sm:text-lg md:text-2xl lg:text-3xl xl:text-4xl">
             ᴍᴏᴠᴇᴍᴇɴᴛ ɪɴᴛᴇʟʟɪɢᴇɴᴄᴇ ᴘʟᴀᴛꜰᴏʀᴍ

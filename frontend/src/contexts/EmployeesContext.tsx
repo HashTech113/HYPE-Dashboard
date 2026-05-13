@@ -8,11 +8,73 @@ import {
 } from "@/api/dashboardApi";
 import { companyMatches, getCurrentCompany, getCurrentRole } from "@/lib/auth";
 
-const STORAGE_KEY = "attendance-dashboard:employees:v1";
+// v2 is the active cache key. v1 is kept as a *fallback* (not deleted at
+// module load) so an API outage doesn't simultaneously evict the
+// working copy — we only prune legacy keys AFTER the new key has been
+// successfully populated from a fresh API response. Bumped from v1 in
+// 2026-05 after a transient API stall left some clients holding stale
+// company assignments.
+const STORAGE_KEY = "attendance-dashboard:employees:v2";
+const LEGACY_STORAGE_KEYS = ["attendance-dashboard:employees:v1"] as const;
+
+function pruneLegacyKeys(): void {
+  if (typeof window === "undefined") return;
+  try {
+    for (const k of LEGACY_STORAGE_KEYS) window.localStorage.removeItem(k);
+  } catch {
+    // ignore quota / private-mode errors
+  }
+}
+
+function readCacheFallback(): Employee[] | null {
+  if (typeof window === "undefined") return null;
+  // Try v2 (current) first, then walk legacy keys in order. Any source
+  // that parses cleanly wins; the rest are ignored.
+  for (const key of [STORAGE_KEY, ...LEGACY_STORAGE_KEYS]) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw) as Employee[];
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    } catch {
+      // ignore — try the next key
+    }
+  }
+  return null;
+}
+
+const COMPANY_ALIAS_MAP: Record<string, string> = {
+  "branch a": "WAWU",
+  "branch b": "WAWU",
+  "branch c": "WAWU",
+};
+
+function normalizeCompany(value: string): string {
+  const cleaned = (value || "").trim();
+  if (!cleaned) return cleaned;
+  return COMPANY_ALIAS_MAP[cleaned.toLowerCase()] ?? cleaned;
+}
+
+function normalizeEmployees(list: Employee[]): Employee[] {
+  return list.map((employee) => ({
+    ...employee,
+    company: normalizeCompany(employee.company),
+  }));
+}
 
 type EmployeesContextValue = {
   employees: Employee[];
   loading: boolean;
+  /** Non-null when the most recent load attempt failed. UI uses this to
+   * render an actionable error banner so a backend outage isn't shown
+   * as "no employees". */
+  error: string | null;
+  /** True when ``employees`` is being served from localStorage because
+   * the API call failed — i.e. the data is potentially stale. */
+  isStale: boolean;
+  /** Re-run the API fetch. Used by the error banner's Retry button so
+   * the operator doesn't have to reload the whole page. */
+  reload: () => void;
   /** Company the current user is scoped to, or null for admins (full access). */
   scopedCompany: string | null;
   /** Async; resolves with the saved record from the server (or rejects on
@@ -39,28 +101,52 @@ function writeToStorage(employees: Employee[]) {
 export function EmployeesProvider({ children }: { children: ReactNode }) {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState(false);
+  // Bumping this re-runs the load effect — used by reload() below.
+  const [reloadTick, setReloadTick] = useState(0);
 
-  // Always fetch from the backend so the deployed frontend and any local
-  // device see the same roster. localStorage is now a write-behind cache
-  // used only if the fetch fails.
+  const reload = useCallback(() => {
+    setReloadTick((t) => t + 1);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     getEmployees()
       .then((list) => {
         if (cancelled) return;
-        setEmployees(list);
-        writeToStorage(list);
+        const normalized = normalizeEmployees(list);
+        setEmployees(normalized);
+        setIsStale(false);
+        setError(null);
+        writeToStorage(normalized);
+        // Only NOW is it safe to drop the legacy key — the new one is
+        // populated, so if the API breaks later we still fall back to
+        // STORAGE_KEY (v2) instead of getting stranded with nothing.
+        pruneLegacyKeys();
       })
-      .catch((error) => {
-        console.error("Failed to load employees", error);
-        try {
-          const raw = window.localStorage.getItem(STORAGE_KEY);
-          if (raw) {
-            const parsed = JSON.parse(raw) as Employee[];
-            if (Array.isArray(parsed)) setEmployees(parsed);
-          }
-        } catch {
-          // ignore
+      .catch((err) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "Failed to load employees";
+        console.error("Failed to load employees", err);
+        const fallback = readCacheFallback();
+        if (fallback) {
+          const normalized = normalizeEmployees(fallback);
+          setEmployees(normalized);
+          setIsStale(true);
+          setError(
+            `Couldn't reach the server (${message}). Showing the last cached roster — values may be out of date.`,
+          );
+        } else {
+          // No fallback available — surface a clear, actionable error
+          // instead of silently showing an empty list.
+          setEmployees([]);
+          setIsStale(false);
+          setError(
+            `Couldn't reach the server (${message}). Make sure the backend (uvicorn) is running, then click Retry.`,
+          );
         }
       })
       .finally(() => {
@@ -69,7 +155,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadTick]);
 
   const updateEmployee = useCallback(async (id: string, patch: Partial<Employee>): Promise<Employee> => {
     // Optimistic UI update; rollback on failure. Returning a promise so
@@ -152,7 +238,7 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resetToDefaults = useCallback(async () => {
-    const list = await getEmployees();
+    const list = normalizeEmployees(await getEmployees());
     setEmployees(list);
     writeToStorage(list);
   }, []);
@@ -173,13 +259,16 @@ export function EmployeesProvider({ children }: { children: ReactNode }) {
     () => ({
       employees: visibleEmployees,
       loading,
+      error,
+      isStale,
+      reload,
       scopedCompany,
       updateEmployee,
       addEmployee,
       deleteEmployee,
       resetToDefaults,
     }),
-    [visibleEmployees, loading, scopedCompany, updateEmployee, addEmployee, deleteEmployee, resetToDefaults]
+    [visibleEmployees, loading, error, isStale, reload, scopedCompany, updateEmployee, addEmployee, deleteEmployee, resetToDefaults]
   );
 
   return <EmployeesContext.Provider value={value}>{children}</EmployeesContext.Provider>;

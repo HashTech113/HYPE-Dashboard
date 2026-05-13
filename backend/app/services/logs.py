@@ -231,7 +231,7 @@ def _fetch(table: str, *, limit: Optional[int], offset: int, name: Optional[str]
     # only the kept entry/exit captures per employee; today/yesterday are
     # untouched by retention and so show every event.
     sql = (
-        f"SELECT id, name, timestamp, image_path, image_data "
+        f"SELECT id, name, timestamp, image_path, image_data, camera_id "
         f"FROM {table} WHERE image_data IS NOT NULL"
     )
     params: dict = {}
@@ -255,6 +255,7 @@ def _fetch(table: str, *, limit: Optional[int], offset: int, name: Optional[str]
                 "timestamp": _ts_to_str(r["timestamp"]),
                 "image_path": r["image_path"],
                 "image_data": r["image_data"],
+                "camera_id": r.get("camera_id") or "",
             }
             for r in rows
         ]

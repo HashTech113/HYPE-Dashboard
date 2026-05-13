@@ -13,10 +13,10 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
-from ..dependencies import require_admin_or_hr
+from ..dependencies import hr_scope, require_admin_or_hr
 from ..services import employees as employees_service
 from ..services.auth import User
 
@@ -111,10 +111,21 @@ def _serialize(emp) -> EmployeeOut:
 @router.get(
     "/api/employees",
     response_model=EmployeeListResponse,
-    dependencies=[Depends(require_admin_or_hr)],
 )
-def list_employees() -> EmployeeListResponse:
-    return EmployeeListResponse(items=[_serialize(e) for e in employees_service.all_employees()])
+def list_employees(
+    response: Response,
+    user: User = Depends(require_admin_or_hr),
+) -> EmployeeListResponse:
+    items = [_serialize(e) for e in employees_service.all_employees()]
+    filter_active, target = hr_scope(user)
+    if filter_active:
+        items = [it for it in items if (it.company or "").strip().lower() == target]
+    # Browser-side cache: when multiple components mount and all call
+    # /api/employees within 5 s, only the first goes to the network — the
+    # rest are served from the browser's own cache. ``private`` keeps any
+    # shared cache (proxy / CDN) from holding the auth-scoped roster.
+    response.headers["Cache-Control"] = "private, max-age=5"
+    return EmployeeListResponse(items=items)
 
 
 @router.post(

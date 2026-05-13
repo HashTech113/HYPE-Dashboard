@@ -30,15 +30,24 @@ MANIFEST
 venv/
 ENV/
 env/
+backend/.venv/
 
 # Database files
 *.db
 *.sqlite
 *.sqlite3
+*.db.bak*
+*.db-shm
+*.db-wal
 
 # Legacy: captures are stored inline in the DB (image_data) now. This glob
 # only exists to ignore leftover folders on contributor machines.
 backend/snapshots/
+backend/storage/models/
+
+# Python caches
+**/__pycache__/
+**/*.pyc
 
 # Build and framework output
 dist/
@@ -89,6 +98,7 @@ Thumbs.db
 
 # Misc
 .codex
+registration form/
 
 # Temporary files
 *.tmp

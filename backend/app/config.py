@@ -97,3 +97,25 @@ LOCAL_TZ_OFFSET_MIN = int(os.getenv("LOCAL_TZ_OFFSET_MIN", "330"))
 # /api/admin/correct-attendance) is the fallback when auto-detection
 # misclassifies.
 BREAK_GAP_THRESHOLD_MIN = int(os.getenv("BREAK_GAP_THRESHOLD_MIN", "30"))
+
+# --- Face recognition (Path B: backend-side InsightFace) ---
+# When set to "0"/"false", the FaceService and embedding cache aren't
+# loaded at boot — the new endpoints return 503 instead. Useful when the
+# backend is run on a machine without ML deps or to skip the ~3-5s
+# startup hit during quick smoke tests.
+FACE_RECOGNITION_ENABLED = os.getenv("FACE_RECOGNITION_ENABLED", "1").strip().lower() not in ("0", "false", "no")
+FACE_MODEL_NAME = os.getenv("FACE_MODEL_NAME", "buffalo_l")
+# Where insightface looks for / downloads the model pack. Defaults to
+# backend/storage/models so model files survive Railway redeploys when a
+# persistent volume is mounted at backend/storage.
+FACE_MODEL_ROOT = os.getenv("FACE_MODEL_ROOT", str(BASE_DIR / "storage" / "models"))
+FACE_PROVIDER = os.getenv("FACE_PROVIDER", "CPUExecutionProvider")
+FACE_DET_SIZE = int(os.getenv("FACE_DET_SIZE", "640"))
+# Cosine-similarity threshold above which a face is considered a match.
+# Below it, the face is "Unknown". 0.45 is the InsightFace community
+# default for buffalo_l; tune via the runtime settings table later.
+FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.45"))
+# InsightFace per-face detection score floor; below this the face is
+# silently dropped before recognition (catches background patterns,
+# logos, etc.).
+FACE_MIN_QUALITY = float(os.getenv("FACE_MIN_QUALITY", "0.50"))

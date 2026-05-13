@@ -2,6 +2,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Calendar, Search, ChevronLeft, ChevronRight, Image as ImageIcon, RefreshCw, UserCircle2 } from "lucide-react";
 import { SectionShell } from "@/components/dashboard/SectionShell";
+import { EmployeeManagementTabs } from "@/components/dashboard/EmployeeManagementTabs";
 import { mockPresenceHistory, type PresenceRecord } from "@/data/mockPresence";
 import { mockHolidayCalendar } from "@/data/mockHolidayCalendar";
 import { useEmployees } from "@/contexts/EmployeesContext";
@@ -456,7 +457,9 @@ function PresencePage() {
   }, [loadAttendance]);
 
   const companyOptions = useMemo(
-    () => Array.from(new Set(employees.map((employee) => employee.company))),
+    () => Array.from(new Set(employees.map((employee) => employee.company))).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    ),
     [employees]
   );
 
@@ -469,7 +472,9 @@ function PresencePage() {
   const employeeFilterOptions = useMemo(
     () => [
       { value: "none", label: "Select Employee" },
-      ...employeesForSelectedCompany.map((emp) => ({
+      ...[...employeesForSelectedCompany]
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }))
+        .map((emp) => ({
         value: emp.employeeId,
         label: emp.name,
       })),
@@ -781,8 +786,25 @@ function PresencePage() {
         className="animate-fade-in-up"
         contentClassName="flex min-h-0 flex-1 flex-col gap-2.5 p-3"
         inlineActions
-        actions={
-          <div className="flex w-full flex-1 flex-wrap items-center gap-2 sm:ml-[5rem] sm:gap-3 md:ml-[6rem]">
+        actions={<EmployeeManagementTabs />}
+      >
+          <div className="flex w-full flex-wrap items-center gap-2 sm:gap-3">
+            {!isCompanyScoped ? (
+              <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+                <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">
+                  Company
+                </span>
+                <SearchableSelect
+                  value={selectedCompany}
+                  onValueChange={setSelectedCompany}
+                  options={companyFilterOptions}
+                  clearValue="all"
+                  placeholder="Select company"
+                  className="h-9 min-w-0 flex-1 border-indigo-200 focus-visible:ring-indigo-300 sm:w-[130px] sm:flex-initial md:w-[150px]"
+                />
+              </div>
+            ) : null}
+
             <div className="flex min-w-0 flex-1 items-center gap-2 sm:flex-initial">
               <Search className="h-5 w-5 shrink-0 text-primary" />
               <span className="whitespace-nowrap text-sm font-semibold text-sky-900">
@@ -827,28 +849,6 @@ function PresencePage() {
               {refreshing ? "Refreshing…" : "Refresh"}
             </Button>
           </div>
-        }
-      >
-          {/* The only thing left in this row is the admin-only Company
-              picker. HR users skip the row entirely because their company
-              is already implied by their session. */}
-          {!isCompanyScoped ? (
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap text-sm font-semibold text-[#393E2E]">
-                  Company
-                </span>
-                <SearchableSelect
-                  value={selectedCompany}
-                  onValueChange={setSelectedCompany}
-                  options={companyFilterOptions}
-                  clearValue="all"
-                  placeholder="Select company"
-                  className="h-9 w-[130px] border-indigo-200 focus-visible:ring-indigo-300 sm:w-[140px] md:w-[150px]"
-                />
-              </div>
-            </div>
-          ) : null}
 
           {(
             <div className="grid min-h-0 flex-1 items-stretch gap-3 2xl:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">

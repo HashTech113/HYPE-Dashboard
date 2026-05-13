@@ -14,21 +14,38 @@ from ..config import (
     SHIFT_END,
     SHIFT_START,
 )
-from ..dependencies import require_admin_or_hr
+from ..dependencies import hr_scope, require_admin_or_hr
 from ..schemas.attendance import (
     AttendanceDayResponse,
     AttendanceRangeResponse,
     AttendanceRecord,
     ShiftConfig,
 )
+from ..services import employees as employees_service
 from ..services.attendance import ShiftSettings, parse_hhmm
+from ..services.auth import User
 from ..services.logs import build_attendance_daily, build_attendance_range
 
 router = APIRouter(
     tags=["attendance"],
     prefix="/api/attendance",
-    dependencies=[Depends(require_admin_or_hr)],
 )
+
+
+def _filter_rows_by_hr_company(rows: list[dict], target: str) -> list[dict]:
+    """Resolve each row's owning employee (by name) and keep only rows
+    whose company matches the HR caller's company (case-insensitive).
+    Rows with no matching employee are dropped — they belong to no
+    company and would otherwise leak across HR scopes."""
+    if not target:
+        return []
+    directory = employees_service.all_employees()
+    kept: list[dict] = []
+    for row in rows:
+        company = employees_service.company_for(row.get("name") or "", employees=directory)
+        if company and company.strip().lower() == target:
+            kept.append(row)
+    return kept
 
 
 def _shift_settings(
@@ -78,7 +95,7 @@ def _parse_iso_date(value: str, field: str) -> date_cls:
 
 
 @router.get("/config", response_model=ShiftConfig)
-def get_config() -> ShiftConfig:
+def get_config(_user: User = Depends(require_admin_or_hr)) -> ShiftConfig:
     """Return the active shift configuration."""
     return _shift_response(_shift_settings(None, None, None, None, None))
 
@@ -96,6 +113,7 @@ def daily(
     late_grace_min: Optional[int] = Query(None, ge=0, le=240),
     early_exit_grace_min: Optional[int] = Query(None, ge=0, le=240),
     tz_offset_minutes: Optional[int] = Query(None, ge=-720, le=840),
+    user: User = Depends(require_admin_or_hr),
 ) -> AttendanceDayResponse:
     shift = _shift_settings(shift_start, shift_end, late_grace_min, early_exit_grace_min, tz_offset_minutes)
     target = _parse_iso_date(date, "date") if date else _today_local(shift.tz_offset_min)
@@ -109,6 +127,9 @@ def daily(
         base_url=base_url,
         expected_names=expected or None,
     )
+    filter_active, target_company = hr_scope(user)
+    if filter_active:
+        rows = _filter_rows_by_hr_company(rows, target_company)
     items = [AttendanceRecord(**row) for row in rows]
     return AttendanceDayResponse(
         date=target.isoformat(),
@@ -129,6 +150,7 @@ def range_(
     late_grace_min: Optional[int] = Query(None, ge=0, le=240),
     early_exit_grace_min: Optional[int] = Query(None, ge=0, le=240),
     tz_offset_minutes: Optional[int] = Query(None, ge=-720, le=840),
+    user: User = Depends(require_admin_or_hr),
 ) -> AttendanceRangeResponse:
     shift = _shift_settings(shift_start, shift_end, late_grace_min, early_exit_grace_min, tz_offset_minutes)
     start_d = _parse_iso_date(start, "start")
@@ -146,6 +168,9 @@ def range_(
         base_url=base_url,
         name_filter=name,
     )
+    filter_active, target_company = hr_scope(user)
+    if filter_active:
+        rows = _filter_rows_by_hr_company(rows, target_company)
     items = [AttendanceRecord(**row) for row in rows]
     return AttendanceRangeResponse(
         start=start_d.isoformat(),

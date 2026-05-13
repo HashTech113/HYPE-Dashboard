@@ -6,16 +6,53 @@ const FACE_API_BASE =
 
 /** Backend fetch with Authorization: Bearer attached. On 401 we clear the
  * stale session so the next route guard bounces to /login — otherwise the
- * UI would silently show empty data. */
+ * UI would silently show empty data.
+ *
+ * In-flight dedup: when multiple components mount at once and each calls
+ * the same GET (e.g. several panels all want /api/cameras), we coalesce
+ * them into one network request. The kept ``Response`` is internal and
+ * EVERY caller (first or coalesced) receives its own ``.clone()`` —
+ * never the original. That way one caller calling ``.json()`` can't
+ * race with another caller still trying to ``.clone()``: each clone
+ * has its own independent body stream. Non-GET requests bypass dedup
+ * since they're not idempotent. */
+const _inFlight = new Map<string, Promise<Response>>();
+
 async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const token = getAuthToken();
   const headers = new Headers(init.headers ?? {});
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  const response = await fetch(input, { ...init, headers });
-  if (response.status === 401) {
-    signOut();
+  const method = (init.method ?? "GET").toUpperCase();
+  const isDedupable = method === "GET" && !init.body;
+
+  // Dedup key includes auth so a token rotation doesn't reuse an
+  // unauthenticated response.
+  const dedupKey = isDedupable ? `${method} ${input} ${token ?? "anon"}` : "";
+
+  let fetchPromise = isDedupable ? _inFlight.get(dedupKey) : undefined;
+  if (!fetchPromise) {
+    fetchPromise = (async () => {
+      const response = await fetch(input, { ...init, headers });
+      if (response.status === 401) signOut();
+      return response;
+    })();
+    if (isDedupable) {
+      _inFlight.set(dedupKey, fetchPromise);
+      // Clear when the underlying fetch settles, regardless of how
+      // the caller awaits or whether they consume the body.
+      fetchPromise.finally(() => {
+        if (_inFlight.get(dedupKey) === fetchPromise) {
+          _inFlight.delete(dedupKey);
+        }
+      });
+    }
   }
-  return response;
+
+  const shared = await fetchPromise;
+  // ALWAYS return a clone — even the first caller. The original
+  // ``shared`` Response is kept internally and never exposed, so no
+  // caller can consume its body and break another caller's ``clone()``.
+  return shared.clone();
 }
 
 export type Employee = {
@@ -138,19 +175,10 @@ export async function getOverviewData() {
 }
 
 export async function getEmployees(): Promise<Employee[]> {
-  try {
-    const resp = await authFetch(buildUrl("/api/employees", {}));
-    if (resp.ok) {
-      const payload = (await resp.json()) as { items: Employee[] };
-      if (Array.isArray(payload.items) && payload.items.length > 0) {
-        return payload.items;
-      }
-    }
-  } catch {
-    // fall through to mock
-  }
-  const data = await loadDashboardData();
-  return data.employees;
+  const resp = await authFetch(buildUrl("/api/employees", {}));
+  if (!resp.ok) throw new Error(`getEmployees ${resp.status}`);
+  const payload = (await resp.json()) as { items: Employee[] };
+  return Array.isArray(payload.items) ? payload.items : [];
 }
 
 export async function createEmployeeRemote(employee: Employee): Promise<Employee> {
@@ -178,6 +206,263 @@ export async function deleteEmployeeRemote(id: string): Promise<void> {
     method: "DELETE",
   });
   if (!resp.ok && resp.status !== 404) throw new Error(`deleteEmployee ${resp.status}`);
+}
+
+export type Company = {
+  id: number;
+  name: string;
+  employeeCount: number;
+  hasUsers: boolean;
+};
+
+async function readErrorDetail(resp: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await resp.json()) as { detail?: unknown };
+    if (typeof body?.detail === "string" && body.detail.trim()) return body.detail;
+  } catch {
+    // not JSON — fall through to the generic message
+  }
+  return `${fallback} (${resp.status})`;
+}
+
+export async function getCompanies(): Promise<Company[]> {
+  const resp = await authFetch(buildUrl("/api/companies", {}));
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "getCompanies"));
+  const data = (await resp.json()) as { items: Company[] };
+  return data.items ?? [];
+}
+
+export async function renameCompany(id: number, name: string): Promise<Company> {
+  const resp = await authFetch(buildUrl(`/api/companies/${id}`, {}), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "renameCompany"));
+  return (await resp.json()) as Company;
+}
+
+export async function deleteCompany(id: number): Promise<void> {
+  const resp = await authFetch(buildUrl(`/api/companies/${id}`, {}), {
+    method: "DELETE",
+  });
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "deleteCompany"));
+}
+
+export type FaceImage = {
+  id: number;
+  employeeId: string;
+  label: string;
+  imageUrl: string;
+  createdBy?: string | null;
+  createdAt: string;
+  embeddingId?: number | null;
+  embeddingError?: string | null;
+  qualityScore?: number | null;
+};
+
+export async function getFaceImages(employeeId: string): Promise<FaceImage[]> {
+  const resp = await authFetch(
+    buildUrl(`/api/employees/${encodeURIComponent(employeeId)}/face-images`, {}),
+  );
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "getFaceImages"));
+  const data = (await resp.json()) as { items: FaceImage[] };
+  return data.items ?? [];
+}
+
+export async function addFaceImage(
+  employeeId: string,
+  image: string,
+  label = "",
+): Promise<FaceImage> {
+  const resp = await authFetch(
+    buildUrl(`/api/employees/${encodeURIComponent(employeeId)}/face-images`, {}),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image, label }),
+    },
+  );
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "addFaceImage"));
+  return (await resp.json()) as FaceImage;
+}
+
+export async function deleteFaceImage(id: number): Promise<void> {
+  const resp = await authFetch(buildUrl(`/api/face-images/${id}`, {}), {
+    method: "DELETE",
+  });
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "deleteFaceImage"));
+}
+
+export type FaceEnrollSummary = {
+  employeeId: string;
+  accepted: number;
+  rejected: number;
+  total: number;
+  items: FaceImage[];
+};
+
+export async function enrollFaceImages(employeeId: string): Promise<FaceEnrollSummary> {
+  const resp = await authFetch(
+    buildUrl(`/api/employees/${encodeURIComponent(employeeId)}/face-images/enroll`, {}),
+    { method: "POST" },
+  );
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "enrollFaceImages"));
+  return (await resp.json()) as FaceEnrollSummary;
+}
+
+export type CaptureFromCameraPayload = {
+  cameraId: string;
+  label?: string;
+  maxFrameAgeSeconds?: number;
+};
+
+export async function captureFaceFromCamera(
+  employeeId: string,
+  payload: CaptureFromCameraPayload,
+): Promise<FaceImage> {
+  const resp = await authFetch(
+    buildUrl(`/api/employees/${encodeURIComponent(employeeId)}/face-images/capture`, {}),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    },
+  );
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "captureFaceFromCamera"));
+  return (await resp.json()) as FaceImage;
+}
+
+export type AdminUser = {
+  id: string;
+  username: string;
+  role: "admin" | "hr";
+  company: string;
+  displayName: string;
+  isActive: boolean;
+};
+
+export type AdminUserCreate = {
+  username: string;
+  role: "admin" | "hr";
+  company: string;
+  displayName: string;
+  password?: string;
+};
+
+export type AdminUserUpdate = Partial<{
+  role: "admin" | "hr";
+  company: string;
+  displayName: string;
+  isActive: boolean;
+}>;
+
+export async function getAdminUsers(): Promise<AdminUser[]> {
+  const resp = await authFetch(buildUrl("/api/admin/users", {}));
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "getAdminUsers"));
+  const data = (await resp.json()) as { items: AdminUser[] };
+  return data.items ?? [];
+}
+
+export async function createAdminUser(
+  payload: AdminUserCreate,
+): Promise<AdminUser & { generatedPassword: string | null }> {
+  const resp = await authFetch(buildUrl("/api/admin/users", {}), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "createAdminUser"));
+  return (await resp.json()) as AdminUser & { generatedPassword: string | null };
+}
+
+export async function updateAdminUser(
+  id: string,
+  patch: AdminUserUpdate,
+): Promise<AdminUser> {
+  const resp = await authFetch(buildUrl(`/api/admin/users/${encodeURIComponent(id)}`, {}), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "updateAdminUser"));
+  return (await resp.json()) as AdminUser;
+}
+
+export async function resetAdminUserPassword(
+  id: string,
+  password: string,
+): Promise<AdminUser> {
+  const resp = await authFetch(
+    buildUrl(`/api/admin/users/${encodeURIComponent(id)}/reset-password`, {}),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    },
+  );
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "resetAdminUserPassword"));
+  return (await resp.json()) as AdminUser;
+}
+
+export type SnapshotStats = {
+  tables: Record<string, { rows: number; rowsWithImage: number; approxBytes: number }>;
+  totalRows: number;
+  totalRowsWithImage: number;
+  totalBytes: number;
+  oldestImageTimestamp: string | null;
+};
+
+export async function getSnapshotStats(): Promise<SnapshotStats> {
+  const resp = await authFetch(buildUrl("/api/admin/snapshots/stats", {}));
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "getSnapshotStats"));
+  return (await resp.json()) as SnapshotStats;
+}
+
+export async function purgeSnapshotsBefore(beforeDate: string): Promise<{
+  status: string;
+  before_date: string;
+  cleared: Record<string, number>;
+}> {
+  const resp = await authFetch(
+    buildUrl("/api/admin/snapshots/purge", { before_date: beforeDate }),
+    { method: "DELETE" },
+  );
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "purgeSnapshotsBefore"));
+  return await resp.json();
+}
+
+export type ReportKind = "summary" | "range" | "daily";
+
+/** Download an attendance report as .xlsx. Triggers the browser save dialog
+ * by streaming the bytes through a temporary anchor click. */
+export async function downloadAttendanceXlsx(
+  kind: ReportKind,
+  params: Record<string, string>,
+): Promise<void> {
+  const path = `/api/reports/${kind}.xlsx`;
+  const resp = await authFetch(buildUrl(path, params));
+  if (!resp.ok) throw new Error(await readErrorDetail(resp, "downloadAttendanceXlsx"));
+
+  const filename =
+    parseFilenameFromContentDisposition(resp.headers.get("content-disposition")) ??
+    `attendance-${kind}.xlsx`;
+
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function parseFilenameFromContentDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const match = /filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i.exec(header);
+  return match ? decodeURIComponent(match[1]) : null;
 }
 
 export async function getPresenceHistory() {
@@ -303,6 +588,9 @@ export type SnapshotLogItem = {
   company: string | null;
   timestamp: string;
   image_url: string;
+  /** Empty string for legacy single-camera or pre-multi-camera snapshots;
+   * populated with the cameras.id once the camera is connected via admin UI. */
+  camera_id?: string;
 };
 
 export type SnapshotLogResponse = {
@@ -437,6 +725,10 @@ export type Camera = {
   rtsp_path: string;
   rtsp_url_preview: string;
   connection_status: CameraConnectionStatus;
+  enable_face_ingest: boolean;
+  auto_discovery_enabled: boolean;
+  last_known_ip: string | null;
+  last_discovered_at: string | null;
   last_checked_at: string | null;
   last_check_message: string | null;
   created_at: string;
@@ -459,6 +751,8 @@ export type CameraCreatePayload = {
   username: string;
   password: string;
   rtsp_path: string;
+  enable_face_ingest?: boolean;
+  auto_discovery_enabled?: boolean;
 };
 
 export type CameraUpdatePayload = Partial<CameraCreatePayload>;
@@ -545,6 +839,33 @@ export async function getCameraStreamToken(id: string): Promise<{ token: string;
  * query string because <img> can't set Authorization. */
 export function buildCameraStreamUrl(id: string, token: string): string {
   return `${FACE_API_BASE}/api/cameras/${encodeURIComponent(id)}/stream?token=${encodeURIComponent(token)}`;
+}
+
+export type RecognitionWorkerHealth = {
+  cameraId: string;
+  name: string;
+  rtspUrl: string;
+  running: boolean;
+  connected: boolean;
+  framesRead: number;
+  facesDetected: number;
+  matchesRecorded: number;
+  secondsSinceLastFrame?: number | null;
+  secondsSinceLastMatch?: number | null;
+  lastError?: string | null;
+  backoffSeconds: number;
+};
+
+export type RecognitionWorkersHealthResponse = {
+  workers: RecognitionWorkerHealth[];
+  enabled: boolean;
+};
+
+export async function getRecognitionWorkersHealth(): Promise<RecognitionWorkersHealthResponse> {
+  const resp = await authFetch(buildUrl("/api/recognition/workers/health", {}), {
+    cache: "no-store",
+  });
+  return jsonOrThrow<RecognitionWorkersHealthResponse>(resp, "Failed to load worker status");
 }
 
 // ---- Attendance corrections (HR/Admin report-level edits) -----------------
