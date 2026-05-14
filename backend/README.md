@@ -63,31 +63,65 @@ backend/
 
 ## Setup
 
+### Ubuntu / Linux
+
 ```bash
 cd backend
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Windows (PowerShell)
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
 ## Run
 
-### Backend only (local)
+### Backend only (local, recommended)
+
+Ubuntu / Linux:
 
 ```bash
 bash backend/start.sh
 ```
 
+Windows:
+
+- Use **Git Bash** or **WSL** for `bash backend/start.sh`, or
+- Run the manual PowerShell commands below.
+
 `start.sh` supervises `uvicorn`, `capture.py`, `backfill_from_camera.py`, and optional replay sync loops. If not set, `INGEST_API_URL` defaults to the production Railway ingest URL.
 
 ### Two terminals (manual)
 
+Ubuntu / Linux:
+
 ```bash
 # terminal 1 — API
-cd backend && source .venv/bin/activate && uvicorn app.main:app --reload --port 8000
+cd backend && source .venv/bin/activate && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 # terminal 2 — capture
 cd backend && source .venv/bin/activate && python capture.py
+```
+
+Windows (PowerShell):
+
+```powershell
+# terminal 1 — API
+cd backend
+.\.venv\Scripts\Activate.ps1
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# terminal 2 — capture
+cd backend
+.\.venv\Scripts\Activate.ps1
+python capture.py
 ```
 
 `capture.py` always writes to the local DB through `/api/ingest` when running with the API. Set `INGEST_API_URL` only for optional remote replication (comma-separated targets):
