@@ -152,9 +152,32 @@ def _latest_with_image(snaps_sorted: list[Snapshot]) -> Optional[Snapshot]:
     return None
 
 
+BreakPair = tuple[Snapshot, Snapshot, int]
+
+
+def _movement_event(
+    *,
+    snap: Snapshot,
+    movement_type: str,
+    tz_offset_min: int,
+) -> dict:
+    local_dt = _to_local(snap.entry, tz_offset_min)
+    return {
+        "event_id": f"{movement_type.lower().replace(' ', '_')}|{snap.filename}",
+        "movement_type": movement_type,
+        "timestamp": local_dt.strftime("%H:%M:%S"),
+        "timestamp_iso": local_dt.isoformat(),
+        "snapshot_url": _image_url_for(snap),
+        "snapshot_archived": not bool(snap.image_data),
+        "camera_id": snap.camera_id or "",
+        "camera_name": (snap.camera_name or "").strip() or None,
+        "confidence": float(snap.score) if snap.score is not None else None,
+    }
+
+
 def _detect_breaks(
     snaps_sorted: list[Snapshot], tz_offset_min: int
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict], int, list[BreakPair]]:
     """Return (break_details, total_break_seconds).
 
     A break is a gap between consecutive captures of at least
@@ -168,9 +191,10 @@ def _detect_breaks(
     best with dense captures; sparse data may need manual correction.
     """
     if len(snaps_sorted) < 4:
-        return [], 0
+        return [], 0, []
     threshold = BREAK_GAP_THRESHOLD_MIN * 60
     breaks: list[dict] = []
+    break_pairs: list[BreakPair] = []
     total = 0
     # Inspect only intermediate gaps: indices 2..len-2 (gaps between
     # snaps_sorted[i-1] and snaps_sorted[i] where neither end is the global
@@ -190,8 +214,75 @@ def _detect_breaks(
                 "duration_seconds": gap,
                 "duration": _format_hours_minutes_seconds(gap),
             })
+            break_pairs.append((prev, cur, gap))
             total += gap
-    return breaks, total
+    return breaks, total, break_pairs
+
+
+def _build_movement_history(
+    *,
+    snaps_sorted: list[Snapshot],
+    break_pairs: list[BreakPair],
+    include_final_exit: bool,
+    tz_offset_min: int,
+) -> list[dict]:
+    if not snaps_sorted:
+        return []
+    first = snaps_sorted[0]
+    events: list[tuple[datetime, int, dict]] = []
+    sequence = 0
+    events.append(
+        (
+            first.entry,
+            sequence,
+            _movement_event(
+                snap=first,
+                movement_type="Entry",
+                tz_offset_min=tz_offset_min,
+            ),
+        )
+    )
+    sequence += 1
+    for break_out, break_in, _gap in break_pairs:
+        events.append(
+            (
+                break_out.entry,
+                sequence,
+                _movement_event(
+                    snap=break_out,
+                    movement_type="Break Out",
+                    tz_offset_min=tz_offset_min,
+                ),
+            )
+        )
+        sequence += 1
+        events.append(
+            (
+                break_in.entry,
+                sequence,
+                _movement_event(
+                    snap=break_in,
+                    movement_type="Break In",
+                    tz_offset_min=tz_offset_min,
+                ),
+            )
+        )
+        sequence += 1
+    if include_final_exit and len(snaps_sorted) > 1:
+        last = snaps_sorted[-1]
+        events.append(
+            (
+                last.entry,
+                sequence,
+                _movement_event(
+                    snap=last,
+                    movement_type="Final Exit",
+                    tz_offset_min=tz_offset_min,
+                ),
+            )
+        )
+    events.sort(key=lambda item: (item[0], item[1]))
+    return [payload for _ts, _seq, payload in events]
 
 
 def _parse_iso(value: Optional[str], tz_offset_min: int) -> Optional[datetime]:
@@ -218,9 +309,16 @@ def build_daily_records(
     base_url: str,
     expected_names: Optional[list[str]] = None,
     corrections: Optional[dict[tuple[str, str], dict]] = None,
+    rollups: Optional[dict[tuple[str, str], dict]] = None,
 ) -> list[dict]:
     """One record per name detected on `target_date` (local). Optionally
     fills in 'Absent' rows for `expected_names` not found.
+
+    ``rollups`` (optional) — keyed by ``(name_lower, date_iso)``. When
+    present for a given (name, date), the rollup row is authoritative for
+    in_time / out_time / break / work seconds / late / early / status —
+    these override the gap-based derivation. HR corrections still win on
+    top of the rollup, mirroring the legacy precedence.
     """
     # Group case-insensitively (matches the cleanup job's key) but keep the
     # first display-cased name we see so the report shows the original
@@ -271,7 +369,44 @@ def build_daily_records(
             missing_checkout = False
             is_active = False
 
-        break_details, total_break_seconds = _detect_breaks(snaps_sorted, shift.tz_offset_min)
+        break_details, total_break_seconds, break_pairs = _detect_breaks(
+            snaps_sorted, shift.tz_offset_min
+        )
+
+        # Rollup-first: if the attendance state machine has already
+        # settled this person's day in ``daily_attendance``, replace the
+        # gap-based view with the persisted rollup. Image URLs, movement
+        # history, and per-break detail stay from the gap-based path
+        # because the rollup doesn't carry that detail. HR corrections in
+        # the block below still win over the rollup.
+        rollup_row: Optional[dict] = (rollups or {}).get(
+            (key, target_date.isoformat())
+        )
+        if rollup_row is not None:
+            r_in = rollup_row.get("in_time")
+            r_out = rollup_row.get("out_time")
+            r_in_dt: Optional[datetime] = None
+            r_out_dt: Optional[datetime] = None
+            if isinstance(r_in, datetime):
+                r_in_dt = r_in
+            elif r_in is not None:
+                r_in_dt = _parse_iso(str(r_in), shift.tz_offset_min)
+            if isinstance(r_out, datetime):
+                r_out_dt = r_out
+            elif r_out is not None:
+                r_out_dt = _parse_iso(str(r_out), shift.tz_offset_min)
+            if r_in_dt is not None:
+                entry_local = _to_local(r_in_dt, shift.tz_offset_min)
+            if r_out_dt is not None:
+                exit_local = _to_local(r_out_dt, shift.tz_offset_min)
+                missing_checkout = False
+            rb = rollup_row.get("total_break_seconds")
+            if rb is not None:
+                total_break_seconds = int(rb)
+                # Clear the gap-based break_details/pairs so the rendered
+                # break total agrees with what's in the rollup.
+                break_details = []
+                break_pairs = []
 
         # Apply manual correction overrides, if any.
         correction = (corrections or {}).get((key, target_date.isoformat()))
@@ -290,6 +425,7 @@ def build_daily_records(
             if cb is not None:
                 total_break_seconds = int(cb)
                 break_details = []  # break_details only describe auto-detected gaps
+                break_pairs = []
                 correction_applied = True
             if int(correction.get("missing_checkout_resolved") or 0) == 1:
                 missing_checkout = False
@@ -300,15 +436,39 @@ def build_daily_records(
             total_hours_str = "—"
             total_break_seconds = 0  # no exit -> break math is meaningless
             break_details = []
+            break_pairs = []
         else:
             span = max(0, int((exit_local - entry_local).total_seconds()))
             total_sec = max(0, span - total_break_seconds)
             total_hours_str = _format_hours_minutes_seconds(total_sec)
 
+        movement_history = _build_movement_history(
+            snaps_sorted=snaps_sorted,
+            break_pairs=break_pairs,
+            include_final_exit=not only_one,
+            tz_offset_min=shift.tz_offset_min,
+        )
+
         total_min = total_sec // 60
         status, late_min, early_min, late_seconds, early_exit_seconds = _classify(
             entry_local, exit_local, shift
         )
+
+        # If the rollup is authoritative for this (name, date), trust its
+        # late/early/status over the gap-based classification. Seconds
+        # don't exist on the rollup so we synthesise them from minutes.
+        if rollup_row is not None:
+            r_late = rollup_row.get("late_minutes")
+            r_early = rollup_row.get("early_exit_minutes")
+            r_status = rollup_row.get("status")
+            if r_late is not None:
+                late_min = int(r_late)
+                late_seconds = late_min * 60
+            if r_early is not None:
+                early_min = int(r_early)
+                early_exit_seconds = early_min * 60
+            if r_status:
+                status = str(r_status)
 
         # Report-level overrides win over the auto-classified status. These
         # are HR-set and reflect things the camera pipeline can't infer.
@@ -340,6 +500,7 @@ def build_daily_records(
             "total_break_seconds": total_break_seconds,
             "total_break_time": _format_hours_minutes_seconds(total_break_seconds),
             "break_details": break_details,
+            "movement_history": movement_history,
             "status": status,
             "late_minutes": late_min,
             "late_seconds": late_seconds,
@@ -388,6 +549,7 @@ def build_daily_records(
             "total_break_seconds": 0,
             "total_break_time": "—",
             "break_details": [],
+            "movement_history": [],
             "status": override_status,
             "late_minutes": 0,
             "late_seconds": 0,
@@ -439,6 +601,7 @@ def build_range_records(
     base_url: str,
     name_filter: Optional[str] = None,
     corrections: Optional[dict[tuple[str, str], dict]] = None,
+    rollups: Optional[dict[tuple[str, str], dict]] = None,
 ) -> list[dict]:
     """Daily records across a date range. If `name_filter` is given, only
     that person's days are returned (case-insensitive, ignores extra spaces).
@@ -458,6 +621,7 @@ def build_range_records(
                 shift=shift,
                 base_url=base_url,
                 corrections=corrections,
+                rollups=rollups,
             )
         )
         cursor += timedelta(days=1)

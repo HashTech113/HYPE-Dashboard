@@ -1,14 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Expand, MapPin, Minimize, RefreshCw, Video, VideoOff } from "lucide-react";
+import { Expand, MapPin, Minimize, RefreshCw, UserX, Video, VideoOff } from "lucide-react";
 import { SectionShell } from "@/components/dashboard/SectionShell";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   buildCameraStreamUrl,
+  getCameraDetections,
   getCameraStreamToken,
   listCameras,
   type Camera,
+  type LiveDetection,
 } from "@/api/dashboardApi";
 
 // Admin-only guard lives on the parent layout (_dashboard.cameras.tsx).
@@ -120,6 +122,7 @@ function EmptyState({ totalCameras }: { totalCameras: number }) {
 }
 
 const STREAM_TOKEN_REFRESH_MS = 4 * 60 * 1000; // refresh ~1 min before 5-min expiry
+const DETECTIONS_POLL_MS = 1500;
 
 function CameraTile({ camera }: { camera: Camera }) {
   // Each <img> reload triggers a fresh GET; we rotate the token periodically
@@ -129,6 +132,8 @@ function CameraTile({ camera }: { camera: Camera }) {
   const [streamError, setStreamError] = useState<string | null>(null);
   const [imgFailed, setImgFailed] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [detections, setDetections] = useState<LiveDetection[]>([]);
+  const [detectionsStale, setDetectionsStale] = useState(false);
   const refreshRef = useRef<number | null>(null);
   const tileRef = useRef<HTMLDivElement | null>(null);
 
@@ -167,6 +172,34 @@ function CameraTile({ camera }: { camera: Camera }) {
     document.addEventListener("fullscreenchange", onFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
   }, []);
+
+  // Poll the structured detections endpoint so we can show
+  // `name · 74%` chips below the MJPEG. The MJPEG itself already
+  // paints the same data onto the frame; this strip surfaces the
+  // most recent values as accessible text + a freshness indicator.
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const out = await getCameraDetections(camera.id);
+        if (cancelled) return;
+        setDetections(out.detections);
+        setDetectionsStale(
+          out.age_seconds !== null && out.age_seconds > 5,
+        );
+      } catch {
+        if (cancelled) return;
+        setDetections([]);
+        setDetectionsStale(true);
+      }
+    };
+    void tick();
+    const handle = window.setInterval(() => void tick(), DETECTIONS_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(handle);
+    };
+  }, [camera.id]);
 
   const toggleFullscreen = async () => {
     const tile = tileRef.current;
@@ -242,6 +275,53 @@ function CameraTile({ camera }: { camera: Camera }) {
           </Button>
         </div>
       </div>
+      <DetectionsStrip detections={detections} stale={detectionsStale} />
     </div>
+  );
+}
+
+function DetectionsStrip({
+  detections,
+  stale,
+}: {
+  detections: LiveDetection[];
+  stale: boolean;
+}) {
+  if (detections.length === 0) {
+    return (
+      <div className="border-t border-slate-100 px-4 py-2 text-[11px] text-slate-400">
+        Waiting for first recognition…
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 border-t border-slate-100 px-4 py-2">
+      {detections.slice(0, 6).map((d, i) => (
+        <DetectionChip key={`${d.employee_id ?? "u"}-${i}`} detection={d} />
+      ))}
+      {stale ? (
+        <span className="text-[10px] text-slate-400" title="Detection data older than 5s">
+          stale
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function DetectionChip({ detection }: { detection: LiveDetection }) {
+  const pct = Math.round(Math.max(0, Math.min(1, detection.score)) * 100);
+  if (detection.matched) {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+        {detection.name} · {pct}%
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-700">
+      <UserX className="h-3 w-3" />
+      Unknown · {pct}%
+    </span>
   );
 }

@@ -36,7 +36,13 @@ class RecognitionService:
         *,
         threshold: Optional[float] = None,
     ) -> MatchResult:
-        thr = float(threshold) if threshold is not None else FACE_MATCH_THRESHOLD
+        # Explicit caller threshold wins; otherwise read the live setting
+        # (with a 5s cache so 5 fps × 4 cams doesn't hammer the DB).
+        if threshold is not None:
+            thr = float(threshold)
+        else:
+            from .recognition_config import get_recognition_settings
+            thr = float(get_recognition_settings().face_match_threshold)
         matrix, ids, _ = self._cache.snapshot()
         if matrix is None or matrix.size == 0:
             return MatchResult(None, 0.0, 0.0)
@@ -94,18 +100,33 @@ class _Cooldown:
     moment would still write two rows."""
 
     def __init__(self, window_seconds: float = 5.0) -> None:
+        # Stored as a default fallback; the live ``hit()`` call always
+        # consults the settings table so admin tunes take effect without
+        # a worker restart.
         self._window = float(window_seconds)
         self._last: dict[str, float] = {}
         self._lock = threading.Lock()
 
+    def _live_window(self) -> float:
+        """Active cooldown window in seconds — read from the runtime
+        settings table, falling back to the constructor default if the
+        settings module can't be loaded for any reason."""
+        try:
+            from .recognition_config import get_recognition_settings
+            return float(get_recognition_settings().cooldown_seconds)
+        except Exception:  # noqa: BLE001 — fail safe to the default
+            return self._window
+
     def hit(self, employee_id: str, *, now: Optional[float] = None) -> bool:
         """Returns True if the event should be allowed through (no
         recent record), False if it's within the cooldown window. Side
-        effect: stamps the timestamp on a successful hit."""
+        effect: stamps the timestamp on a successful hit. Window length
+        is admin-tunable — see ``_live_window()``."""
         ts = now if now is not None else time.monotonic()
+        window = self._live_window()
         with self._lock:
             last = self._last.get(employee_id, 0.0)
-            if ts - last < self._window:
+            if ts - last < window:
                 return False
             self._last[employee_id] = ts
             return True

@@ -158,6 +158,23 @@ class RecognitionWorker:
         self._latest_frame: Optional[np.ndarray] = None
         self._latest_frame_at: Optional[float] = None
         self._latest_frame_lock = threading.Lock()
+        # Structured detection cache for the JSON live-view endpoint —
+        # populated on every inference pass with the bbox/name/score for
+        # every face in the most recent frame (matched AND unmatched).
+        # The live MJPEG already paints these onto the JPEG bytes; this
+        # field exposes them as JSON so the React UI can render a
+        # separate detection list with confidence numbers.
+        self._latest_detections: list[dict] = []
+        self._latest_detections_at: Optional[float] = None
+        self._latest_detections_lock = threading.Lock()
+
+    def latest_detections(self) -> tuple[list[dict], Optional[float]]:
+        """Return (detections_list, monotonic_ts) for the most recent
+        inference pass. Returns an empty list when no inference has run
+        yet. Detection dicts have the keys: bbox, name, employee_id,
+        score, matched."""
+        with self._latest_detections_lock:
+            return list(self._latest_detections), self._latest_detections_at
 
     def latest_frame(self) -> tuple[Optional[np.ndarray], Optional[float]]:
         """Return a copy of the most recent frame + the monotonic clock
@@ -282,7 +299,6 @@ class RecognitionWorker:
         """
         cap = self._cap
         assert cap is not None
-        detect_interval = max(0.2, float(CAPTURE_INTERVAL_SECONDS))
         frame_period = 1.0 / 8.0  # 8 FPS live feed
         cooldown = get_cooldown()
         # Carry detections from one inference pass to subsequent frames
@@ -309,8 +325,16 @@ class RecognitionWorker:
                 self._latest_frame = frame
                 self._latest_frame_at = self.status.last_frame_at
 
-            # ----- Inference cadence: heavy work, only every detect_interval -----
+            # ----- Inference cadence: heavy work, throttled to camera_fps -----
             if t0 >= next_detect_at:
+                # Read live settings (TTL-cached, so this is sub-ms).
+                # `camera_fps` controls detection cadence; `recognize_min_
+                # face_size_px` filters out distant faces too small for a
+                # reliable embedding match.
+                from .recognition_config import get_recognition_settings
+                rcfg = get_recognition_settings()
+                detect_interval = 1.0 / float(max(1, rcfg.camera_fps))
+                min_size_px = int(rcfg.recognize_min_face_size_px)
                 try:
                     faces = self._face.detect(frame)
                 except FaceRecognitionError as exc:
@@ -319,6 +343,12 @@ class RecognitionWorker:
                 except Exception as exc:
                     self.status.last_error = f"detect crashed: {exc}"
                     faces = []
+
+                if min_size_px > 0 and faces:
+                    faces = [
+                        f for f in faces
+                        if min(f.bbox[2] - f.bbox[0], f.bbox[3] - f.bbox[1]) >= min_size_px
+                    ]
 
                 self.status.faces_detected += len(faces)
 
@@ -330,43 +360,111 @@ class RecognitionWorker:
                 from .embedding_cache import get_embedding_cache
                 id_to_name = get_embedding_cache().id_to_name_map()
                 new_faces_with_match: list[tuple] = []
+                unmatched_faces: list = []
+                structured: list[dict] = []
                 for face in faces:
                     result = self._recog.match(face.embedding)
                     if result.employee_id:
                         name = id_to_name.get(result.employee_id, result.employee_id)
                         new_faces_with_match.append((face.bbox, name, result.score, result.employee_id))
+                        structured.append({
+                            "bbox": [int(face.bbox[0]), int(face.bbox[1]), int(face.bbox[2]), int(face.bbox[3])],
+                            "name": name,
+                            "employee_id": result.employee_id,
+                            "score": float(result.score),
+                            "matched": True,
+                        })
                     else:
                         new_faces_with_match.append((face.bbox, None, result.score, None))
+                        unmatched_faces.append(face)
+                        structured.append({
+                            "bbox": [int(face.bbox[0]), int(face.bbox[1]), int(face.bbox[2]), int(face.bbox[3])],
+                            "name": "Unknown",
+                            "employee_id": None,
+                            "score": float(result.score),
+                            "matched": False,
+                        })
 
-                # Existing logging behavior — only matched faces that
-                # clear the per-employee cooldown produce a snapshot_logs row.
+                # Publish the structured detection list so /api/cameras/
+                # {id}/detections can surface it to the React UI without
+                # parsing the painted MJPEG.
+                with self._latest_detections_lock:
+                    self._latest_detections = structured
+                    self._latest_detections_at = time.monotonic()
+
+                # Unknown-face capture: every face that failed to match an
+                # employee gets handed to the clustering pipeline. Failures
+                # here NEVER touch attendance logging — try/except keeps the
+                # recognition loop alive even if the DB or disk hiccups.
+                if unmatched_faces:
+                    try:
+                        from .unknown_capture import UnknownCaptureService
+                        from ..db import session_scope
+                        with session_scope() as unk_session:
+                            svc = UnknownCaptureService(unk_session)
+                            for f in unmatched_faces:
+                                svc.maybe_capture(
+                                    face=f,
+                                    frame_bgr=frame,
+                                    camera_id=self.job.id,
+                                )
+                    except Exception:
+                        log.exception(
+                            "recog %s: unknown-capture dispatch failed (continuing)",
+                            self.job.name,
+                        )
+
+                # Matched faces past their per-employee cooldown get fed
+                # to the attendance state machine, which decides whether
+                # this detection becomes an IN / BREAK_OUT / BREAK_IN /
+                # (no-op) based on the camera's type and the employee's
+                # current state for the local day. The state machine
+                # writes the row + recomputes the daily rollup; failures
+                # are logged but never break the recognition loop.
+                from datetime import datetime, timezone
+                from ..config import LOCAL_TZ_OFFSET_MIN
+                from ..db import session_scope
+                from .attendance_state import AttendanceStateMachine
+
                 for bbox, name, score, employee_id in new_faces_with_match:
                     if employee_id is None:
                         continue
                     if not cooldown.hit(employee_id):
                         continue
-                    # Encode the face crop as JPEG for snapshot_logs.
-                    # Using the face crop (not the full frame) keeps row
-                    # size in line with what the existing capture.py emits.
-                    crop = _crop_face(frame, bbox)
-                    ok_enc, jpg = cv2.imencode(".jpg", crop, [int(cv2.IMWRITE_JPEG_QUALITY), 80])
-                    if not ok_enc:
-                        continue
-                    import base64
-                    from datetime import datetime, timezone
-                    image_b64 = base64.b64encode(jpg.tobytes()).decode("ascii")
-                    ts_iso = datetime.now(timezone.utc).isoformat()
-                    image_path = f"recog_cam_{self.job.id}_{int(time.time()*1000)}_{uuid.uuid4().hex[:6]}.jpg"
-                    stored = logs_service.record_capture(
-                        name=name or employee_id,
-                        timestamp_iso=ts_iso,
-                        image_path=image_path,
-                        image_data=image_b64,
-                        camera_id=self.job.id,
-                    )
-                    if stored:
-                        self.status.matches_recorded += 1
-                        self.status.last_match_at = time.monotonic()
+                    try:
+                        with session_scope() as ev_session:
+                            outcome = AttendanceStateMachine(
+                                ev_session, tz_offset_min=int(LOCAL_TZ_OFFSET_MIN),
+                            ).process_auto_event(
+                                employee_id=employee_id,
+                                employee_name=name or employee_id,
+                                camera_id=self.job.id,
+                                captured_at=datetime.now(timezone.utc),
+                                bbox=bbox,
+                                frame_bgr=frame,
+                                score=float(score) if score is not None else None,
+                            )
+                        if outcome.created:
+                            self.status.matches_recorded += 1
+                            self.status.last_match_at = time.monotonic()
+                        else:
+                            # Re-open the cooldown when the FSM rejected the
+                            # event (invalid transition / day_closed /
+                            # duplicate) so the next valid detection isn't
+                            # blocked behind a stale cooldown stamp.
+                            if outcome.reason.startswith("invalid_transition") or outcome.reason in (
+                                "day_closed", "duplicate", "camera_not_found",
+                                "employee_not_found_or_inactive",
+                            ):
+                                # Keep cooldown for "day_closed" and similar
+                                # terminal states — we don't want to re-attempt
+                                # for the same employee within the window.
+                                pass
+                    except Exception:
+                        log.exception(
+                            "recog %s: attendance state-machine dispatch failed (continuing)",
+                            self.job.name,
+                        )
 
                 last_faces_with_match = new_faces_with_match
                 next_detect_at = time.monotonic() + detect_interval

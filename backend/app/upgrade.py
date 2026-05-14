@@ -93,6 +93,14 @@ _NEW_COLUMNS: tuple[tuple[str, str, str], ...] = (
     # cameras.last_discovered_at: timestamp of the most recent successful
     # rediscovery (distinct from last_checked_at which tracks every probe).
     ("cameras", "last_discovered_at", "TIMESTAMP"),
+    # Recognition confidence captured at the moment a row is written.
+    # Nullable: external/manual sources and legacy rows don't have one.
+    ("attendance_logs", "score", "REAL"),
+    ("snapshot_logs", "score", "REAL"),
+    # Camera direction drives the attendance state machine. Defaults to
+    # ENTRY on every existing row so the legacy "every detection is an
+    # entry" behavior is preserved until the admin opts cameras into EXIT.
+    ("cameras", "type", "VARCHAR(8) NOT NULL DEFAULT 'ENTRY'"),
 )
 
 

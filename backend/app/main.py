@@ -36,6 +36,7 @@ from .routers import (
     recognition,
     reports,
     snapshot_admin,
+    unknowns,
     users,
 )
 from .services.auth import seed_users_if_empty
@@ -122,6 +123,19 @@ async def lifespan(_app: FastAPI):
     except Exception:
         log.exception("startup snapshot retention cleanup failed")
     retention_task = asyncio.create_task(_retention_loop(), name="snapshot-retention")
+
+    # Day-close scheduler: closes the local day at SHIFT_END+buffer so
+    # trailing BREAK_OUTs become OUT automatically. Disabled by default
+    # (DAY_CLOSE_SCHEDULER_ENABLED=1 to enable) — manual close via
+    # POST /api/attendance/close-day always works regardless.
+    try:
+        from .services.day_close_scheduler import start_if_enabled
+        if start_if_enabled():
+            log.info("day-close scheduler enabled")
+        else:
+            log.info("day-close scheduler disabled (set DAY_CLOSE_SCHEDULER_ENABLED=1 to enable)")
+    except Exception:
+        log.exception("day-close scheduler startup failed")
 
     # Load InsightFace + the embedding cache so the first /api/recognition
     # call doesn't pay the ~3-5s init cost. Failures are logged but don't
@@ -236,6 +250,7 @@ def create_app() -> FastAPI:
     app.include_router(users.router)
     app.include_router(snapshot_admin.router)
     app.include_router(admin.router)
+    app.include_router(unknowns.router)
 
     return app
 

@@ -12,12 +12,19 @@ from .api_key import ApiKey
 from .attendance import AttendanceLog, AttendanceReportEdit, SnapshotLog
 from .camera import Camera
 from .company import Company
+from .daily_attendance import DailyAttendance
 from .department import Department
 from .employee import Employee
 from .face_embedding import FaceEmbedding
 from .face_image import FaceImage
 from .setting import Setting
 from .shift import Shift
+from .unknown_face import (
+    UnknownCaptureStatus,
+    UnknownClusterStatus,
+    UnknownFaceCapture,
+    UnknownFaceCluster,
+)
 from .user import User
 
 __all__ = [
@@ -35,4 +42,9 @@ __all__ = [
     "AttendanceReportEdit",
     "Setting",
     "ApiKey",
+    "DailyAttendance",
+    "UnknownFaceCluster",
+    "UnknownFaceCapture",
+    "UnknownClusterStatus",
+    "UnknownCaptureStatus",
 ]

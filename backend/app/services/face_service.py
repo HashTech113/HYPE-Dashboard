@@ -108,16 +108,22 @@ class FaceService:
         return self._app
 
     def detect(self, frame_bgr: np.ndarray) -> list[DetectedFace]:
-        """Find faces in ``frame_bgr`` and return ones above
-        ``FACE_MIN_QUALITY``. The lock serialises calls per-instance so
-        the underlying numpy buffers stay consistent."""
+        """Find faces in ``frame_bgr`` and return ones whose detector score
+        clears the active ``face_min_quality`` setting (admin-tunable; env
+        var ``FACE_MIN_QUALITY`` is the backstop default). The lock
+        serialises calls per-instance so the underlying numpy buffers
+        stay consistent."""
+        # Local import — defers the small recognition_config DB read off
+        # the import path of this module (which the API touches at boot).
+        from .recognition_config import get_recognition_settings
+        min_quality = get_recognition_settings().face_min_quality
         app = self._ensure_loaded()
         with self._lock:
             raw = app.get(frame_bgr)
         out: list[DetectedFace] = []
         for f in raw:
             det_score = float(getattr(f, "det_score", 0.0))
-            if det_score < FACE_MIN_QUALITY:
+            if det_score < min_quality:
                 continue
             emb = getattr(f, "normed_embedding", None)
             kps = getattr(f, "kps", None)
@@ -137,6 +143,8 @@ class FaceService:
     def detect_single(self, frame_bgr: np.ndarray) -> DetectedFace:
         """Detect the best (largest) face in the frame. Raises
         FaceRecognitionError if no face passes the quality floor."""
+        from .recognition_config import get_recognition_settings
+        min_quality = get_recognition_settings().face_min_quality
         faces = self.detect(frame_bgr)
         if not faces:
             raise FaceRecognitionError("No face detected")
@@ -146,9 +154,9 @@ class FaceService:
                 reverse=True,
             )
         best = faces[0]
-        if best.det_score < FACE_MIN_QUALITY:
+        if best.det_score < min_quality:
             raise FaceRecognitionError(
-                f"Face quality too low ({best.det_score:.2f} < {FACE_MIN_QUALITY})"
+                f"Face quality too low ({best.det_score:.2f} < {min_quality})"
             )
         return best
 

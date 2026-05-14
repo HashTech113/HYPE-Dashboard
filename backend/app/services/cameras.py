@@ -41,6 +41,7 @@ class Camera:
     connection_status: str
     enable_face_ingest: bool
     auto_discovery_enabled: bool
+    type: str  # "ENTRY" or "EXIT"
     last_known_ip: Optional[str]
     last_discovered_at: Optional[str]
     last_checked_at: Optional[str]
@@ -70,6 +71,7 @@ def _model_to_camera(row: CameraModel) -> Camera:
         connection_status=str(row.connection_status or "unknown"),
         enable_face_ingest=bool(row.enable_face_ingest),
         auto_discovery_enabled=bool(row.auto_discovery_enabled),
+        type=str(getattr(row, "type", None) or "ENTRY"),
         last_known_ip=row.last_known_ip,
         last_discovered_at=_iso(row.last_discovered_at),
         last_checked_at=_iso(row.last_checked_at),
@@ -139,6 +141,7 @@ def create(
     rtsp_path: str,
     enable_face_ingest: Optional[bool] = None,
     auto_discovery_enabled: Optional[bool] = None,
+    type: Optional[str] = None,
 ) -> Camera:
     """Create a new camera row.
 
@@ -146,6 +149,9 @@ def create(
     the caller wants the model defaults (True / False respectively). The
     frontend's Add Camera dialog sends explicit values so the user's
     toggles in the form are honored at create-time.
+
+    ``type`` is ``ENTRY`` or ``EXIT``; defaults to ``ENTRY`` so existing
+    callers keep working unchanged.
     """
     new_id = f"cam-{uuid.uuid4().hex[:10]}"
     pw_enc = crypto.encrypt(password)
@@ -154,6 +160,10 @@ def create(
         extra["enable_face_ingest"] = enable_face_ingest
     if auto_discovery_enabled is not None:
         extra["auto_discovery_enabled"] = auto_discovery_enabled
+    if type is not None:
+        if type not in ("ENTRY", "EXIT"):
+            raise ValueError(f"invalid camera type: {type!r}")
+        extra["type"] = type
     with session_scope() as session:
         session.add(
             CameraModel(
@@ -187,6 +197,7 @@ def update(
     rtsp_path: Optional[str] = None,
     enable_face_ingest: Optional[bool] = None,
     auto_discovery_enabled: Optional[bool] = None,
+    type: Optional[str] = None,
 ) -> Optional[Camera]:
     with session_scope() as session:
         row = session.get(CameraModel, camera_id)
@@ -212,6 +223,10 @@ def update(
             row.enable_face_ingest = enable_face_ingest
         if auto_discovery_enabled is not None:
             row.auto_discovery_enabled = auto_discovery_enabled
+        if type is not None:
+            if type not in ("ENTRY", "EXIT"):
+                raise ValueError(f"invalid camera type: {type!r}")
+            row.type = type
         # ``onupdate`` on the model bumps updated_at automatically.
         session.flush()
         return _model_to_camera(row)

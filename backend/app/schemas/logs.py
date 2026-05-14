@@ -33,6 +33,18 @@ class BreakInterval(BaseModel):
     duration: str
 
 
+class AttendanceMovementEvent(BaseModel):
+    event_id: str
+    movement_type: str
+    timestamp: str
+    timestamp_iso: str
+    snapshot_url: Optional[str] = None
+    snapshot_archived: bool = False
+    camera_id: Optional[str] = None
+    camera_name: Optional[str] = None
+    confidence: Optional[float] = None
+
+
 class AttendanceSummaryItem(BaseModel):
     id: str
     name: str
@@ -50,6 +62,7 @@ class AttendanceSummaryItem(BaseModel):
     total_break_time: str
     total_break_seconds: int
     break_details: list[BreakInterval] = []
+    movement_history: list[AttendanceMovementEvent] = []
     entry_image_url: Optional[str]
     exit_image_url: Optional[str]
     entry_image_archived: bool = False

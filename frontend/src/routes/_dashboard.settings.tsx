@@ -6,6 +6,7 @@ import {
   CalendarCheck,
   UserCog,
   Building2,
+  ScanFace,
 } from "lucide-react";
 
 import { SectionShell } from "@/components/dashboard/SectionShell";
@@ -16,12 +17,13 @@ import { EditEmployeesPanel } from "@/components/dashboard/settings/EditEmployee
 import { EditAttendancePanel } from "@/components/dashboard/settings/EditAttendancePanel";
 import { EditProfilePanel } from "@/components/dashboard/settings/EditProfilePanel";
 import { EditCompaniesPanel } from "@/components/dashboard/settings/EditCompaniesPanel";
+import { RecognitionSettingsPanel } from "@/components/dashboard/settings/RecognitionSettingsPanel";
 
 export const Route = createFileRoute("/_dashboard/settings")({
   component: SettingsPage,
 });
 
-type TabId = "employees" | "companies" | "attendance" | "profile";
+type TabId = "employees" | "companies" | "attendance" | "recognition" | "profile";
 
 type TabDef = { id: TabId; label: string; icon: typeof Users; adminOnly?: boolean };
 
@@ -29,6 +31,7 @@ const TABS: TabDef[] = [
   { id: "employees", label: "Edit Employee Management", icon: Users },
   { id: "companies", label: "Edit Companies", icon: Building2, adminOnly: true },
   { id: "attendance", label: "Edit Attendance Report", icon: CalendarCheck },
+  { id: "recognition", label: "Recognition Settings", icon: ScanFace, adminOnly: true },
   { id: "profile", label: "Edit Profile", icon: UserCog },
 ];
 
@@ -86,6 +89,7 @@ function SettingsPage() {
           {active === "employees" ? <EditEmployeesPanel /> : null}
           {active === "companies" && role === "admin" ? <EditCompaniesPanel /> : null}
           {active === "attendance" ? <EditAttendancePanel /> : null}
+          {active === "recognition" && role === "admin" ? <RecognitionSettingsPanel /> : null}
           {active === "profile" ? <EditProfilePanel /> : null}
         </div>
       </SectionShell>

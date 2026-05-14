@@ -283,3 +283,52 @@ def delete_attendance_correction(name: str, date: str) -> dict:
         raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD")
     deleted = corrections_service.delete_correction(name=name, date=date)
     return {"status": "ok", "deleted": deleted}
+
+
+# ---------------------------------------------------------------------------
+# Recognition settings — live-tunable thresholds for the detection pipeline.
+# Stored as one row in the existing key/value ``settings`` table; the
+# camera worker reads them on every inference tick (with a 5s TTL cache)
+# so admin tunes take effect without a worker restart.
+# ---------------------------------------------------------------------------
+
+
+class RecognitionConfigOut(BaseModel):
+    face_min_quality: float
+    face_match_threshold: float
+    recognize_min_face_size_px: int
+    camera_fps: int
+    cooldown_seconds: int
+
+
+class RecognitionConfigPatch(BaseModel):
+    face_min_quality: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    face_match_threshold: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    recognize_min_face_size_px: Optional[int] = Field(default=None, ge=0, le=4096)
+    camera_fps: Optional[int] = Field(default=None, ge=1, le=60)
+    cooldown_seconds: Optional[int] = Field(default=None, ge=0, le=3600)
+
+
+def _settings_to_out(s) -> RecognitionConfigOut:  # type: ignore[no-untyped-def]
+    return RecognitionConfigOut(
+        face_min_quality=float(s.face_min_quality),
+        face_match_threshold=float(s.face_match_threshold),
+        recognize_min_face_size_px=int(s.recognize_min_face_size_px),
+        camera_fps=int(s.camera_fps),
+        cooldown_seconds=int(s.cooldown_seconds),
+    )
+
+
+@router.get("/api/admin/settings/recognition", response_model=RecognitionConfigOut)
+def get_recognition_config() -> RecognitionConfigOut:
+    from ..services.recognition_config import get_recognition_settings
+    return _settings_to_out(get_recognition_settings())
+
+
+@router.patch("/api/admin/settings/recognition", response_model=RecognitionConfigOut)
+def update_recognition_config(payload: RecognitionConfigPatch) -> RecognitionConfigOut:
+    from ..services.recognition_config import write_recognition_settings
+    patch = payload.model_dump(exclude_unset=True, exclude_none=True)
+    with session_scope() as session:
+        merged = write_recognition_settings(session, patch)
+    return _settings_to_out(merged)

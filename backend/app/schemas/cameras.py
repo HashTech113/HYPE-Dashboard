@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+CameraType = Literal["ENTRY", "EXIT"]
 
 
 class CameraOut(BaseModel):
@@ -19,6 +21,7 @@ class CameraOut(BaseModel):
     connection_status: str
     enable_face_ingest: bool
     auto_discovery_enabled: bool
+    type: CameraType = "ENTRY"
     last_known_ip: Optional[str]
     last_discovered_at: Optional[str]
     last_checked_at: Optional[str]
@@ -41,6 +44,9 @@ class CameraCreate(BaseModel):
     # the user's choice in the Add Camera dialog is honored.
     enable_face_ingest: Optional[bool] = None
     auto_discovery_enabled: Optional[bool] = None
+    # ENTRY (default) or EXIT. Drives the attendance state machine —
+    # see services.attendance_state.STATE_TRANSITIONS.
+    type: Optional[CameraType] = None
 
 
 class CameraUpdate(BaseModel):
@@ -54,6 +60,7 @@ class CameraUpdate(BaseModel):
     rtsp_path: Optional[str] = Field(None, min_length=1, max_length=256)
     enable_face_ingest: Optional[bool] = None
     auto_discovery_enabled: Optional[bool] = None
+    type: Optional[CameraType] = None
 
 
 class CameraCheckRequest(BaseModel):

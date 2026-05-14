@@ -71,6 +71,9 @@ class Snapshot:
     entry: datetime
     exit: datetime
     image_data: Optional[str] = None
+    camera_id: Optional[str] = None
+    camera_name: Optional[str] = None
+    score: Optional[float] = None
 
 
 def sanitize_name(name: str) -> str:

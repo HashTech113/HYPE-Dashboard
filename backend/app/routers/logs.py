@@ -84,6 +84,7 @@ def _to_summary_item(row: dict, directory: list) -> AttendanceSummaryItem:
         total_break_time=row.get("total_break_time", "—"),
         total_break_seconds=int(row.get("total_break_seconds") or 0),
         break_details=row.get("break_details") or [],
+        movement_history=row.get("movement_history") or [],
         entry_image_url=row.get("entry_image_url"),
         exit_image_url=row.get("exit_image_url"),
         entry_image_archived=bool(row.get("entry_image_archived")),

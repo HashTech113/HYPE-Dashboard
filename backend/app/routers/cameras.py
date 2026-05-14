@@ -15,6 +15,7 @@ import time
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from ..config import JWT_ALGORITHM, JWT_SECRET
 from ..dependencies import require_admin
@@ -69,6 +70,7 @@ def _serialize(cam: cameras_service.Camera) -> CameraOut:
         connection_status=cam.connection_status,
         enable_face_ingest=cam.enable_face_ingest,
         auto_discovery_enabled=cam.auto_discovery_enabled,
+        type=cam.type if cam.type in ("ENTRY", "EXIT") else "ENTRY",
         last_known_ip=cam.last_known_ip,
         last_discovered_at=cam.last_discovered_at,
         last_checked_at=cam.last_checked_at,
@@ -108,6 +110,7 @@ def create_camera(payload: CameraCreate) -> CameraOut:
         rtsp_path=(payload.rtsp_path.strip() or "/Streaming/Channels/101"),
         enable_face_ingest=payload.enable_face_ingest,
         auto_discovery_enabled=payload.auto_discovery_enabled,
+        type=payload.type,
     )
     # Run an immediate connection check so the new row carries a real status
     # rather than 'unknown'.
@@ -173,6 +176,7 @@ def update_camera(camera_id: str, payload: CameraUpdate) -> CameraOut:
         rtsp_path=payload.rtsp_path.strip() if payload.rtsp_path else None,
         enable_face_ingest=payload.enable_face_ingest,
         auto_discovery_enabled=payload.auto_discovery_enabled,
+        type=payload.type,
     )
     if cam is None:
         raise HTTPException(status_code=404, detail=f"camera not found: {camera_id}")
@@ -332,4 +336,59 @@ def stream(camera_id: str, token: str = Query(...)) -> StreamingResponse:
     return StreamingResponse(
         cameras_service.mjpeg_stream(rtsp_url, camera_id=camera_id),
         media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Live detection JSON
+# ---------------------------------------------------------------------------
+
+
+class LiveDetection(BaseModel):
+    bbox: list[int]
+    name: str
+    employee_id: str | None
+    score: float
+    matched: bool
+
+
+class LiveDetectionsResponse(BaseModel):
+    detections: list[LiveDetection]
+    captured_at: float | None  # monotonic seconds (relative); None if no pass yet
+    age_seconds: float | None  # how long ago the inference pass ran
+
+
+@router.get(
+    "/{camera_id}/detections",
+    response_model=LiveDetectionsResponse,
+    dependencies=[Depends(require_admin)],
+)
+def live_detections(camera_id: str) -> LiveDetectionsResponse:
+    """Structured detections from the most recent inference pass for this
+    camera. Reads from the worker's in-memory state — no DB hit, no RTSP
+    open. Used by the React Live View to show ``Alice · 74%`` rows next
+    to the MJPEG tile.
+
+    Returns an empty list when the worker isn't running yet or hasn't
+    completed its first inference. ``captured_at`` is ``time.monotonic()``
+    on the server (relative, not wall-clock) so clients can detect
+    staleness via ``age_seconds``.
+    """
+    cam = cameras_service.get_by_id(camera_id)
+    if cam is None:
+        raise HTTPException(status_code=404, detail=f"camera not found: {camera_id}")
+    try:
+        from ..services.recognition_worker import get_worker_manager
+        worker = get_worker_manager().get_worker(camera_id)
+    except Exception:
+        log.exception("live_detections: worker lookup failed")
+        worker = None
+    if worker is None:
+        return LiveDetectionsResponse(detections=[], captured_at=None, age_seconds=None)
+    detections, captured_at = worker.latest_detections()
+    age = (time.monotonic() - captured_at) if captured_at is not None else None
+    return LiveDetectionsResponse(
+        detections=[LiveDetection(**d) for d in detections],
+        captured_at=captured_at,
+        age_seconds=age,
     )

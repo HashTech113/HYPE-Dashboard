@@ -37,6 +37,16 @@ class Camera(Base):
     connection_status: Mapped[str] = mapped_column(
         String(16), nullable=False, default="unknown", server_default="unknown", index=True,
     )
+    # Direction the camera covers. Drives the attendance state machine:
+    #   ENTRY camera → IN / BREAK_IN
+    #   EXIT camera  → BREAK_OUT (or OUT once day-close runs)
+    # Stored as a small string + CHECK constraint to match the rest of this
+    # model's style. Defaults to ENTRY so a fresh install or an existing
+    # camera without a configured direction still behaves like the legacy
+    # "always treat detections as entries" pipeline.
+    type: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="ENTRY", server_default="ENTRY", index=True,
+    )
     # When False, capture.py skips this camera entirely — used for brands that
     # don't speak Uniview's face-detection HTTP API (Hikvision/CP Plus/Dahua).
     # Live-view (RTSP/MJPEG) still works regardless, since that path is
@@ -68,5 +78,9 @@ class Camera(Base):
         CheckConstraint(
             "connection_status IN ('unknown','connected','failed')",
             name="ck_cameras_status",
+        ),
+        CheckConstraint(
+            "type IN ('ENTRY','EXIT')",
+            name="ck_cameras_type",
         ),
     )

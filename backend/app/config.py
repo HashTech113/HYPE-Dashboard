@@ -119,3 +119,9 @@ FACE_MATCH_THRESHOLD = float(os.getenv("FACE_MATCH_THRESHOLD", "0.45"))
 # silently dropped before recognition (catches background patterns,
 # logos, etc.).
 FACE_MIN_QUALITY = float(os.getenv("FACE_MIN_QUALITY", "0.50"))
+
+# Where unknown-face capture JPGs are written. Storage layout:
+#   <UNKNOWNS_DIR>/cluster_<id>/<YYYYMMDD-HHMMSS>_<uuid>.jpg
+# Lives under backend/storage so a Railway volume mount at that path
+# preserves captures across redeploys (same convention as FACE_MODEL_ROOT).
+UNKNOWNS_DIR = os.getenv("UNKNOWNS_DIR", str(BASE_DIR / "storage" / "unknowns"))

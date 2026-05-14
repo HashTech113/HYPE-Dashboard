@@ -1,13 +1,12 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { getCurrentRole } from "@/lib/auth";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, Search, Users } from "lucide-react";
+import { createPortal } from "react-dom";
+import { Download, RefreshCw, Search, Users } from "lucide-react";
 import {
-  getIngestLastSeen,
   getSnapshotLogs,
   listCameras,
   type Employee,
-  type IngestLastSeen,
   type SnapshotLogItem,
 } from "@/api/dashboardApi";
 import { useEmployees } from "@/contexts/EmployeesContext";
@@ -81,6 +80,78 @@ function downloadCsv(rows: string[][], filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function SnapshotThumb({ src, alt }: { src: string; alt: string }) {
+  const [previewPos, setPreviewPos] = useState<{ left: number; top: number } | null>(null);
+  const canUseDom = typeof window !== "undefined" && typeof document !== "undefined";
+
+  const positionPreview = useCallback((el: HTMLElement) => {
+    if (!canUseDom) return;
+    const rect = el.getBoundingClientRect();
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+    const gap = 12;
+    const previewW = 248; // p-3 + (w-56)
+    const previewH = 184; // p-3 + (h-40)
+    const edge = 8;
+
+    let left = rect.right + gap;
+    if (left + previewW > viewportW - edge) {
+      left = rect.left - gap - previewW;
+    }
+    if (left < edge) {
+      left = Math.max(edge, Math.min(viewportW - previewW - edge, rect.left + rect.width / 2 - previewW / 2));
+    }
+
+    let top = rect.top + rect.height / 2 - previewH / 2;
+    top = Math.max(edge, Math.min(viewportH - previewH - edge, top));
+
+    setPreviewPos({ left, top });
+  }, [canUseDom]);
+
+  return (
+    <>
+      <button
+        type="button"
+        className="relative block h-14 w-14 shrink-0 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+        title={`Preview ${alt}`}
+        onMouseEnter={(e) => positionPreview(e.currentTarget)}
+        onMouseMove={(e) => positionPreview(e.currentTarget)}
+        onMouseLeave={() => setPreviewPos(null)}
+        onFocus={(e) => positionPreview(e.currentTarget)}
+        onBlur={() => setPreviewPos(null)}
+      >
+        <img
+          src={src}
+          alt={alt}
+          className="h-14 w-14 shrink-0 rounded-md border border-sky-200 object-cover"
+          loading="lazy"
+        />
+      </button>
+      {canUseDom && previewPos
+        ? createPortal(
+            <div
+              className="pointer-events-none fixed z-[120]"
+              style={{ left: `${previewPos.left}px`, top: `${previewPos.top}px` }}
+              role="presentation"
+            >
+              <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                <div className="flex h-40 w-56 items-center justify-center overflow-hidden rounded-lg bg-slate-100">
+                  <img
+                    src={src}
+                    alt=""
+                    className="block max-h-full max-w-full object-contain"
+                    loading="lazy"
+                  />
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
+  );
+}
+
 function LiveCapturesPage() {
   const { employees } = useEmployees();
 
@@ -91,10 +162,8 @@ function LiveCapturesPage() {
   const [snapshotItems, setSnapshotItems] = useState<SnapshotLogItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // ``refreshing`` (formerly tied to the manual-refresh button) is no
-  // longer needed — the page auto-polls every POLL_INTERVAL_MS and a
-  // background spinner would just create flicker every 5 s. Removed.
-  const [ingestHealth, setIngestHealth] = useState<IngestLastSeen | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   // Lookup map cam-id → friendly name (e.g. "Work Place") so the table
   // can show what the operator typed in Add Camera instead of the
   // opaque generated cam-id.
@@ -165,33 +234,21 @@ function LiveCapturesPage() {
   }, [employeesForSelectedCompany, selectedEmployee]);
 
   const fetchData = useCallback(
-    async () => {
+    async ({ manual = false }: { manual?: boolean } = {}) => {
+      if (manual) setRefreshing(true);
       try {
-        // Fan out the snapshot fetch and the ingest-health probe; both feed
-        // the page and either can fail independently without blocking the
-        // other (a 404 on /ingest/last-seen during a backend restart
-        // shouldn't blank the snapshot table).
-        const [snapsResult, healthResult] = await Promise.allSettled([
-          getSnapshotLogs(),
-          getIngestLastSeen(),
-        ]);
+        const snapsResult = await getSnapshotLogs();
         if (!activeRef.current) return;
-        if (snapsResult.status === "fulfilled") {
-          setSnapshotItems(snapsResult.value.items);
-          setError(null);
-        } else {
-          setError(
-            snapsResult.reason instanceof Error
-              ? snapsResult.reason.message
-              : "Failed to load records",
-          );
-        }
-        if (healthResult.status === "fulfilled") {
-          setIngestHealth(healthResult.value);
-        }
+        setSnapshotItems(snapsResult.items);
+        setError(null);
+        setLastUpdated(new Date());
+      } catch (err) {
+        if (!activeRef.current) return;
+        setError(err instanceof Error ? err.message : "Failed to load records");
       } finally {
         if (activeRef.current) {
           setLoading(false);
+          if (manual) setRefreshing(false);
         }
       }
     },
@@ -201,16 +258,18 @@ function LiveCapturesPage() {
   useEffect(() => {
     activeRef.current = true;
     setLoading(true);
-    fetchData();
+    void fetchData();
     if (intervalRef.current) clearInterval(intervalRef.current);
-    intervalRef.current = setInterval(() => fetchData(), POLL_INTERVAL_MS);
+    intervalRef.current = setInterval(() => void fetchData(), POLL_INTERVAL_MS);
     return () => {
       activeRef.current = false;
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [fetchData]);
 
-  // Manual refresh handler removed — page auto-polls via setInterval.
+  const handleRefresh = useCallback(async () => {
+    await fetchData({ manual: true });
+  }, [fetchData]);
 
   const selectedEmployeeObj = useMemo(
     () => employees.find((employee) => employee.employeeId === selectedEmployee) ?? null,
@@ -263,54 +322,9 @@ function LiveCapturesPage() {
   }, [employees, filteredSnapshots, selectedDate]);
 
   const itemCount = filteredSnapshots.length;
-
-  // Re-render the badge every second so the "last seen Xs ago" counter
-  // ticks smoothly between the 5 s polling cycles. Without this the
-  // number visibly jumps once every 5 s and looks frozen in between.
-  const [_nowTick, setNowTick] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => setNowTick((t) => (t + 1) % 86400), 1000);
-    return () => clearInterval(id);
-  }, []);
-
-  // Derive a 3-state health summary for the header badge: live (green) when
-  // captures are arriving within the backend's stale threshold, idle (amber)
-  // when nothing has come in for a while, none (slate) before the first
-  // capture is ever seen. The user reads this as "is my camera connected
-  // and feeding right now?".
-  const cameraStatus: { tone: "live" | "idle" | "none"; label: string } = (() => {
-    if (!ingestHealth || ingestHealth.last_seen === null) {
-      return { tone: "none", label: "No captures yet" };
-    }
-    // Compute seconds-ago locally on every render so the badge ticks
-    // every second instead of jumping every 5 s when the poll lands.
-    // Falls back to the backend-computed value if last_seen parses oddly.
-    const lastSeenMs = Date.parse(ingestHealth.last_seen);
-    const ago = Number.isFinite(lastSeenMs)
-      ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000))
-      : (ingestHealth.seconds_ago ?? 0);
-    const human =
-      ago < 60
-        ? `${ago}s ago`
-        : ago < 3600
-          ? `${Math.floor(ago / 60)}m ${ago % 60}s ago`
-          : `${Math.floor(ago / 3600)}h ${Math.floor((ago % 3600) / 60)}m ago`;
-    if (ingestHealth.stale) {
-      return { tone: "idle", label: `Camera idle · last seen ${human}` };
-    }
-    return { tone: "live", label: `Camera live · last seen ${human}` };
-  })();
-
-  const statusToneClasses: Record<typeof cameraStatus.tone, string> = {
-    live: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    idle: "bg-amber-50 text-amber-800 border-amber-200",
-    none: "bg-slate-50 text-slate-600 border-slate-200",
-  };
-  const statusDotClasses: Record<typeof cameraStatus.tone, string> = {
-    live: "bg-emerald-500",
-    idle: "bg-amber-500",
-    none: "bg-slate-400",
-  };
+  const updatedLabel = lastUpdated
+    ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+    : "Updated —";
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -320,29 +334,19 @@ function LiveCapturesPage() {
         className="animate-fade-in-up"
         actions={
           <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:gap-3">
-            <div
-              className={cn(
-                "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-medium",
-                statusToneClasses[cameraStatus.tone],
-              )}
-              title="Camera ingest health (from /api/ingest/last-seen)"
+            <span className="text-xs font-medium text-slate-600">{updatedLabel}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-10 gap-1.5 px-4"
+              onClick={() => void handleRefresh()}
+              disabled={refreshing}
+              title="Refresh live captures"
             >
-              <span className="relative flex h-2 w-2">
-                {cameraStatus.tone === "live" ? (
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                ) : null}
-                <span
-                  className={cn(
-                    "relative inline-flex h-2 w-2 rounded-full",
-                    statusDotClasses[cameraStatus.tone],
-                  )}
-                />
-              </span>
-              <span>{cameraStatus.label}</span>
-            </div>
-            {/* No manual Refresh button — the page auto-polls every
-                POLL_INTERVAL_MS (5 s). The Camera idle / live badge to
-                the left already shows the freshness state in real time. */}
+              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </Button>
             <Button
               type="button"
               size="sm"
@@ -474,12 +478,7 @@ function SnapshotTable({
                   {company}
                 </TableCell>
                 <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
-                  <img
-                    src={item.image_url}
-                    alt={item.name}
-                    className="h-14 w-14 shrink-0 rounded-md border border-sky-200 object-cover"
-                    loading="lazy"
-                  />
+                  <SnapshotThumb src={item.image_url} alt={item.name} />
                 </TableCell>
                 <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-purple-700 last:border-r-0">
                   {item.camera_id ? (

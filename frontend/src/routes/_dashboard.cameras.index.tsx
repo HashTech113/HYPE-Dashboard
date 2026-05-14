@@ -214,6 +214,11 @@ type FormState = {
   // both OFF (CP Plus / Hikvision / Dahua = live-view only by default).
   enable_face_ingest: boolean;
   auto_discovery_enabled: boolean;
+  // Direction the camera covers. Drives the attendance state machine:
+  // ENTRY → IN / BREAK_IN, EXIT → BREAK_OUT (relabelled to OUT at day-close).
+  // Defaults to ENTRY so a freshly added camera behaves like the legacy
+  // "every detection is an entry" pipeline.
+  type: "ENTRY" | "EXIT";
 };
 
 const EMPTY_FORM: FormState = {
@@ -228,6 +233,7 @@ const EMPTY_FORM: FormState = {
   rtsp_url_custom: "",
   enable_face_ingest: false,
   auto_discovery_enabled: false,
+  type: "ENTRY",
 };
 
 function CamerasPage() {
@@ -694,6 +700,7 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
               // re-open doesn't silently flip face_ingest / auto_discovery.
               enable_face_ingest: camera.enable_face_ingest,
               auto_discovery_enabled: camera.auto_discovery_enabled,
+              type: camera.type === "EXIT" ? "EXIT" : "ENTRY",
             }
           : EMPTY_FORM,
       );
@@ -765,6 +772,7 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
           rtsp_path: parsed.parts.rtsp_path,
           enable_face_ingest: form.enable_face_ingest,
           auto_discovery_enabled: form.auto_discovery_enabled,
+          type: form.type,
         },
       };
     }
@@ -935,6 +943,25 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
                   placeholder="Floor 1 - Lobby"
                 />
               </Field>
+              <Field label="Direction" required>
+                <Select
+                  value={form.type}
+                  onValueChange={(v) =>
+                    setForm((prev) => ({ ...prev, type: v === "EXIT" ? "EXIT" : "ENTRY" }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Entry / Exit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ENTRY">Entry — IN / Break In</SelectItem>
+                    <SelectItem value="EXIT">Exit — Break Out / OUT</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Drives the attendance state machine. Entry cameras start the day; Exit cameras start the break / close it at day-end.
+                </p>
+              </Field>
               <Field label="Camera IP" required>
                 <Input
                   value={form.ip}
@@ -1006,6 +1033,22 @@ function CameraFormDialog({ open, camera, onOpenChange, onSaved }: CameraFormDia
                   onChange={(e) => updateField("location")(e.target.value)}
                   placeholder="Floor 1 - Lobby"
                 />
+              </Field>
+              <Field label="Direction" required className="sm:col-span-2">
+                <Select
+                  value={form.type}
+                  onValueChange={(v) =>
+                    setForm((prev) => ({ ...prev, type: v === "EXIT" ? "EXIT" : "ENTRY" }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Entry / Exit" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ENTRY">Entry — IN / Break In</SelectItem>
+                    <SelectItem value="EXIT">Exit — Break Out / OUT</SelectItem>
+                  </SelectContent>
+                </Select>
               </Field>
               <Field label="RTSP URL" required className="sm:col-span-2">
                 <Input

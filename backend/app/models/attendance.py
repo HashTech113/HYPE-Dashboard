@@ -22,6 +22,7 @@ from sqlalchemy import (
     CheckConstraint,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -63,6 +64,10 @@ class AttendanceLog(Base):
     )
     external_event_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     event_type: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    # Recognition confidence (cosine similarity 0..1). NULL on rows
+    # written by external/manual sources or legacy rows from before the
+    # column was added.
+    score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     __table_args__ = (
         CheckConstraint(
@@ -111,6 +116,9 @@ class SnapshotLog(Base):
         ForeignKey("cameras.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Recognition confidence (cosine similarity 0..1). NULL on rows
+    # written by ingest/external paths and legacy rows.
+    score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     __table_args__ = (
         Index("idx_snapshot_logs_name", "name"),

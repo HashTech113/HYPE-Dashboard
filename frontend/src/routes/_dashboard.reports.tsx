@@ -1,9 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Download, FileText, RefreshCw, Search } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import {
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Search,
+} from "lucide-react";
 import {
   ATTENDANCE_CORRECTION_EVENT,
-  downloadAttendanceXlsx,
   getAttendanceLogs,
   type AttendanceSummaryItem,
   type Employee,
@@ -27,7 +32,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { formatClock12, formatDateKeyDash } from "@/lib/dateFormat";
+import { formatClock12, formatDateDash, formatDateKeyDash, formatTime12, parseTimestamp } from "@/lib/dateFormat";
 
 export const Route = createFileRoute("/_dashboard/reports")({
   component: ReportsPage,
@@ -48,17 +53,78 @@ function ImageCell({
   borderClass: string;
   bgClass: string;
 }) {
+  const [previewPos, setPreviewPos] = useState<{ left: number; top: number } | null>(null);
+  const canUseDom = typeof window !== "undefined" && typeof document !== "undefined";
+
+  const positionPreview = useCallback((el: HTMLElement) => {
+    if (!canUseDom) return;
+    const rect = el.getBoundingClientRect();
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight;
+    const gap = 12;
+    const previewW = 248; // p-3 + (w-56)
+    const previewH = 184; // p-3 + (h-40)
+    const edge = 8;
+
+    let left = rect.right + gap;
+    if (left + previewW > viewportW - edge) {
+      left = rect.left - gap - previewW;
+    }
+    if (left < edge) {
+      left = Math.max(edge, Math.min(viewportW - previewW - edge, rect.left + rect.width / 2 - previewW / 2));
+    }
+
+    let top = rect.top + rect.height / 2 - previewH / 2;
+    top = Math.max(edge, Math.min(viewportH - previewH - edge, top));
+
+    setPreviewPos({ left, top });
+  }, [canUseDom]);
+
   if (url) {
     return (
-      <img
-        src={url}
-        alt={alt}
-        className={cn(
-          "h-10 w-10 shrink-0 rounded-md border object-cover",
-          borderClass,
-        )}
-        loading="lazy"
-      />
+      <>
+        <button
+          type="button"
+          className="relative block h-10 w-10 shrink-0 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          title={`Preview ${alt}`}
+          onMouseEnter={(e) => positionPreview(e.currentTarget)}
+          onMouseMove={(e) => positionPreview(e.currentTarget)}
+          onMouseLeave={() => setPreviewPos(null)}
+          onFocus={(e) => positionPreview(e.currentTarget)}
+          onBlur={() => setPreviewPos(null)}
+        >
+          <img
+            src={url}
+            alt={alt}
+            className={cn(
+              "h-10 w-10 shrink-0 rounded-md border object-cover",
+              borderClass,
+            )}
+            loading="lazy"
+          />
+        </button>
+        {canUseDom && previewPos
+          ? createPortal(
+              <div
+                className="pointer-events-none fixed z-[120]"
+                style={{ left: `${previewPos.left}px`, top: `${previewPos.top}px` }}
+                role="presentation"
+              >
+                <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-xl">
+                  <div className="flex h-40 w-56 items-center justify-center overflow-hidden rounded-lg bg-slate-100">
+                    <img
+                      src={url}
+                      alt=""
+                      className="block max-h-full max-w-full object-contain"
+                      loading="lazy"
+                    />
+                  </div>
+                </div>
+              </div>,
+              document.body,
+            )
+          : null}
+      </>
     );
   }
   if (archived) {
@@ -96,27 +162,6 @@ function findEmployeeForName(employees: Employee[], captureName: string): Employ
   return null;
 }
 
-function csvEscape(value: string | number | null | undefined): string {
-  const text = String(value ?? "");
-  if (text.includes(",") || text.includes("\"") || text.includes("\n")) {
-    return `"${text.replace(/"/g, "\"\"")}"`;
-  }
-  return text;
-}
-
-function downloadCsv(rows: string[][], filename: string) {
-  const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
-  const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-}
-
 function initials(name: string): string {
   return name
     .split(/\s+/)
@@ -124,6 +169,114 @@ function initials(name: string): string {
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() ?? "")
     .join("");
+}
+
+function movementTypeClass(movementType: string): string {
+  const value = movementType.trim().toLowerCase();
+  if (value === "entry") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (value === "final exit") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (value === "break out") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (value === "break in") return "border-sky-200 bg-sky-50 text-sky-700";
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
+
+function cameraDisplayName(cameraName?: string | null, cameraId?: string | null): string {
+  const raw = (cameraName || cameraId || "").trim();
+  if (!raw) return "—";
+  return raw.toLowerCase() === "api ingest" ? "Eye Camera" : raw;
+}
+
+function MovementHistoryPanel({ item }: { item: AttendanceSummaryItem }) {
+  const history = [...(item.movement_history ?? [])].sort((a, b) => {
+    const left = parseTimestamp(a.timestamp_iso)?.getTime() ?? 0;
+    const right = parseTimestamp(b.timestamp_iso)?.getTime() ?? 0;
+    return left - right;
+  });
+
+  if (history.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-slate-200 bg-white px-4 py-5 text-sm text-slate-600">
+        No break timeline snapshots available for this day.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-slate-300 bg-white">
+      <table className="w-full table-fixed border-collapse text-sm">
+        <colgroup>
+          <col className="w-[11%]" />
+          <col className="w-[17%]" />
+          <col className="w-[16%]" />
+          <col className="w-[17%]" />
+          <col className="w-[17%]" />
+          <col className="w-[12%]" />
+        </colgroup>
+        <thead>
+          <tr className="border-b border-slate-300 bg-slate-50/80">
+            <th className="border-b border-r border-slate-300 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Event
+            </th>
+            <th className="border-b border-r border-slate-300 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Type
+            </th>
+            <th className="border-b border-r border-slate-300 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Date
+            </th>
+            <th className="border-b border-r border-slate-300 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Time
+            </th>
+            <th className="border-b border-r border-slate-300 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Camera
+            </th>
+            <th className="border-b border-slate-300 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Snapshot
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {history.map((event, index) => {
+            const dt = parseTimestamp(event.timestamp_iso);
+            return (
+              <tr key={event.event_id || `${event.movement_type}-${index}`} className="border-b border-slate-200 last:border-b-0">
+                <td className="border-r border-slate-300 px-3 py-2 font-medium text-slate-600">
+                  {index + 1}
+                </td>
+                <td className="border-r border-slate-300 px-3 py-2">
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold",
+                      movementTypeClass(event.movement_type),
+                    )}
+                  >
+                    {event.movement_type}
+                  </span>
+                </td>
+                <td className="border-r border-slate-300 px-3 py-2 font-medium text-slate-700">
+                  {dt ? formatDateDash(dt) : formatDateKeyDash(item.date)}
+                </td>
+                <td className="border-r border-slate-300 px-3 py-2 font-medium text-slate-700">
+                  {dt ? formatTime12(dt) : formatClock12(event.timestamp)}
+                </td>
+                <td className="border-r border-slate-300 px-3 py-2 text-slate-600">
+                  {cameraDisplayName(event.camera_name, event.camera_id)}
+                </td>
+                <td className="px-3 py-2">
+                  <ImageCell
+                    url={event.snapshot_url ?? null}
+                    archived={Boolean(event.snapshot_archived)}
+                    alt={`${item.name} ${event.movement_type} snapshot`}
+                    borderClass="border-slate-200 text-slate-700"
+                    bgClass="bg-slate-50"
+                  />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
 }
 
 function ReportsPage() {
@@ -139,7 +292,6 @@ function ReportsPage() {
 
   const [attendanceItems, setAttendanceItems] = useState<AttendanceSummaryItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const activeRef = useRef(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -177,8 +329,7 @@ function ReportsPage() {
   }, [employeesForSelectedCompany, selectedEmployee]);
 
   const fetchData = useCallback(
-    async ({ manual = false }: { manual?: boolean } = {}) => {
-      if (manual) setRefreshing(true);
+    async () => {
       try {
         const data = await getAttendanceLogs();
         if (!activeRef.current) return;
@@ -190,7 +341,6 @@ function ReportsPage() {
       } finally {
         if (activeRef.current) {
           setLoading(false);
-          if (manual) setRefreshing(false);
         }
       }
     },
@@ -246,31 +396,6 @@ function ReportsPage() {
     endDate,
   ]);
 
-  const handleExport = useCallback(async () => {
-    // Build the same filter set the on-screen table is using and ask the
-    // backend to render an .xlsx with those rows. The Excel file mirrors
-    // the summary view exactly because the backend reuses the same
-    // build_attendance_summaries() function.
-    const params: Record<string, string> = {};
-    if (startDate) params.start = startDate;
-    if (endDate) params.end = endDate;
-    if (selectedEmployee !== "all") {
-      const emp = employees.find((e) => e.employeeId === selectedEmployee);
-      if (emp?.name) params.name = emp.name;
-    }
-    // Admin can override company; HR is auto-scoped server-side and any
-    // company= param is ignored for them.
-    if (!isCompanyScoped && selectedCompany !== "all") {
-      params.company = selectedCompany;
-    }
-    try {
-      await downloadAttendanceXlsx("summary", params);
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "Export failed");
-    }
-  }, [startDate, endDate, selectedEmployee, selectedCompany, isCompanyScoped, employees]);
-
-  const itemCount = filteredItems.length;
   const employeeFilterOptions = useMemo(
     () => [
       { value: "all", label: "All Employees" },
@@ -298,46 +423,7 @@ function ReportsPage() {
         icon={<FileText className="h-5 w-5 text-primary" />}
         className="animate-fade-in-up"
         inlineActions
-        actions={
-          <>
-            <EmployeeManagementTabs />
-            <div className="flex w-full flex-wrap items-center gap-2 md:ml-auto md:w-auto md:gap-3">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
-                </span>
-                <span>
-                  {itemCount} record{itemCount === 1 ? "" : "s"}
-                </span>
-              </div>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="h-10 gap-1.5 px-4"
-                onClick={() => fetchData({ manual: true })}
-                disabled={refreshing}
-                title="Refresh report data"
-              >
-                <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
-                {refreshing ? "Refreshing…" : "Refresh"}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="h-10 gap-1.5 px-4"
-                onClick={handleExport}
-                disabled={itemCount === 0}
-                title="Export filtered rows as CSV"
-              >
-                <Download className="h-4 w-4" />
-                Export Report
-              </Button>
-            </div>
-          </>
-        }
+        actions={<EmployeeManagementTabs />}
       >
         <Card className="flex min-h-0 flex-1 flex-col">
           <CardContent className="flex min-h-0 flex-1 flex-col gap-3 px-0 pt-4">
@@ -452,8 +538,30 @@ function ReportTable({
   employees: Employee[];
   loading: boolean;
 }) {
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    setExpandedRows((prev) => {
+      const valid = new Set(items.map((item) => item.id));
+      const next = new Set<string>();
+      for (const rowId of prev) {
+        if (valid.has(rowId)) next.add(rowId);
+      }
+      return next;
+    });
+  }, [items]);
+
+  const toggleExpanded = useCallback((rowId: string) => {
+    setExpandedRows((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowId)) next.delete(rowId);
+      else next.add(rowId);
+      return next;
+    });
+  }, []);
+
   return (
-    <Table className="min-w-[900px]">
+    <Table className="min-w-[1080px] [&_td]:border-r-slate-300 [&_th]:border-r-slate-300">
       <TableHeader>
         <TableRow className="bg-slate-50/60 hover:bg-slate-50/80">
           <TableHead className="w-[170px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-sky-700 last:border-r-0">Employee Name</TableHead>
@@ -464,7 +572,7 @@ function ReportTable({
           <TableHead className="w-[80px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-rose-700 last:border-r-0">Exit Image</TableHead>
           <TableHead className="w-[110px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-rose-700 last:border-r-0">Exit Time</TableHead>
           <TableHead className="w-[100px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-amber-700 last:border-r-0">Total Break</TableHead>
-          <TableHead className="w-[110px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Total Working Hours</TableHead>
+          <TableHead className="w-[150px] whitespace-nowrap border-r border-slate-200 font-bold uppercase tracking-wide text-indigo-700 last:border-r-0">Total Working Hours</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -478,70 +586,95 @@ function ReportTable({
           items.map((item) => {
             const emp = findEmployeeForName(employees, item.name);
             const company = item.company ?? emp?.company ?? "—";
+            const isExpanded = expandedRows.has(item.id);
             return (
-              <TableRow key={item.id} className="transition-colors hover:bg-slate-50/60">
-                <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
-                  <div className="flex items-center gap-2">
-                    <Avatar className="h-8 w-8 shrink-0 border border-sky-200 bg-sky-50">
-                      {emp?.imageUrl ? (
-                        <AvatarImage
-                          src={emp.imageUrl}
-                          alt={item.name}
-                          className="object-cover"
-                        />
-                      ) : null}
-                      <AvatarFallback className="text-xs font-semibold text-sky-700">
-                        {initials(item.name)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="whitespace-nowrap font-medium text-foreground">
-                      {item.name}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-indigo-700 last:border-r-0">
-                  {company}
-                </TableCell>
-                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-emerald-700 last:border-r-0">
-                  {formatDateKeyDash(item.date)}
-                </TableCell>
-                <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
-                  <ImageCell
-                    url={item.entry_image_url}
-                    archived={Boolean(item.entry_image_archived)}
-                    alt={`${item.name} entry`}
-                    borderClass="border-sky-200 text-sky-700"
-                    bgClass="bg-sky-50/40"
-                  />
-                </TableCell>
-                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-sky-700 last:border-r-0">
-                  {formatClock12(item.entry_time)}
-                </TableCell>
-                <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
-                  <ImageCell
-                    url={item.exit_image_url}
-                    archived={Boolean(item.exit_image_archived)}
-                    alt={`${item.name} exit`}
-                    borderClass="border-rose-200 text-rose-700"
-                    bgClass="bg-rose-50/40"
-                  />
-                </TableCell>
-                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-rose-700 last:border-r-0">
-                  {item.missing_checkout ? (
-                    <span title="Missing checkout — admin correction recommended" className="font-medium text-amber-700">
-                      Missing checkout
-                    </span>
-                  ) : (
-                    formatClock12(item.exit_time)
-                  )}
-                </TableCell>
-                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold text-amber-700 last:border-r-0">
-                  {item.total_break_time ?? "—"}
-                </TableCell>
-                <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold text-indigo-700 last:border-r-0">
-                  {item.total_working_hours ?? item.total_hours}
-                </TableCell>
-              </TableRow>
+              <Fragment key={item.id}>
+                <TableRow className="transition-colors hover:bg-slate-50/60">
+                  <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleExpanded(item.id)}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100"
+                        title={isExpanded ? "Hide break timeline" : "Show break timeline"}
+                        aria-label={isExpanded ? "Collapse break history" : "Expand break history"}
+                        aria-expanded={isExpanded}
+                      >
+                        {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </button>
+                      <Avatar className="h-8 w-8 shrink-0 border border-sky-200 bg-sky-50">
+                        {emp?.imageUrl ? (
+                          <AvatarImage
+                            src={emp.imageUrl}
+                            alt={item.name}
+                            className="object-cover"
+                          />
+                        ) : null}
+                        <AvatarFallback className="text-xs font-semibold text-sky-700">
+                          {initials(item.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="whitespace-nowrap font-medium text-foreground">
+                        {item.name}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-indigo-700 last:border-r-0">
+                    {company}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-medium text-emerald-700 last:border-r-0">
+                    {formatDateKeyDash(item.date)}
+                  </TableCell>
+                  <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
+                    <ImageCell
+                      url={item.entry_image_url}
+                      archived={Boolean(item.entry_image_archived)}
+                      alt={`${item.name} entry`}
+                      borderClass="border-sky-200 text-sky-700"
+                      bgClass="bg-sky-50/40"
+                    />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-sky-700 last:border-r-0">
+                    {formatClock12(item.entry_time)}
+                  </TableCell>
+                  <TableCell className="border-r border-slate-200 py-2 align-middle last:border-r-0">
+                    <ImageCell
+                      url={item.exit_image_url}
+                      archived={Boolean(item.exit_image_archived)}
+                      alt={`${item.name} exit`}
+                      borderClass="border-rose-200 text-rose-700"
+                      bgClass="bg-rose-50/40"
+                    />
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle text-rose-700 last:border-r-0">
+                    {item.missing_checkout ? (
+                      <span title="Missing checkout — admin correction recommended" className="font-medium text-amber-700">
+                        Missing checkout
+                      </span>
+                    ) : (
+                      formatClock12(item.exit_time)
+                    )}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold text-amber-700 last:border-r-0">
+                    {item.total_break_time ?? "—"}
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap border-r border-slate-200 py-2 align-middle font-semibold text-indigo-700 last:border-r-0">
+                    {item.total_working_hours ?? item.total_hours}
+                  </TableCell>
+                </TableRow>
+                {isExpanded ? (
+                  <TableRow className="bg-slate-50/40 hover:bg-slate-50/40">
+                    <TableCell colSpan={9} className="border-r-0 border-t-0 px-4 py-4 last:border-r-0">
+                      <div className="mb-3">
+                        <p className="text-sm font-semibold text-slate-800">
+                          Break History & Movement Timeline
+                        </p>
+                      </div>
+                      <MovementHistoryPanel item={item} />
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+              </Fragment>
             );
           })
         )}

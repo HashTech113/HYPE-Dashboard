@@ -606,6 +606,18 @@ export type AttendanceBreakInterval = {
   duration: string;
 };
 
+export type AttendanceMovementEvent = {
+  event_id: string;
+  movement_type: string;
+  timestamp: string;
+  timestamp_iso: string;
+  snapshot_url: string | null;
+  snapshot_archived: boolean;
+  camera_id?: string | null;
+  camera_name?: string | null;
+  confidence?: number | null;
+};
+
 export type AttendanceStatusFull =
   | "Present"
   | "Late"
@@ -633,6 +645,7 @@ export type AttendanceSummaryItem = {
   total_break_time?: string;
   total_break_seconds?: number;
   break_details?: AttendanceBreakInterval[];
+  movement_history?: AttendanceMovementEvent[];
   entry_image_url: string | null;
   exit_image_url: string | null;
   entry_image_archived?: boolean;
@@ -714,6 +727,7 @@ export async function getIngestLastSeen(): Promise<IngestLastSeen> {
 // ---- Cameras --------------------------------------------------------------
 
 export type CameraConnectionStatus = "unknown" | "connected" | "failed";
+export type CameraType = "ENTRY" | "EXIT";
 
 export type Camera = {
   id: string;
@@ -727,6 +741,7 @@ export type Camera = {
   connection_status: CameraConnectionStatus;
   enable_face_ingest: boolean;
   auto_discovery_enabled: boolean;
+  type: CameraType;
   last_known_ip: string | null;
   last_discovered_at: string | null;
   last_checked_at: string | null;
@@ -753,6 +768,7 @@ export type CameraCreatePayload = {
   rtsp_path: string;
   enable_face_ingest?: boolean;
   auto_discovery_enabled?: boolean;
+  type?: CameraType;
 };
 
 export type CameraUpdatePayload = Partial<CameraCreatePayload>;
@@ -947,4 +963,140 @@ export async function deleteAttendanceCorrection(name: string, date: string): Pr
     throw new Error(`Failed to clear correction (${resp.status})`);
   }
   broadcastCorrectionChange();
+}
+
+// ---------------------------------------------------------------------------
+// Attendance state-machine admin endpoints.
+// ---------------------------------------------------------------------------
+
+export type AttendanceEventType = "IN" | "OUT" | "BREAK_IN" | "BREAK_OUT";
+
+export type RecomputeDayResponse = {
+  employee_id: string;
+  date: string;
+  status: string;
+  in_time: string | null;
+  out_time: string | null;
+  total_work_seconds: number;
+  total_break_seconds: number;
+  break_count: number;
+  late_minutes: number;
+  early_exit_minutes: number;
+  is_day_closed: boolean;
+};
+
+export async function recomputeAttendanceDay(
+  employeeId: string,
+  date: string,
+): Promise<RecomputeDayResponse> {
+  const resp = await authFetch(buildUrl("/api/attendance/recompute", {}), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ employee_id: employeeId, date }),
+  });
+  return jsonOrThrow<RecomputeDayResponse>(resp, "Failed to recompute day");
+}
+
+export type CloseDayResponse = {
+  date: string;
+  closed: number;
+  already_closed: number;
+  no_activity: number;
+  synthetic_outs: number;
+};
+
+export async function closeAttendanceDay(date: string): Promise<CloseDayResponse> {
+  const resp = await authFetch(buildUrl("/api/attendance/close-day", {}), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ date }),
+  });
+  return jsonOrThrow<CloseDayResponse>(resp, "Failed to close day");
+}
+
+export type AttendanceEventOut = {
+  id: number;
+  employee_id: string | null;
+  name: string;
+  timestamp: string;
+  event_type: AttendanceEventType;
+  camera_id: string | null;
+  score: number | null;
+  source: string;
+};
+
+export type AttendanceEventsResponse = {
+  date: string;
+  count: number;
+  items: AttendanceEventOut[];
+};
+
+export async function listAttendanceEvents(
+  date: string,
+  employeeId?: string,
+): Promise<AttendanceEventsResponse> {
+  const resp = await authFetch(
+    buildUrl("/api/attendance/events", { date, employee_id: employeeId }),
+    { cache: "no-store" },
+  );
+  return jsonOrThrow<AttendanceEventsResponse>(resp, "Failed to load attendance events");
+}
+
+// ---------------------------------------------------------------------------
+// Live recognition — structured per-frame detections for the Live View page,
+// plus the runtime-tunable thresholds shown on the Settings page.
+// ---------------------------------------------------------------------------
+
+export type LiveDetection = {
+  bbox: [number, number, number, number];
+  name: string;
+  employee_id: string | null;
+  score: number;
+  matched: boolean;
+};
+
+export type LiveDetectionsResponse = {
+  detections: LiveDetection[];
+  captured_at: number | null;
+  age_seconds: number | null;
+};
+
+export async function getCameraDetections(cameraId: string): Promise<LiveDetectionsResponse> {
+  const resp = await authFetch(
+    buildUrl(`/api/cameras/${encodeURIComponent(cameraId)}/detections`, {}),
+    { cache: "no-store" },
+  );
+  if (!resp.ok) {
+    throw new Error(`getCameraDetections (${resp.status})`);
+  }
+  return (await resp.json()) as LiveDetectionsResponse;
+}
+
+export type RecognitionConfig = {
+  face_min_quality: number;
+  face_match_threshold: number;
+  recognize_min_face_size_px: number;
+  camera_fps: number;
+  cooldown_seconds: number;
+};
+
+export async function getRecognitionConfig(): Promise<RecognitionConfig> {
+  const resp = await authFetch(buildUrl("/api/admin/settings/recognition", {}));
+  if (!resp.ok) throw new Error(`getRecognitionConfig (${resp.status})`);
+  return (await resp.json()) as RecognitionConfig;
+}
+
+export async function patchRecognitionConfig(
+  patch: Partial<RecognitionConfig>,
+): Promise<RecognitionConfig> {
+  const resp = await authFetch(buildUrl("/api/admin/settings/recognition", {}), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`patchRecognitionConfig (${resp.status}) ${body.slice(0, 200)}`);
+  }
+  return (await resp.json()) as RecognitionConfig;
 }

@@ -84,6 +84,8 @@ def record_capture(
     image_path: str,
     image_data: Optional[str] = None,
     camera_id: Optional[str] = None,
+    score: Optional[float] = None,
+    event_type: Optional[str] = None,
 ) -> bool:
     """Insert one detection into ``snapshot_logs``, and into ``attendance_logs``
     when the face is a recognized employee. The UNIQUE constraint on
@@ -92,6 +94,11 @@ def record_capture(
 
     ``camera_id`` is optional — None for legacy / env-fallback mode and for
     historical rows ingested before multi-camera support landed.
+    ``score`` is the cosine-similarity confidence (0..1) of the recognition
+    that produced this row; None for external/manual rows that don't have one.
+    ``event_type`` is one of ``'IN' / 'OUT' / 'BREAK_IN' / 'BREAK_OUT'`` when
+    written by the attendance state machine; None for the legacy
+    "every detection is an entry" path so existing callers keep working.
     """
     # Resolve to the canonical employee name so every spelling the camera
     # might emit lands in the DB under the current roster name. Unknowns
@@ -118,12 +125,19 @@ def record_capture(
         "image_path": image_path,
         "image_data": image_data,
         "camera_id": camera_id,
+        "score": float(score) if score is not None else None,
     }
+    # Validate event_type so a typo can't slip past the CHECK constraint
+    # and force a row-level rollback in the middle of the camera loop.
+    valid_event_types = ("IN", "OUT", "BREAK_IN", "BREAK_OUT")
+    resolved_event_type: Optional[str] = None
+    if event_type is not None and str(event_type) in valid_event_types:
+        resolved_event_type = str(event_type)
     attendance_values = {
         **snapshot_values,
         "source": "local_camera",
         "external_event_id": None,
-        "event_type": None,
+        "event_type": resolved_event_type,
     }
 
     try:
@@ -287,6 +301,9 @@ def _row_to_snapshot(row: dict) -> Snapshot:
         entry=ts,
         exit=ts,
         image_data=row.get("image_data"),
+        camera_id=row.get("camera_id"),
+        camera_name=row.get("camera_name"),
+        score=row.get("score"),
     )
 
 
@@ -296,25 +313,73 @@ def _load_attendance_snapshots(
     end_date: Optional[date_cls] = None,
     name_filter: Optional[str] = None,
 ) -> list[Snapshot]:
-    sql = "SELECT id, name, timestamp, image_path, image_data FROM attendance_logs"
+    sql = (
+        "SELECT a.id, a.name, a.timestamp, a.image_path, a.image_data, "
+        "a.camera_id, a.score, c.name AS camera_name "
+        "FROM attendance_logs a "
+        "LEFT JOIN cameras c ON c.id = a.camera_id"
+    )
     clauses: list[str] = []
     params: dict = {}
     if name_filter:
-        clauses.append("lower(name) LIKE :name_prefix")
+        clauses.append("lower(a.name) LIKE :name_prefix")
         params["name_prefix"] = f"{name_filter.strip().lower()}%"
     if start_date is not None:
-        clauses.append("timestamp >= :start_ts")
+        clauses.append("a.timestamp >= :start_ts")
         params["start_ts"] = start_date.isoformat()
     if end_date is not None:
         from datetime import timedelta
-        clauses.append("timestamp < :end_ts")
+        clauses.append("a.timestamp < :end_ts")
         params["end_ts"] = (end_date + timedelta(days=1)).isoformat()
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
-    sql += " ORDER BY timestamp ASC"
+    sql += " ORDER BY a.timestamp ASC"
     with session_scope() as session:
         rows = session.execute(text(sql), params).mappings().all()
         return [_row_to_snapshot(dict(r)) for r in rows]
+
+
+def _load_rollups(
+    *, start_date: date_cls, end_date: date_cls
+) -> dict[tuple[str, str], dict]:
+    """Load persisted ``daily_attendance`` rows in the date range, keyed by
+    (lowercased employee name, ISO date). Returns ``{}`` on any error so the
+    caller transparently falls back to gap-based computation.
+
+    The state-machine pipeline writes to this table after every event; rows
+    are authoritative whenever they exist. Historical days (pre-state-machine,
+    or days driven only by ingest/external sources) have no rows here and
+    fall through to the legacy gap-based path inside ``build_daily_records``.
+    """
+    rollups: dict[tuple[str, str], dict] = {}
+    try:
+        with session_scope() as session:
+            rows = session.execute(
+                text(
+                    "SELECT d.employee_id, d.work_date, d.in_time, d.out_time, "
+                    "d.break_out_time, d.break_in_time, d.total_work_seconds, "
+                    "d.total_break_seconds, d.break_count, d.late_minutes, "
+                    "d.early_exit_minutes, d.status, d.is_day_closed, e.name "
+                    "FROM daily_attendance d "
+                    "JOIN employees e ON e.id = d.employee_id "
+                    "WHERE d.work_date >= :start AND d.work_date <= :end"
+                ),
+                {"start": start_date.isoformat(), "end": end_date.isoformat()},
+            ).mappings().all()
+    except SQLAlchemyError:
+        # New table might be missing on a stale DB until upgrade.run() fires.
+        return rollups
+    for r in rows:
+        name = str(r["name"] or "").strip()
+        if not name:
+            continue
+        wd = r["work_date"]
+        if isinstance(wd, date_cls):
+            wd_iso = wd.isoformat()
+        else:
+            wd_iso = str(wd)
+        rollups[(name.lower(), wd_iso)] = dict(r)
+    return rollups
 
 
 def build_attendance_daily(
@@ -324,7 +389,14 @@ def build_attendance_daily(
     base_url: str,
     expected_names: Optional[list[str]] = None,
 ) -> list[dict]:
-    """Per-person records for a single local day, sourced from attendance_logs."""
+    """Per-person records for a single local day, sourced from attendance_logs.
+
+    Hybrid output: when ``daily_attendance`` already has a rollup row for
+    a person on ``target_date`` (i.e. the FSM has been running for that
+    employee), the rollup's authoritative values are merged in *before*
+    HR corrections are layered on top. Days with no rollup row fall
+    through to the legacy gap-based detection.
+    """
     snaps = _load_attendance_snapshots()
     return build_daily_records(
         snaps,
@@ -333,6 +405,7 @@ def build_attendance_daily(
         base_url=base_url,
         expected_names=expected_names,
         corrections=load_corrections(),
+        rollups=_load_rollups(start_date=target_date, end_date=target_date),
     )
 
 
@@ -354,6 +427,7 @@ def build_attendance_range(
         base_url=base_url,
         name_filter=name_filter,
         corrections=load_corrections(),
+        rollups=_load_rollups(start_date=start_date, end_date=end_date),
     )
 
 
