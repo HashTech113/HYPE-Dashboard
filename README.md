@@ -7,6 +7,23 @@ This is the main project in this repo:
 
 If you copied this folder to another PC (Windows/Ubuntu), follow the steps below.
 
+## 0) Single Command Start (Backend + Frontend Together)
+
+After one-time setup, from project root run:
+
+```bash
+npm run dev
+```
+
+This **single command starts both services at the same time**:
+
+- Backend API: `http://localhost:8000`
+- Frontend UI: `http://localhost:8080`
+
+Windows note:
+
+- Run `npm run dev` from **Git Bash** or **WSL** (it calls `bash backend/start.sh` internally).
+
 ## 1) Requirements
 
 - Python `3.11+` (3.12 works)
@@ -31,7 +48,7 @@ cd frontend
 npm install
 cd ..
 
-# root helper deps (for npm run dev)
+# root helper deps (required for the single-command run)
 npm install
 ```
 
@@ -53,11 +70,11 @@ cd frontend
 npm install
 cd ..
 
-# root helper deps (for npm run dev)
+# root helper deps (required for the single-command run)
 npm install
 ```
 
-## 4) Run locally (recommended)
+## 4) Run locally (recommended: both on one command)
 
 ### Windows
 
@@ -73,7 +90,7 @@ npm run dev
 npm run dev
 ```
 
-This starts:
+Again, this one command starts both:
 
 - Backend: `http://localhost:8000`
 - Frontend: `http://localhost:8080`
